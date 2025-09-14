@@ -4,10 +4,20 @@ import time
 import psutil
 import logging
 import wandb
-
-# 设置日志
-logging.basicConfig(level=logging.INFO)
+import os
+local_rank = int(os.environ.get("LOCAL_RANK", 0))
+# 只有主进程才添加 Handler 和设置 Level
 logger = logging.getLogger(__name__)
+if local_rank == 0:
+    logger.setLevel(logging.INFO)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+else:
+    logger.setLevel(logging.CRITICAL)
+    logger.propagate = False
 
 def log_memory_usage(stage_name, wandb_enabled=False):
     """记录内存使用情况"""
@@ -31,8 +41,8 @@ def log_memory_usage(stage_name, wandb_enabled=False):
         wandb.log(memory_info)
     
     return memory_info
+
 def get_gpu_memory_info():
-    """获取GPU显存信息"""
     if torch.cuda.is_available():
         gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3  # GB
         gpu_allocated = torch.cuda.memory_allocated(0) / 1024**3  # GB
@@ -49,7 +59,11 @@ def get_gpu_memory_info():
 
 
 def force_cleanup_gpu():
-    """强制清理GPU显存"""
+    gpu_info = get_gpu_memory_info()
+    if gpu_info:
+        print(f"Current GPU usage: {gpu_info['utilization']:.1f}% used, {gpu_info['allocated']:.2f}GB allocated, {gpu_info['reserved']:.2f}GB reserved, {gpu_info['free']:.2f}GB free")
+    else:
+        print("No GPU available.")
     if torch.cuda.is_available():
         # 清理PyTorch缓存
         torch.cuda.empty_cache()
@@ -67,3 +81,4 @@ def force_cleanup_gpu():
         
         # 等待一小段时间让系统处理
         time.sleep(1)
+    

@@ -1,25 +1,47 @@
-#!/usr/bin/env python3
-"""
-使用gpt-oss-20b模型的DPO+LoRA测试脚本
-"""
 import torch
+import torch.distributed as dist
 import logging
+import warnings
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import DPOTrainer, DPOConfig
-from peft import LoraConfig, get_peft_model, TaskType
-from datasets import Dataset
-import json
+from datasets import load_dataset
+from torch.utils.data import DataLoader
 import wandb
 import os
-import psutil
-import time
 import gc
-from .data_manager import DataManager
-from .utils import get_gpu_memory_info, force_cleanup_gpu, log_memory_usage, logger
+import time
+from utils import get_gpu_memory_info, force_cleanup_gpu, log_memory_usage, logger
+from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
+from accelerate import Accelerator, DataLoaderConfiguration
+from data_manager import DataManager
 
-n_epochs = 2
-beta = 0.2
-lr = 5e-6
+# 优化设置
+torch.set_float32_matmul_precision('high')  # 启用 TensorFloat32 优化
+
+# 抑制一些不重要的警告
+warnings.filterwarnings("ignore", category=UserWarning, module="torch._inductor")
+warnings.filterwarnings("ignore", message=".*tensor cores for float32 matrix multiplication.*")
+warnings.filterwarnings("ignore", message=".*FSDP upcast of low precision parameters.*")
+warnings.filterwarnings("ignore", message=".*TypedStorage is deprecated.*")
+
+
+dataloader_config = DataLoaderConfiguration(dispatch_batches=True, split_batches=True)
+accelerator = Accelerator(dataloader_config=dataloader_config)
+
+
+# --- 全局参数 ---
+n_epochs = 1
+beta = 0.1
+lr = 2e-5
+warmup_steps = 10
+accumulation_steps=1
+n_of_gpus = 4
+lora_r = 32
+per_device_batch_size = 32           # 这是 per_device_batch_size
+data_size = 1000
+data_size = per_device_batch_size * n_of_gpus * 10
+max_steps = data_size // per_device_batch_size
+data_file_path = "./dataset/dataset_preprocessed.jsonl" 
 
 
 # 初始化wandb
@@ -37,10 +59,10 @@ def init_wandb(lora_r=16, lora_alpha=32, lora_dropout=0.1, batch_size=1):
             config={
                 "model": f"gpt-oss-20b_bs{batch_size}_r{lora_r}_alpha{lora_alpha}_dropout{lora_dropout}",
                 "method": "DPO+LoRA",
-                "learning_rate": 5e-6,
+                "learning_rate": lr,
                 "batch_size": batch_size,
                 "epochs": n_epochs,
-                "beta": 0.1,
+                "beta": beta,
                 "lora_r": lora_r,
                 "lora_alpha": lora_alpha,
                 "lora_dropout": lora_dropout,
@@ -52,38 +74,60 @@ def init_wandb(lora_r=16, lora_alpha=32, lora_dropout=0.1, batch_size=1):
         logger.warning(f"⚠️ Wandb初始化失败: {e}")
         return False
 
-def test_batch_sizes(lora_r=16, lora_alpha=32, lora_dropout=0.1, batch_size=1):
-    """测试不同batch size对GPU显存的影响"""
-    logger.info("🚀 开始batch size显存测试...")
-    
-    # 初始化wandb
-    wandb_enabled = init_wandb(lora_r, lora_alpha, lora_dropout, batch_size)
-    
-    # 使用本地gpt-oss-20b模型
+def run_training(lora_r=16, lora_alpha=32, lora_dropout=0.1):
     model_name = "./models/gpt-oss-20b"
-    logger.info(f"加载模型: {model_name}")
-    
-    # 强制清理显存
-    force_cleanup_gpu()
-    
-    # 记录初始内存状态
-    log_memory_usage("初始状态", wandb_enabled)
-    
-    # 加载tokenizer和模型
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    dpo_config = DPOConfig(
+        output_dir=f"./gpt_oss_dpo_output_bs{per_device_batch_size}",
+        # num_train_epochs=n_epochs,
+        max_steps=10,
+        per_device_train_batch_size=per_device_batch_size,
+        per_device_eval_batch_size=per_device_batch_size,
+        warmup_steps=warmup_steps,
+        logging_steps=1,
+        save_steps=50,
+        save_strategy="steps",
+        save_safetensors=False,  # 禁用 safetensors 保存格式
+        remove_unused_columns=False,
+        max_length=2048,
+        beta=beta,
+        learning_rate=lr,
+        lr_scheduler_type="cosine",
+        local_rank=int(os.environ.get("LOCAL_RANK", -1)),
+        ddp_find_unused_parameters=False,
+        gradient_accumulation_steps=accumulation_steps,
+        gradient_checkpointing=False,
+        bf16=True,
+        dataloader_drop_last=True,
+        dataloader_num_workers=0,
+        padding_value=tokenizer.pad_token_id,
+        # 添加内存管理相关配置
+        dataloader_pin_memory=False,
+        dataloader_persistent_workers=False,
+    )
+    is_main_process = dpo_config.local_rank in [-1, 0]
+    if is_main_process:
+        logger.info("🚀 start training...")
+        wandb_enabled = init_wandb(lora_r, lora_alpha, lora_dropout, per_device_batch_size)
+        log_memory_usage("after model loading", wandb_enabled)
+    else:
+        wandb_enabled = False
+    
+    force_cleanup_gpu()
+    
+    log_memory_usage("Initial state", wandb_enabled)
+    
     
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        # device_map={"": dpo_config.local_rank},
         trust_remote_code=True,
     )
-    
-    # 记录模型加载后内存状态
-    log_memory_usage("模型加载后", wandb_enabled)
-    
+    # model = prepare_model_for_kbit_training(model)
     # 设置LoRA
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
@@ -98,53 +142,24 @@ def test_batch_sizes(lora_r=16, lora_alpha=32, lora_dropout=0.1, batch_size=1):
     model.print_trainable_parameters()
     
     # 记录LoRA应用后内存状态
-    log_memory_usage("LoRA应用后", wandb_enabled)
+    log_memory_usage("after LoRA application", wandb_enabled)
     
-    # 准备数据
-    raw_data = DataManager().get_data(1000)
-    # INSERT_YOUR_CODE
-    # 打印每个样本的token长度
-    # sample = raw_data[0]
-    # token_lengths = [len(tokenizer(sample["prompt"], truncation=True)["input_ids"])]
-    # token_lengths.append(len(tokenizer(sample["chosen"], truncation=True)["input_ids"]))
-    # token_lengths.append(len(tokenizer(sample["rejected"], truncation=True)["input_ids"]))
-    # logger.info(f"Token长度统计: min={min(token_lengths)}, max={max(token_lengths)}, mean={sum(token_lengths)/len(token_lengths):.2f}")
-    train_dataset = Dataset.from_list(raw_data)
-    logger.info(f"📊 数据集大小: {len(train_dataset)} 个样本")
-    # input("按回车键继续测试不同batch size...")  # wait for enter to continue
-    # 测试不同的batch size
+    data_file_path = "./dataset/dataset_preprocessed.jsonl" # <-- 替换成你的数据文件路径
+    # 加载数据集
+    train_dataset = load_dataset("json", data_files=data_file_path, split="train", streaming=False)
+    # 限制数据大小用于测试
+    train_dataset = train_dataset.take(data_size)
     results = []
     
-    logger.info(f"🧪 测试 batch_size = {batch_size}")
+    logger.info(f"🧪 test batch_size = {per_device_batch_size}")
     
     try:
         # 清理GPU缓存
         torch.cuda.empty_cache()
         gc.collect()
         
-        # 记录测试前内存状态
-        memory_before = log_memory_usage(f"batch_{batch_size}_before", wandb_enabled)
+        memory_before = log_memory_usage(f"batch_{per_device_batch_size}_before", wandb_enabled)
         
-        # DPO配置
-        dpo_config = DPOConfig(
-            output_dir=f"./gpt_oss_dpo_output_bs{batch_size}",
-            num_train_epochs=n_epochs,
-            per_device_train_batch_size=batch_size,
-            per_device_eval_batch_size=batch_size,
-            warmup_steps=2,
-            logging_steps=1,
-            save_steps=50,
-            save_strategy="steps",
-            remove_unused_columns=False,
-            max_length=2048,
-            beta=beta,
-            learning_rate=lr,
-            lr_scheduler_type="cosine",
-            gradient_accumulation_steps=1,
-            bf16=True,
-            dataloader_num_workers=0,
-            padding_value=tokenizer.pad_token_id,
-        )
         
         # 创建DPO训练器
         dpo_trainer = DPOTrainer(
@@ -154,23 +169,30 @@ def test_batch_sizes(lora_r=16, lora_alpha=32, lora_dropout=0.1, batch_size=1):
             train_dataset=train_dataset,
         )
         
-        # 记录训练器创建后内存状态
-        memory_trainer = log_memory_usage(f"batch_{batch_size}_trainer_created", wandb_enabled)
+        memory_trainer = log_memory_usage(f"batch_{per_device_batch_size}_trainer_created", wandb_enabled)
         
         # 开始训练
         start_time = time.time()
-        dpo_trainer.train()
-        training_time = time.time() - start_time
+        try:
+            dpo_trainer.train()
+            training_time = time.time() - start_time
+        except Exception as train_error:
+            logger.warning(f"训练过程中出现错误，但可能已完成: {train_error}")
+            training_time = time.time() - start_time
+            # 检查是否至少完成了一些步骤
+            if hasattr(dpo_trainer.state, 'global_step') and dpo_trainer.state.global_step > 0:
+                logger.info(f"训练部分完成，已完成 {dpo_trainer.state.global_step} 步")
+            else:
+                raise train_error
         
-        # 记录训练后内存状态
-        memory_after = log_memory_usage(f"batch_{batch_size}_after_training", wandb_enabled)
+        memory_after = log_memory_usage(f"batch_{per_device_batch_size}_after_training", wandb_enabled)
         
         # 记录结果
         result = {
             "lora_r": lora_r,
             "lora_alpha": lora_alpha,
             "lora_dropout": lora_dropout,
-            "batch_size": batch_size,
+            "batch_size": per_device_batch_size,
             "training_time": training_time,
             "memory_before": memory_before,
             "memory_trainer": memory_trainer,
@@ -179,7 +201,7 @@ def test_batch_sizes(lora_r=16, lora_alpha=32, lora_dropout=0.1, batch_size=1):
         }
         results.append(result)
         
-        logger.info(f"✅ Batch size {batch_size} 训练完成，耗时: {training_time:.2f}秒")
+        logger.info(f"✅ Batch size {per_device_batch_size} 训练完成，耗时: {training_time:.2f}秒")
         
         # 清理内存
         del dpo_trainer
@@ -187,9 +209,9 @@ def test_batch_sizes(lora_r=16, lora_alpha=32, lora_dropout=0.1, batch_size=1):
         gc.collect()
         
     except Exception as e:
-        logger.error(f"❌ Batch size {batch_size} 训练失败: {e}")
+        logger.error(f"❌ Batch size {per_device_batch_size} 训练失败: {e}")
         result = {
-            "batch_size": batch_size,
+            "batch_size": per_device_batch_size,
             "error": str(e),
             "success": False
         }
@@ -200,16 +222,17 @@ def test_batch_sizes(lora_r=16, lora_alpha=32, lora_dropout=0.1, batch_size=1):
         gc.collect()
     
     # 输出测试结果总结
-    logger.info("📊 Batch Size 测试结果总结:")
-    logger.info("=" * 80)
-    for result in results:
-        if result["success"]:
-            logger.info(f"Batch Size {result['batch_size']:2d}: ✅ 成功 - "
-                       f"训练时间: {result['training_time']:6.2f}s - "
-                       f"GPU利用率: {result['memory_after']['gpu_utilization_pct']:5.1f}% - "
-                       f"GPU使用: {result['memory_after']['gpu_reserved_gb']:5.1f}GB")
-        else:
-            logger.info(f"Batch Size {result['batch_size']:2d}: ❌ 失败 - {result['error']}")
+    if is_main_process:
+        logger.info("📊 Batch Size 测试结果总结:")
+        logger.info("=" * 80)
+        for result in results:
+            if result["success"]:
+                logger.info(f"Batch Size {result['batch_size']:2d}: ✅ 成功 - "
+                        f"训练时间: {result['training_time']:6.2f}s - "
+                        f"GPU利用率: {result['memory_after']['gpu_utilization_pct']:5.1f}% - "
+                        f"GPU使用: {result['memory_after']['gpu_reserved_gb']:5.1f}GB")
+            else:
+                logger.info(f"Batch Size {result['batch_size']:2d}: ❌ 失败 - {result['error']}")
     
     # 记录到wandb
     if wandb_enabled:
@@ -252,63 +275,37 @@ def test_batch_sizes(lora_r=16, lora_alpha=32, lora_dropout=0.1, batch_size=1):
 def main():
     logger.info("开始gpt-oss-20b DPO+LoRA batch size测试...")
     
-    # 测试配置列表
-    test_configs = [
-        # {"lora_r": 32, "lora_alpha": 64, "lora_dropout": 0.1, "batch_size": 16},
-        # {"lora_r": 32, "lora_alpha": 64, "lora_dropout": 0.1, "batch_size": 64},
-        # {"lora_r": 32, "lora_alpha": 64, "lora_dropout": 0.1, "batch_size": 128},
-        {"lora_r": 64, "lora_alpha": 64, "lora_dropout": 0.1, "batch_size": 8},
-        # {"lora_r": 48, "lora_alpha": 96, "lora_dropout": 0.1, "batch_size": 16},
-        # {"lora_r": 64, "lora_alpha": 128, "lora_dropout": 0.1, "batch_size": 16},
-        # {"lora_r": 64, "lora_alpha": 128, "lora_dropout": 0.1, "batch_size": 64},
-        # {"lora_r": 64, "lora_alpha": 128, "lora_dropout": 0.1, "batch_size": 128},
-    ]
+    config =  {"lora_r": lora_r, "lora_alpha": 2 * lora_r, "lora_dropout": 0.1}
     
     all_results = []
     
-    for i, config in enumerate(test_configs):
-        logger.info(f"🔄 开始第 {i+1}/{len(test_configs)} 次测试: LoRA r={config['lora_r']}")
-        
-        try:
-            results = test_batch_sizes(**config)
-            all_results.extend(results)
-            
-            # 在测试之间添加等待和清理
-            if i < len(test_configs) - 1:  # 不是最后一次测试
-                logger.info("⏳ 等待5秒让显存完全释放...")
-                time.sleep(5)
-                
-                # 强制清理显存
-                force_cleanup_gpu()
-                
-                # 记录清理后状态
-                gpu_info = get_gpu_memory_info()
-                if gpu_info:
-                    logger.info(f"🧹 清理后显存状态: {gpu_info['utilization']:.1f}% used, {gpu_info['free']:.1f}GB free")
-                
-        except Exception as e:
-            logger.error(f"❌ 第 {i+1} 次测试失败: {e}")
-            all_results.append({
-                "config": config,
-                "error": str(e),
-                "success": False
-            })
+    logger.info(f"🔄 start training with config: {config}")
+    force_cleanup_gpu()
     
+    try:
+        results = run_training(**config)
+        all_results.extend(results)
+
+    except Exception as e:
+        logger.error(f"❌ training failed: {e}")
+        all_results.append({
+            "config": config,
+            "error": str(e),
+            "success": False
+        })
+
     # 输出所有测试结果总结
-    logger.info("📊 所有测试结果总结:")
+    logger.info("📊 all results summary:")
     logger.info("=" * 100)
     for i, result in enumerate(all_results):
         if result.get("success", False):
             logger.info(f"测试 {i+1}: LoRA r={result['lora_r']}，alpha={result['lora_alpha']}，dropout={result['lora_dropout']}，batch_size={result['batch_size']} - ✅ 成功 - "
-                       f"训练时间: {result['training_time']:6.2f}s - "
-                       f"GPU利用率: {result['memory_after']['gpu_utilization_pct']:5.1f}% - "
-                       f"GPU使用: {result['memory_after']['gpu_reserved_gb']:5.1f}GB")
+                        f"训练时间: {result['training_time']:6.2f}s - "
+                        f"GPU利用率: {result['memory_after']['gpu_utilization_pct']:5.1f}% - "
+                        f"GPU使用: {result['memory_after']['gpu_reserved_gb']:5.1f}GB")
         else:
             logger.info(f"测试 {i+1}: ❌ 失败 - {result.get('error', 'Unknown error')}")
     
-    logger.info("🎉 所有测试完成！")
-
-        
 
 if __name__ == "__main__":
     main()
