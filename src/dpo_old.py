@@ -1,35 +1,49 @@
+我的多卡训练脚本在保存的时候老是卡住，怎么办
+import argparse
+import gc
+import logging
 import os
-
-# 在导入 torch 之前设置环境变量以消除警告
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
-
+from datetime import datetime
 import time
-import torch
-import torch.distributed as dist
-from datasets import load_dataset
-from transformers import AutoTokenizer, AutoModelForCausalLM, set_seed
-from peft import LoraConfig, TaskType, get_peft_model, get_peft_model_state_dict
-from trl import DPOTrainer, DPOConfig
-from accelerate import Accelerator
+import warnings
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple
+
+import torch
+import torch.distributed as dist
+from datasets import load_dataset
+from peft import LoraConfig, TaskType, get_peft_model
+from peft.utils.save_and_load import get_peft_model_state_dict
+from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
+from trl import DPOConfig, DPOTrainer
+
 import wandb
-import argparse
-from datetime import datetime
-from dataclasses import dataclass
-# ---------------- 基本配置 ----------------
+
+from utils import force_cleanup_gpu, log_memory_usage, logger as base_logger
+
+# 优化设置
+torch.set_float32_matmul_precision('high')
+
+# 抑制一些不重要的警告
+warnings.filterwarnings("ignore", category=UserWarning, module="torch._inductor")
+warnings.filterwarnings("ignore", message=".*tensor cores for float32 matrix multiplication.*")
+warnings.filterwarnings("ignore", message=".*FSDP upcast of low precision parameters.*")
+warnings.filterwarnings("ignore", message=".*TypedStorage is deprecated.*")
+
+
+logger = base_logger
+
 
 @dataclass
 class TrainingConfig:
     model_name: str = "./models/gpt-oss-20b"
     dataset_path: str = "./dataset/dataset_preprocessed_reduced.jsonl"
     output_dir: Optional[str] = None
-    per_device_train_batch_size: int = 2
-    per_device_eval_batch_size: int = 2
+    per_device_train_batch_size: int = 8
+    per_device_eval_batch_size: int = 8
     num_train_epochs: Optional[int] = None
-    max_steps: Optional[int] = 100
+    max_steps: Optional[int] = 10
     warmup_steps: int = 10
     logging_steps: int = 1
     save_steps: int = 50
@@ -37,7 +51,7 @@ class TrainingConfig:
     beta: float = 0.1
     learning_rate: float = 2e-5
     lr_scheduler_type: str = "cosine"
-    gradient_accumulation_steps: int = 8
+    gradient_accumulation_steps: int = 1
     gradient_checkpointing: bool = False
     ddp_find_unused_parameters: bool = False
     bf16: bool = True
@@ -46,7 +60,7 @@ class TrainingConfig:
     dataloader_pin_memory: bool = False
     dataloader_persistent_workers: bool = False
     dataloader_drop_last: bool = True
-    lora_r: int = 16
+    lora_r: int = 32
     lora_alpha: Optional[int] = None
     lora_dropout: float = 0.1
     target_modules: Tuple[str, ...] = ("q_proj", "k_proj", "v_proj", "o_proj")
@@ -60,90 +74,6 @@ class TrainingConfig:
     resume_from_checkpoint: Optional[str] = None
     save_final_model: bool = True
 
-MODEL_PATH = "./models/gpt-oss-20b"
-DATA_PATH = "./dataset/dataset_preprocessed_reduced.jsonl"
-# DATA_PATH = "./dataset/test.jsonl"
-OUTPUT_DIR = "./output_dpo_pure"
-SEED = 42
-
-# ---------------- 初始化 ----------------
-# 获取本地 rank 并在任何 CUDA 操作前设置当前设备
-# if "SLURM_LOCALID" in os.environ:
-#     # SLURM 提供的每个节点内本地 rank
-#     local_rank = int(os.environ["SLURM_LOCALID"])
-# elif "LOCAL_RANK" in os.environ:
-#     # accelerate 或 torchrun 方式启动
-#     local_rank = int(os.environ["LOCAL_RANK"])
-# else:
-#     local_rank = 0  # fallback 单卡
-local_rank = int(os.environ.get('RANK', None))
-# local_rank = local_rank or int(os.environ.get('LOCAL_RANK', None))
-# local_rank = local_rank or int(os.environ.get('SLURM_LOCALID', None))
-torch.cuda.set_device(local_rank)
-print(f"[Init] rank local={local_rank}, cuda device -> {torch.cuda.current_device()}")
-device_id = torch.cuda.current_device()
-dist.init_process_group(backend="nccl", device_id=device_id)
-set_seed(SEED)
-
-# 初始化 Accelerator
-rank = local_rank
-torch.set_float32_matmul_precision("high")
-
-print(f"[Rank {os.environ.get('RANK', '?')}] uses cuda:{torch.cuda.current_device()}")
-
-# ---------------- 工具函数 ----------------
-def barrier_safe(timeout=120):
-    if dist.is_available() and dist.is_initialized():
-        try:
-            dist.barrier(device_ids=[torch.cuda.current_device()], timeout=torch.distributed.timedelta(seconds=timeout))
-        except Exception as e:
-            print(f"[Rank {rank}] barrier timeout: {e}")
-
-# ---------------- 加载数据 ----------------
-def get_dataset(path):
-    ds = load_dataset("json", data_files=path, split="train")
-    return ds
-
-# ---------------- 构建模型 ----------------
-def get_lora_model():
-    # 在 CPU 上加载模型，让 Accelerator 处理设备放置
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_PATH, 
-        trust_remote_code=True,
-        torch_dtype=torch.bfloat16
-    )
-    lora_cfg = LoraConfig(
-        task_type=TaskType.CAUSAL_LM,
-        r=32,
-        lora_alpha=64,
-        lora_dropout=0.1,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-        bias="none",
-    )
-    model = get_peft_model(model, lora_cfg)
-    return model
-
-# ---------------- 构建 DPO 配置 ----------------
-
-def _config_for_wandb(config: TrainingConfig) -> Dict[str, object]:
-    payload = asdict(config)
-    payload["target_modules"] = list(config.target_modules)
-    return payload
-
-def setup_wandb_if_needed(config: TrainingConfig, is_main_process: bool) -> bool:
-    if not config.enable_wandb or not is_main_process:
-        return False
-
-    api_key = os.getenv(config.wandb_api_key_env)
-    if api_key:
-        wandb.login(key=api_key)
-        wandb.init(
-            project=config.wandb_project,
-            name=config.wandb_run_name,
-            config=_config_for_wandb(config),
-        )
-        return True
-    return False
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train GPT-OSS DPO with LoRA using Accelerate/TRL.")
@@ -184,7 +114,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume-from-checkpoint", default=None)
     parser.add_argument("--no-save-final-model", action="store_true")
     return parser.parse_args()
-    
+
+
 def build_config_from_args(args: argparse.Namespace) -> TrainingConfig:
     cfg = TrainingConfig(
         model_name=args.model_name,
@@ -225,8 +156,7 @@ def build_config_from_args(args: argparse.Namespace) -> TrainingConfig:
 
     if cfg.output_dir is None:
         date = datetime.now().strftime("%Y%m%d")
-        time = datetime.now().strftime("%H%M%S")
-        cfg.output_dir = f"./gpt_oss_dpo_{cfg.per_device_train_batch_size}_{date}_{time}"
+        cfg.output_dir = f"./gpt_oss_dpo_{cfg.per_device_train_batch_size}_{date}"
 
     if cfg.lora_alpha is None:
         cfg.lora_alpha = 2 * cfg.lora_r
@@ -236,11 +166,43 @@ def build_config_from_args(args: argparse.Namespace) -> TrainingConfig:
 
     return cfg
 
+
+def _config_for_wandb(config: TrainingConfig) -> Dict[str, object]:
+    payload = asdict(config)
+    payload["target_modules"] = list(config.target_modules)
+    return payload
+
+
+def setup_wandb_if_needed(config: TrainingConfig, is_main_process: bool) -> bool:
+    if not config.enable_wandb or not is_main_process:
+        return False
+
+    try:
+        api_key = os.getenv(config.wandb_api_key_env)
+        if api_key:
+            wandb.login(key=api_key)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("⚠️ Wandb 登录失败: %s", exc)
+
+    try:
+        wandb.init(
+            project=config.wandb_project,
+            name=config.wandb_run_name,
+            config=_config_for_wandb(config),
+        )
+        logger.info("✅ Wandb 初始化成功")
+        return True
+    except Exception as exc:
+        logger.warning("⚠️ Wandb 初始化失败: %s", exc)
+        return False
+
+
 def load_tokenizer(config: TrainingConfig) -> AutoTokenizer:
     tokenizer = AutoTokenizer.from_pretrained(config.model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
+
 
 def load_training_dataset(config: TrainingConfig):
     dataset = load_dataset("json", data_files=config.dataset_path, split="train", streaming=config.streaming)
@@ -266,7 +228,7 @@ def load_training_dataset(config: TrainingConfig):
 def build_model(config: TrainingConfig) -> AutoModelForCausalLM:
     model_kwargs = {"trust_remote_code": True}
     # if config.bf16:
-    #     model_kwargs["torch_dtype"] = torch.bfloat16
+    #     model_kwargs["dtype"] = torch.bfloat16
 
     model = AutoModelForCausalLM.from_pretrained(config.model_name, **model_kwargs)
 
@@ -310,7 +272,7 @@ def build_dpo_config(config: TrainingConfig, tokenizer: AutoTokenizer) -> DPOCon
         dataloader_drop_last=config.dataloader_drop_last,
         ddp_find_unused_parameters=config.ddp_find_unused_parameters,
         padding_value=tokenizer.pad_token_id,
-        local_rank=local_rank,
+        local_rank=int(os.environ.get("LOCAL_RANK", -1)),
     )
 
     if config.num_train_epochs is not None:
@@ -322,71 +284,109 @@ def build_dpo_config(config: TrainingConfig, tokenizer: AutoTokenizer) -> DPOCon
     return DPOConfig(**dpo_kwargs)
 
 
-# ---------------- 主训练流程 ----------------
-def main():
+def finalize_run(trainer: Optional[DPOTrainer], wandb_enabled: bool, is_main_process: bool) -> None:
+    accelerator = getattr(trainer, "accelerator", None) if trainer is not None else None
+    if accelerator is not None:
+        try:
+            accelerator.wait_for_everyone()
+            accelerator.free_memory()
+        except Exception as exc:  # pragma: no cover
+            logger.warning("⚠️ Accelerator 清理失败: %s", exc)
+
+    if dist.is_available() and dist.is_initialized():
+        try:
+            dist.barrier()
+        except RuntimeError:
+            pass
+
+    if wandb_enabled and is_main_process:
+        try:
+            wandb.finish()
+        except Exception as exc:  # pragma: no cover
+            logger.warning("⚠️ Wandb 关闭失败: %s", exc)
+
+    force_cleanup_gpu()
+    torch.cuda.empty_cache()
+    gc.collect()
+
+
+def run_training(config: TrainingConfig) -> Dict[str, float]:
+    trainer: Optional[DPOTrainer] = None
+    wandb_enabled = False
+    is_main_process = True
+
+    try:
+        set_seed(config.seed)
+
+        tokenizer = load_tokenizer(config)
+        train_dataset = load_training_dataset(config)
+        model = build_model(config)
+        dpo_args = build_dpo_config(config, tokenizer)
+        ref_model = AutoModelForCausalLM.from_pretrained(
+            config.model_name,
+            # dtype=torch.float16,
+            device_map="auto",
+            trust_remote_code=True,
+        )
+        trainer = DPOTrainer(
+            model=model,
+            ref_model=ref_model,
+            args=dpo_args,
+            train_dataset=train_dataset,
+        )
+
+        accelerator = getattr(trainer, "accelerator", None)
+        is_main_process = accelerator.is_main_process if accelerator is not None else dpo_args.local_rank in (-1, 0)
+
+        wandb_enabled = setup_wandb_if_needed(config, is_main_process)
+
+        log_memory_usage("initial_state", wandb_enabled)
+
+        start_time = time.time()
+        train_result = trainer.train(resume_from_checkpoint=config.resume_from_checkpoint)
+        duration = time.time() - start_time
+
+        metrics = train_result.metrics or {}
+        metrics["training_duration_sec"] = duration
+        log_memory_usage("after_training", wandb_enabled)
+
+        if wandb_enabled:
+            numeric_metrics = {key: value for key, value in metrics.items() if isinstance(value, (int, float))}
+            if numeric_metrics:
+                wandb.log(numeric_metrics)
+
+        # if config.save_final_model and is_main_process:
+        #     # Only persist the LoRA adapter to avoid consolidating the massive FSDP full state dict.
+        #     target_model = trainer.accelerator.unwrap_model(trainer.model) if accelerator is not None else trainer.model
+        #     target_model.save_pretrained(config.output_dir)
+        #     tokenizer.save_pretrained(config.output_dir)
+        if accelerator.is_main_process:
+            logger.info("🚀 Saving model...")
+            target_model = trainer.accelerator.unwrap_model(trainer.model) if accelerator is not None else trainer.model
+            target_model.save_pretrained(config.output_dir, save_function=accelerator.save)
+            tokenizer.save_pretrained(config.output_dir)
+            logger.info("Saving done")
+
+        accelerator.wait_for_everyone()
+
+
+        if is_main_process:
+            logger.info("✅ 训练完成 - 用时 %.2fs", duration)
+            for key, value in metrics.items():
+                logger.info("• %s: %s", key, value)
+
+        return metrics
+    finally:
+        finalize_run(trainer, wandb_enabled, is_main_process)
+
+
+def main() -> None:
     args = parse_args()
     config = build_config_from_args(args)
+    logger.info("🚀 启动 DPO 训练，配置: %s", config)
 
-    tokenizer = load_tokenizer(config)
-    train_dataset = load_training_dataset(config)
-    model = build_model(config)
-    dpo_args = build_dpo_config(config, tokenizer)
-    # if config.bf16:
-    #         ref_model_kwargs["torch_dtype"] = torch.bfloat16
-    ref_model = AutoModelForCausalLM.from_pretrained(
-        config.model_name,
-        device_map="auto",
-        trust_remote_code=True,
-    )
-    
-    for p in ref_model.parameters():
-        p.requires_grad = False
-    ref_model.eval()
+    run_training(config)
 
-    trainer = DPOTrainer(
-        model=model,
-        ref_model=ref_model,
-        args=dpo_args,
-        train_dataset=train_dataset,
-    )
-    # trainer.ref_model.to("cpu")
-    # trainer.ref_model.eval()
-    # for p in trainer.ref_model.parameters():
-    #     p.requires_grad = False
-    policy_device = next(trainer.model.parameters()).device
-    ref_device = next(trainer.ref_model.parameters()).device
-    print(f"[Rank {rank}] policy -> {policy_device}")
-    print(f"[Rank {rank}] ref    -> {ref_device}")
-    accelerator = getattr(trainer, "accelerator", None)
-    is_main_process = accelerator.is_main_process if accelerator is not None else dpo_args.local_rank in (-1, 0)
-    wandb_enabled = setup_wandb_if_needed(config, is_main_process)
-    print(f"trainer.accelerator.state.num_processes: {trainer.accelerator.state.num_processes}")
-    accelerator.print("开始训练")
-    start = time.time()
-    trainer.train(resume_from_checkpoint=config.resume_from_checkpoint)
-    duration = time.time() - start
-    accelerator.print(f"训练完成，用时 {duration:.2f}s")
 
-    # ---------------- 安全保存 ----------------
-    # barrier_safe()
-    trainer.accelerator.wait_for_everyone()
-    accelerator.print("保存 LoRA 适配器中...")
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    # 让所有 rank 都参与 state_dict 的构建（FSDP 需要全员参与）
-    target = trainer.accelerator.unwrap_model(trainer.model)
-    full_state = trainer.accelerator.get_state_dict(target)
-    adapter_state = get_peft_model_state_dict(target, state_dict=full_state)
-    # 仅在主进程写文件；其他 rank 跳过写入
-    trainer.accelerator.save(adapter_state, os.path.join(OUTPUT_DIR, "adapter_model.bin"))
-    if trainer.accelerator.is_main_process:
-        tokenizer.save_pretrained(OUTPUT_DIR)
-        accelerator.print("模型保存完成")
-
-    # barrier_safe()
-    wandb.finish()
-    torch.cuda.empty_cache()
-    accelerator.print("训练流程结束。")
-
-# ---------------- 启动 ----------------
 if __name__ == "__main__":
     main()

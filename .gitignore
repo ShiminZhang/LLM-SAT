@@ -1,5 +1,9 @@
 models/*
 wandb/*
-gpt_oss_dpo_output_*
+gpt_oss_dpo*
 dataset/*
+*.pyc
+=*
+tmp
+output_dpo_pure/*
 *.pyc

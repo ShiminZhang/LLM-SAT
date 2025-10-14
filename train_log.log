@@ -1,0 +1,124 @@
+MXFP4 quantization requires Triton and kernels installed: CUDA requires Triton >= 3.4.0, XPU requires Triton >= 3.5.0, we will default to dequantizing the model to bf16
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]MXFP4 quantization requires Triton and kernels installed: CUDA requires Triton >= 3.4.0, XPU requires Triton >= 3.5.0, we will default to dequantizing the model to bf16
+MXFP4 quantization requires Triton and kernels installed: CUDA requires Triton >= 3.4.0, XPU requires Triton >= 3.5.0, we will default to dequantizing the model to bf16
+MXFP4 quantization requires Triton and kernels installed: CUDA requires Triton >= 3.4.0, XPU requires Triton >= 3.5.0, we will default to dequantizing the model to bf16
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:07<00:14,  7.32s/it]Loading checkpoint shards:  33%|███▎      | 1/3 [00:07<00:14,  7.41s/it]Loading checkpoint shards:  33%|███▎      | 1/3 [00:08<00:16,  8.42s/it]Loading checkpoint shards:  33%|███▎      | 1/3 [00:08<00:16,  8.42s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:15<00:08,  8.04s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:16<00:08,  8.18s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:16<00:08,  8.46s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:17<00:08,  8.82s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:19<00:00,  5.81s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:19<00:00,  6.34s/it]
+Loading checkpoint shards: 100%|██████████| 3/3 [00:19<00:00,  5.81s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:19<00:00,  6.37s/it]
+trainable params: 15,925,248 || all params: 20,930,682,432 || trainable%: 0.0761
+trainable params: 15,925,248 || all params: 20,930,682,432 || trainable%: 0.0761
+Loading checkpoint shards: 100%|██████████| 3/3 [00:19<00:00,  5.85s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:19<00:00,  6.55s/it]
+`torch_dtype` is deprecated! Use `dtype` instead!
+`torch_dtype` is deprecated! Use `dtype` instead!
+trainable params: 15,925,248 || all params: 20,930,682,432 || trainable%: 0.0761
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards: 100%|██████████| 3/3 [00:20<00:00,  6.05s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:20<00:00,  6.76s/it]
+trainable params: 15,925,248 || all params: 20,930,682,432 || trainable%: 0.0761
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:  33%|███▎      | 1/3 [00:02<00:05,  2.67s/it]Loading checkpoint shards:  33%|███▎      | 1/3 [00:02<00:05,  2.62s/it]Loading checkpoint shards:  33%|███▎      | 1/3 [00:02<00:05,  2.69s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:05<00:02,  2.65s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:05<00:02,  2.60s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:05<00:02,  2.55s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:06<00:00,  1.85s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:06<00:00,  2.06s/it]
+Loading checkpoint shards: 100%|██████████| 3/3 [00:06<00:00,  1.87s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:06<00:00,  2.07s/it]
+/pscratch/sd/s/shimin/.conda/envs/llmsat/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py:4807: UserWarning: No device id is provided via `init_process_group` or `barrier `. Using the current device set by the user. 
+  warnings.warn(  # warn only once
+[rank1]:[W1013 15:55:47.261411338 ProcessGroupNCCL.cpp:5023] [PG ID 0 PG GUID 0 Rank 1]  using GPU 1 as device used by this process is currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. You can specify device_id in init_process_group() to force use of a particular device.
+/pscratch/sd/s/shimin/.conda/envs/llmsat/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py:4807: UserWarning: No device id is provided via `init_process_group` or `barrier `. Using the current device set by the user. 
+  warnings.warn(  # warn only once
+[rank2]:[W1013 15:55:47.454278212 ProcessGroupNCCL.cpp:5023] [PG ID 0 PG GUID 0 Rank 2]  using GPU 2 as device used by this process is currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. You can specify device_id in init_process_group() to force use of a particular device.
+Loading checkpoint shards: 100%|██████████| 3/3 [00:06<00:00,  1.82s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:06<00:00,  2.04s/it]
+/pscratch/sd/s/shimin/.conda/envs/llmsat/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py:4807: UserWarning: No device id is provided via `init_process_group` or `barrier `. Using the current device set by the user. 
+  warnings.warn(  # warn only once
+[rank3]:[W1013 15:55:48.227501354 ProcessGroupNCCL.cpp:5023] [PG ID 0 PG GUID 0 Rank 3]  using GPU 3 as device used by this process is currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. You can specify device_id in init_process_group() to force use of a particular device.
+Loading checkpoint shards:  33%|███▎      | 1/3 [00:07<00:14,  7.50s/it]Loading checkpoint shards:  67%|██████▋   | 2/3 [00:16<00:08,  8.66s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:20<00:00,  6.47s/it]Loading checkpoint shards: 100%|██████████| 3/3 [00:20<00:00,  6.95s/it]
+/pscratch/sd/s/shimin/.conda/envs/llmsat/lib/python3.10/site-packages/torch/distributed/distributed_c10d.py:4807: UserWarning: No device id is provided via `init_process_group` or `barrier `. Using the current device set by the user. 
+  warnings.warn(  # warn only once
+[rank0]:[W1013 15:56:04.133651966 ProcessGroupNCCL.cpp:5023] [PG ID 0 PG GUID 0 Rank 0]  using GPU 0 as device used by this process is currently unknown. This can potentially cause a hang if this rank to GPU mapping is incorrect. You can specify device_id in init_process_group() to force use of a particular device.
+The tokenizer has new PAD/BOS/EOS tokens that differ from the model config and generation config. The model config and generation config were aligned accordingly, being updated with the tokenizer's values. Updated tokens: {'bos_token_id': 199998}.
+The tokenizer has new PAD/BOS/EOS tokens that differ from the model config and generation config. The model config and generation config were aligned accordingly, being updated with the tokenizer's values. Updated tokens: {'bos_token_id': 199998}.
+The tokenizer has new PAD/BOS/EOS tokens that differ from the model config and generation config. The model config and generation config were aligned accordingly, being updated with the tokenizer's values. Updated tokens: {'bos_token_id': 199998}.
+wandb: W&B API key is configured. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.21.3
+wandb: Run data is saved locally in /pscratch/sd/s/shimin/verltest/wandb/run-20251013_155926-ki9yy36f
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run gpt_oss_dpo_8_20251013_155514
+wandb: ⭐️ View project at https://wandb.ai/labitojia-georgia-institute-of-technology/gpt-oss-dpo
+wandb: 🚀 View run at https://wandb.ai/labitojia-georgia-institute-of-technology/gpt-oss-dpo/runs/ki9yy36f
+🚀 训练失败: %s name 'logger' is not defined
+wandb: updating run metadata; uploading wandb-metadata.json
+wandb:                                                                                
+wandb: 🚀 View run gpt_oss_dpo_8_20251013_155514 at: https://wandb.ai/labitojia-georgia-institute-of-technology/gpt-oss-dpo/runs/ki9yy36f
+wandb: ⭐️ View project at: https://wandb.ai/labitojia-georgia-institute-of-technology/gpt-oss-dpo
+wandb: Synced 5 W&B file(s), 0 media file(s), 0 artifact file(s) and 0 other file(s)
+wandb: Find logs at: ./wandb/run-20251013_155926-ki9yy36f/logs
+✅ Wandb 已关闭
+Traceback (most recent call last):
+  File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 187, in setup_wandb_if_needed
+    accelerator.print("✅ Wandb 初始化成功")
+NameError: name 'accelerator' is not defined
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 372, in <module>
+    main()
+  File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 367, in main
+    run_training(config)
+  File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 357, in run_training
+    raise e
+  File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 313, in run_training
+    wandb_enabled = setup_wandb_if_needed(config, is_main_process)
+  File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 190, in setup_wandb_if_needed
+    logger.warning("⚠️ Wandb 初始化失败: %s", exc)
+NameError: name 'logger' is not defined
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 187, in setup_wandb_if_needed
+[rank0]:     accelerator.print("✅ Wandb 初始化成功")
+[rank0]: NameError: name 'accelerator' is not defined
+
+[rank0]: During handling of the above exception, another exception occurred:
+
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 372, in <module>
+[rank0]:     main()
+[rank0]:   File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 367, in main
+[rank0]:     run_training(config)
+[rank0]:   File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 357, in run_training
+[rank0]:     raise e
+[rank0]:   File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 313, in run_training
+[rank0]:     wandb_enabled = setup_wandb_if_needed(config, is_main_process)
+[rank0]:   File "/pscratch/sd/s/shimin/verltest/src/dpo.py", line 190, in setup_wandb_if_needed
+[rank0]:     logger.warning("⚠️ Wandb 初始化失败: %s", exc)
+[rank0]: NameError: name 'logger' is not defined
+[rank0]:[W1013 15:59:28.073974083 ProcessGroupNCCL.cpp:1538] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+W1013 16:02:19.112000 641967 site-packages/torch/distributed/elastic/multiprocessing/api.py:900] Sending process 642033 closing signal SIGTERM
+W1013 16:02:19.123000 641967 site-packages/torch/distributed/elastic/multiprocessing/api.py:900] Sending process 642034 closing signal SIGTERM
+W1013 16:02:19.123000 641967 site-packages/torch/distributed/elastic/multiprocessing/api.py:900] Sending process 642035 closing signal SIGTERM
+E1013 16:02:21.119000 641967 site-packages/torch/distributed/elastic/multiprocessing/api.py:874] failed (exitcode: -9) local_rank: 3 (pid: 642036) of binary: /pscratch/sd/s/shimin/.conda/envs/llmsat/bin/python3.10
+Traceback (most recent call last):
+  File "/pscratch/sd/s/shimin/.conda/envs/llmsat/bin/accelerate", line 7, in <module>
+    sys.exit(main())
+  File "/pscratch/sd/s/shimin/.conda/envs/llmsat/lib/python3.10/site-packages/accelerate/commands/accelerate_cli.py", line 50, in main
+    args.func(args)
+  File "/pscratch/sd/s/shimin/.conda/envs/llmsat/lib/python3.10/site-packages/accelerate/commands/launch.py", line 1222, in launch_command
+    multi_gpu_launcher(args)
+  File "/pscratch/sd/s/shimin/.conda/envs/llmsat/lib/python3.10/site-packages/accelerate/commands/launch.py", line 853, in multi_gpu_launcher
+    distrib_run.run(args)
+  File "/pscratch/sd/s/shimin/.conda/envs/llmsat/lib/python3.10/site-packages/torch/distributed/run.py", line 892, in run
+    elastic_launch(
+  File "/pscratch/sd/s/shimin/.conda/envs/llmsat/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 143, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+  File "/pscratch/sd/s/shimin/.conda/envs/llmsat/lib/python3.10/site-packages/torch/distributed/launcher/api.py", line 277, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+=======================================================
+src/dpo.py FAILED
+-------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+-------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2025-10-13_16:02:19
+  host      : nid008493-hsn0
+  rank      : 3 (local_rank: 3)
+  exitcode  : -9 (pid: 642036)
+  error_file: <N/A>
+  traceback : Signal 9 (SIGKILL) received by PID 642036
+=======================================================

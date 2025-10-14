@@ -1,84 +1,110 @@
-import torch    
 import gc
-import time
-import psutil
 import logging
-import wandb
 import os
-local_rank = int(os.environ.get("LOCAL_RANK", 0))
-# 只有主进程才添加 Handler 和设置 Level
+import time
+
+import psutil
+import torch
+import wandb
+
+local_rank = int(os.environ.get("LOCAL_RANK", -1))
+
 logger = logging.getLogger(__name__)
-if local_rank == 0:
-    logger.setLevel(logging.INFO)
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-else:
-    logger.setLevel(logging.CRITICAL)
-    logger.propagate = False
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    if local_rank in (-1, 0):
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    else:
+        logger.addHandler(logging.NullHandler())
+logger.propagate = False
+
 
 def log_memory_usage(stage_name, wandb_enabled=False):
-    """记录内存使用情况"""
+    """Record memory telemetry for the current process."""
     gpu_info = get_gpu_memory_info()
     cpu_memory = psutil.virtual_memory()
-    
+
     memory_info = {
-        f"gpu_total_gb": gpu_info["total"] if gpu_info else 0,
-        f"gpu_allocated_gb": gpu_info["allocated"] if gpu_info else 0,
-        f"gpu_reserved_gb": gpu_info["reserved"] if gpu_info else 0,
-        f"gpu_free_gb": gpu_info["free"] if gpu_info else 0,
-        f"gpu_utilization_pct": gpu_info["utilization"] if gpu_info else 0,
-        f"cpu_memory_used_pct": cpu_memory.percent,
-        f"cpu_memory_available_gb": cpu_memory.available / 1024**3,
-        "stage": stage_name
+        "gpu_total_gb": gpu_info["total"] if gpu_info else 0,
+        "gpu_allocated_gb": gpu_info["allocated"] if gpu_info else 0,
+        "gpu_reserved_gb": gpu_info["reserved"] if gpu_info else 0,
+        "gpu_free_gb": gpu_info["free"] if gpu_info else 0,
+        "gpu_utilization_pct": gpu_info["utilization"] if gpu_info else 0,
+        "cpu_memory_used_pct": cpu_memory.percent,
+        "cpu_memory_available_gb": cpu_memory.available / 1024**3,
+        "stage": stage_name,
     }
-    
-    logger.info(f"📊 {stage_name} - GPU: {gpu_info['utilization']:.1f}% used, {gpu_info['free']:.1f}GB free" if gpu_info else f"📊 {stage_name} - CPU: {cpu_memory.percent:.1f}% used")
-    
-    if wandb_enabled:
+
+    if local_rank in (-1, 0):
+        if gpu_info:
+            logger.info(
+                "📊 %s - GPU: %.1f%% used, %.1fGB free",
+                stage_name,
+                gpu_info["utilization"],
+                gpu_info["free"],
+            )
+        else:
+            logger.info("📊 %s - CPU: %.1f%% used", stage_name, cpu_memory.percent)
+
+    if wandb_enabled and local_rank in (-1, 0):
         wandb.log(memory_info)
-    
+
     return memory_info
 
+
 def get_gpu_memory_info():
-    if torch.cuda.is_available():
-        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3  # GB
-        gpu_allocated = torch.cuda.memory_allocated(0) / 1024**3  # GB
-        gpu_reserved = torch.cuda.memory_reserved(0) / 1024**3  # GB
-        gpu_free = gpu_memory - gpu_reserved
-        return {
-            "total": gpu_memory,
-            "allocated": gpu_allocated,
-            "reserved": gpu_reserved,
-            "free": gpu_free,
-            "utilization": (gpu_reserved / gpu_memory) * 100
-        }
-    return None
+    if not torch.cuda.is_available():
+        return None
+
+    try:
+        device_index = torch.cuda.current_device()
+    except AssertionError:
+        device_index = 0
+
+    if local_rank >= 0 and torch.cuda.device_count() > local_rank:
+        device_index = local_rank
+
+    props = torch.cuda.get_device_properties(device_index)
+    total_gb = props.total_memory / 1024**3
+    allocated_gb = torch.cuda.memory_allocated(device_index) / 1024**3
+    reserved_gb = torch.cuda.memory_reserved(device_index) / 1024**3
+    free_gb = max(total_gb - reserved_gb, 0.0)
+    utilization = (reserved_gb / total_gb) * 100 if total_gb else 0.0
+
+    return {
+        "total": total_gb,
+        "allocated": allocated_gb,
+        "reserved": reserved_gb,
+        "free": free_gb,
+        "utilization": utilization,
+    }
 
 
 def force_cleanup_gpu():
     gpu_info = get_gpu_memory_info()
-    if gpu_info:
-        print(f"Current GPU usage: {gpu_info['utilization']:.1f}% used, {gpu_info['allocated']:.2f}GB allocated, {gpu_info['reserved']:.2f}GB reserved, {gpu_info['free']:.2f}GB free")
-    else:
-        print("No GPU available.")
-    if torch.cuda.is_available():
-        # 清理PyTorch缓存
-        torch.cuda.empty_cache()
-        torch.cuda.ipc_collect()
-        
-        # 清理Python垃圾回收
-        gc.collect()
-        
-        # 强制同步，确保清理完成
-        torch.cuda.synchronize()
-        
-        # 再次清理
-        torch.cuda.empty_cache()
-        gc.collect()
-        
-        # 等待一小段时间让系统处理
-        time.sleep(1)
-    
+    if local_rank in (-1, 0):
+        if gpu_info:
+            logger.info(
+                "Current GPU usage: %.1f%% used, %.2fGB allocated, %.2fGB reserved, %.2fGB free",
+                gpu_info["utilization"],
+                gpu_info["allocated"],
+                gpu_info["reserved"],
+                gpu_info["free"],
+            )
+        else:
+            logger.info("No GPU available.")
+
+    if not torch.cuda.is_available():
+        return
+
+    torch.cuda.empty_cache()
+    torch.cuda.ipc_collect()
+    gc.collect()
+    torch.cuda.synchronize()
+    torch.cuda.empty_cache()
+    gc.collect()
+    time.sleep(1)

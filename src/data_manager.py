@@ -1,5 +1,6 @@
 import argparse
 import json
+import random
 from tqdm import tqdm
 from datasets import load_dataset
 
@@ -40,11 +41,65 @@ def preprocess_data(original_data_point: dict):
         data.append(decomposed_data_point)
     return data
 
+def reduce_data(data_path):
+    with open(data_path, "r") as f:
+        lines = f.readlines()
+        data = [json.loads(line) for line in lines]
+    scores = {}
+    prompts = {}
+    prompt_to_lose = {}
+    for data_point in data:
+        prompt = data_point["prompt"]
+        win_answer = data_point["chosen"]
+        lose_answer = data_point["rejected"]
+        prompts[win_answer] = prompt
+        prompts[lose_answer] = prompt
+        if prompt not in prompt_to_lose:
+            prompt_to_lose[prompt] = []
+        prompt_to_lose[prompt].append(lose_answer)
+        if win_answer not in scores:
+            scores[win_answer] = 0
+        if lose_answer not in scores:
+            scores[lose_answer] = 0
+        scores[win_answer] += 1
+        scores[lose_answer] -= 1
+    win_answers = [key for key, value in scores.items() if value > 0]
+    lose_answers = [key for key, value in scores.items() if value < 0]
+    lose_answers = sorted(lose_answers, key=lambda x: scores[x])
+    print(f"length of win_answers: {len(win_answers)}")
+    print(f"length of lose_answers: {len(lose_answers)}")
+    with open("dataset/win_answers.json", "w") as f:
+        json.dump(win_answers, f)
+    with open("dataset/lose_answers.json", "w") as f:
+        json.dump(lose_answers, f)
+    reduced_data = []
+
+    for win in win_answers:
+        for i in range(10):
+            # find a lose
+            prompt = prompts[win]
+            if prompt not in prompt_to_lose:
+                continue
+            lose = random.choice(prompt_to_lose[prompt])
+
+            dp = {
+                "prompt" : prompt,
+                "chosen" : win,
+                "rejected" : lose
+            }
+            reduced_data.append(dp)
+    with open("dataset/dataset_preprocessed_reduced.jsonl", "w") as f:
+        for data_point in reduced_data:
+            json.dump(data_point, f)
+            f.write("\n")
+    return reduced_data
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, default="dataset/dataset_raw.json")
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--preprocess", action="store_true")
+    parser.add_argument("--reduce", action="store_true")
     parser.add_argument("--test", action="store_true")
     args = parser.parse_args()
     # data = DataManager(args.data_path).get_data(args.limit)
@@ -64,6 +119,10 @@ def main():
                     for data_point in data_points:
                         json.dump(data_point, f)
                         f.write("\n")
+
+    if args.reduce:
+        reduce_data("dataset/dataset_preprocessed.jsonl")
+        exit()
 
     if args.test:
         data = []

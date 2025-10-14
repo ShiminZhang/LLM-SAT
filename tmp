@@ -1,3 +1,478 @@
-{"prompt": "\nYou are an intelligent AI researcher for coding and heuristic design, specializing in SAT solver research. Your task is to improve the performance of the CaDiCaL SAT solver by modifying its code. \nYour goal is to conduct cutting-edge SAT solver research by creatively improving the CaDiCaL solver, with a primary focus on increasing the number of solved instances and reducing the PAR-2 score.\nFollow the user's requirements carefully and ensure you fully understand them.\nAlways document your code with clear comments explaining the reason behind each change.\nAlways present your code in Markdown code blocks.\nImplement all solutions in C++, adhering to modern best practices for readability and performance.\n\n\nYou are a SAT solver researcher trying to improve the 'restarting' function in restart.cpp to help SAT solver achieve faster performance.\n\nHere is the description of the function: The restarting function determines whether the solver should perform a restart, which is a core heuristic in modern CDCL SAT solvers. Its purpose is to abandon the current search path and restart the search from the top level, preserving the learned clauses. This helps the solver escape from unproductive regions of the search space. The function implements a dynamic restart strategy based on the long-term versus short-term average \"glue\" level of learned clauses. Glue level is a measure of clause quality, with lower glue being better. The function first checks if restarts are enabled at all and if the search has progressed deep enough to make a restart meaningful. It then considers whether the solver is in a \"stabilizing\" phase, where it might be more reluctant to restart. The core logic compares a fast-moving average of glue levels (representing recent clause quality) with a slow-moving average (representing long-term quality). If the recent average is significantly worse (higher) than the long-term average, it indicates a decline in the quality of learned clauses, suggesting the solver is in a poor part of the search space, and thus, a restart is triggered to improve search effectiveness.\nHere is the part of the original code which you should focus on improving, your improved code will replace the code below and other parts of 'restarting' function will remain unchanged:\ncpp\n// start\ndouble f = averages.current.glue.fast;\ndouble margin = (100.0 + opts.restartmargin) / 100.0;\ndouble s = averages.current.glue.slow, l = margin * s;\nLOG (\"EMA glue slow %.2f fast %.2f limit %.2f\", s, f, l);\nreturn l <= f;\n// end\n\nYou must:\n1) carefully study the <key code> block and traverse all relevant variables.\n2) only rewrite the logic inside the marked region.\n3) generate code different from the original one.\n4) use existing class-internal variables.\n5) not use any undeclared variables, functions or unexisting configuration options.\n\n<code> of restart.cpp:\ncpp\n// start\n#include \"internal.hpp\"\n\nnamespace CaDiCaL {\n\n// As observed by Chanseok Oh and implemented in MapleSAT solvers too,\n// various mostly satisfiable instances benefit from long quiet phases\n// with less or almost no restarts.  We implement this idea by prohibiting\n// the Glucose style restart scheme in a geometric fashion, which is very\n// similar to how originally restarts were scheduled in MiniSAT and earlier\n// solvers.  We start with say 1e3 = 1000 (opts.stabilizeinit) conflicts of\n// Glucose restarts.  Then in a \"stabilizing\" phase we disable these\n// until 1e4 = 2000 conflicts (if 'opts.stabilizefactor' is '200' percent)\n// have passed. After that we switch back to regular Glucose style restarts\n// until again 2 times more conflicts than the previous limit are reached.\n// Actually, in the latest version we still restarts during stabilization\n// but only in a reluctant doubling scheme with a rather high interval.\n\nbool Internal::stabilizing () {\n  if (!opts.stabilize)\n    return false;\n  if (stable && opts.stabilizeonly)\n    return true;\n  if (stats.conflicts >= lim.stabilize) {\n    report (stable ? ']' : '}');\n    if (stable)\n      STOP (stable);\n    else\n      STOP (unstable);\n    stable = !stable;\n    if (stable)\n      stats.stabphases++;\n    PHASE (\"stabilizing\", stats.stabphases,\n           \"reached stabilization limit %\" PRId64 \" after %\" PRId64\n           \" conflicts\",\n           lim.stabilize, stats.conflicts);\n    {{ replace_code_stabilizing }}\n    swap_averages ();\n    PHASE (\"stabilizing\", stats.stabphases,\n           \"new stabilization limit %\" PRId64\n           \" at conflicts interval %\" PRId64 \"\",\n           lim.stabilize, inc.stabilize);\n    report (stable ? '[' : '{');\n    if (stable)\n      START (stable);\n    else\n      START (unstable);\n  }\n  return stable;\n}\n\n// Restarts are scheduled by a variant of the Glucose scheme as presented in\n// our POS'15 paper using exponential moving averages.  There is a slow\n// moving average of the average recent glucose level of learned clauses as\n// well as a fast moving average of those glues.  If the end of a base\n// restart conflict interval has passed and the fast moving average is above\n// a certain margin over the slow moving average then we restart.\n\nbool Internal::restarting () {\n  if (!opts.restart)\n    return false;\n  if ((size_t) level < assumptions.size () + 2)\n    return false;\n  if (stabilizing ())\n    return reluctant;\n  if (stats.conflicts <= lim.restart)\n    return false;\n  {{ replace_code_restarting }}\n}\n\n// This is Marijn's reuse trail idea.  Instead of always backtracking to the\n// top we figure out which decisions will be made again anyhow and only\n// backtrack to the level of the last such decision or to the top if no such\n// decision exists top (in which case we do not reuse any level).\n\nint Internal::reuse_trail () {\n  const int trivial_decisions =\n      assumptions.size ()\n      // Plus 1 if the constraint is satisfied via implications of\n      // assumptions and a pseudo-decision level was introduced.\n      + !control[assumptions.size () + 1].decision;\n  if (!opts.restartreusetrail)\n    return trivial_decisions;\n  int next_decision = next_decision_variable ();\n  assert (1 <= next_decision);\n  int res = trivial_decisions;\n  if (use_scores ()) {\n    while (res < level) {\n      int decision = control[res + 1].decision;\n      if (decision && score_smaller (this) (abs (decision), next_decision))\n        break;\n      res++;\n    }\n  } else {\n    int64_t limit = bumped (next_decision);\n    while (res < level) {\n      int decision = control[res + 1].decision;\n      if (decision && bumped (decision) < limit)\n        break;\n      res++;\n    }\n  }\n  int reused = res - trivial_decisions;\n  if (reused > 0) {\n    stats.reused++;\n    stats.reusedlevels += reused;\n    if (stable)\n      stats.reusedstable++;\n  }\n  return res;\n}\n\nvoid Internal::restart () {\n  START (restart);\n  stats.restarts++;\n  stats.restartlevels += level;\n  if (stable)\n    stats.restartstable++;\n  LOG (\"restart %\" PRId64 \"\", stats.restarts);\n  backtrack (reuse_trail ());\n\n  {{ replace_code_restart }}\n  LOG (\"new restart limit at %\" PRId64 \" conflicts\", lim.restart);\n\n  report ('R', 2);\n  STOP (restart);\n}\n\n} // namespace CaDiCaL\n\n// end\n\nPlease think step-by-step and then respond with your improved code snippet.\n", "chosen": "// start\ndouble fastGlue = averages.current.glue.fast;\ndouble slowGlue = averages.current.glue.slow;\n\n// Calculate the relative difference between fast and slow glue averages.\ndouble relativeDifference = (fastGlue - slowGlue) / slowGlue;\n\n// Define a threshold for restart based on the relative difference.\ndouble threshold = opts.restartmargin / 100.0;\n\n// Log the current state for debugging purposes.\nLOG (\"EMA glue slow %.2f fast %.2f relative difference %.2f threshold %.2f\", \n     slowGlue, fastGlue, relativeDifference, threshold);\n\n// Determine if a restart is needed based on the relative difference.\nreturn relativeDifference > threshold;\n// end\n", "rejected": "// start\n// Improved logic for determining whether to restart based on glue levels\n\n// Retrieve the fast and slow moving averages of glue levels\ndouble fast_glue = averages.current.glue.fast;\ndouble slow_glue = averages.current.glue.slow;\n\n// Calculate the restart margin as a percentage increase over the slow average\ndouble restart_margin = (100.0 + opts.restartmargin) / 100.0;\ndouble glue_limit = restart_margin * slow_glue;\n\n// Log the current state of glue averages and the calculated limit\nLOG(\"EMA glue slow %.2f fast %.2f limit %.2f\", slow_glue, fast_glue, glue_limit);\n\n// Introduce an additional condition to check if both averages are significantly low\n// This helps avoid restarting when the solver is in a productive phase\nconst double low_glue_threshold = 2.0;  // Threshold for considering glue values as low\nbool both_low_glue = (fast_glue < low_glue_threshold) && (slow_glue < low_glue_threshold);\n\n// Trigger a restart if the fast average exceeds the limit, unless both averages are low\nreturn (fast_glue >= glue_limit) && !both_low_glue;\n// end\n"}
-{"prompt": "\nYou are an intelligent AI researcher for coding and heuristic design, specializing in SAT solver research. Your task is to improve the performance of the CaDiCaL SAT solver by modifying its code. \nYour goal is to conduct cutting-edge SAT solver research by creatively improving the CaDiCaL solver, with a primary focus on increasing the number of solved instances and reducing the PAR-2 score.\nFollow the user's requirements carefully and ensure you fully understand them.\nAlways document your code with clear comments explaining the reason behind each change.\nAlways present your code in Markdown code blocks.\nImplement all solutions in C++, adhering to modern best practices for readability and performance.\n\n\nYou are a SAT solver researcher trying to improve the 'stabilizing' function in restart.cpp to help SAT solver achieve faster performance.\n\nHere is the description of the function: The stabilizing function manages the solver's phase-saving strategy, which is a key heuristic in Conflict-Driven Clause Learning (CDCL) solvers. Its primary purpose is to periodically switch between two modes: a \"stable\" mode and an \"unstable\" (or \"focused\") mode. In the unstable mode, the solver uses the most recently assigned truth value for a variable as its phase (also known as the polarity). In the stable mode, it uses a longer-term saved phase. This periodic switching helps to diversify the search, preventing the solver from getting stuck in a specific area of the search space. The function checks if it's time to switch between these modes based on the number of conflicts. When the conflict limit (lim.stabilize) is reached, it toggles the stable flag, updates statistics, and calculates the next conflict limit for the subsequent switch. This dynamic adjustment of search strategy is crucial for improving the solver's efficiency and overall performance on a wide range of SAT problems.\nHere is the part of the original code which you should focus on improving, your improved code will replace the code below and other parts of 'stabilizing' function will remain unchanged:\ncpp\n// start\ninc.stabilize *= opts.stabilizefactor * 1e-2;\nif (inc.stabilize > opts.stabilizemaxint)\n  inc.stabilize = opts.stabilizemaxint;\nlim.stabilize = stats.conflicts + inc.stabilize;\nif (lim.stabilize <= stats.conflicts)\n  lim.stabilize = stats.conflicts + 1;\n// end\n\nYou must:\n1) carefully study the <key code> block and traverse all relevant variables.\n2) only rewrite the logic inside the marked region.\n3) generate code different from the original one.\n4) use existing class-internal variables.\n5) not use any undeclared variables, functions or unexisting configuration options.\n\n<code> of restart.cpp:\ncpp\n// start\n#include \"internal.hpp\"\n\nnamespace CaDiCaL {\n\n// As observed by Chanseok Oh and implemented in MapleSAT solvers too,\n// various mostly satisfiable instances benefit from long quiet phases\n// with less or almost no restarts.  We implement this idea by prohibiting\n// the Glucose style restart scheme in a geometric fashion, which is very\n// similar to how originally restarts were scheduled in MiniSAT and earlier\n// solvers.  We start with say 1e3 = 1000 (opts.stabilizeinit) conflicts of\n// Glucose restarts.  Then in a \"stabilizing\" phase we disable these\n// until 1e4 = 2000 conflicts (if 'opts.stabilizefactor' is '200' percent)\n// have passed. After that we switch back to regular Glucose style restarts\n// until again 2 times more conflicts than the previous limit are reached.\n// Actually, in the latest version we still restarts during stabilization\n// but only in a reluctant doubling scheme with a rather high interval.\n\nbool Internal::stabilizing () {\n  if (!opts.stabilize)\n    return false;\n  if (stable && opts.stabilizeonly)\n    return true;\n  if (stats.conflicts >= lim.stabilize) {\n    report (stable ? ']' : '}');\n    if (stable)\n      STOP (stable);\n    else\n      STOP (unstable);\n    stable = !stable;\n    if (stable)\n      stats.stabphases++;\n    PHASE (\"stabilizing\", stats.stabphases,\n           \"reached stabilization limit %\" PRId64 \" after %\" PRId64\n           \" conflicts\",\n           lim.stabilize, stats.conflicts);\n    {{ replace_code_stabilizing }}\n    swap_averages ();\n    PHASE (\"stabilizing\", stats.stabphases,\n           \"new stabilization limit %\" PRId64\n           \" at conflicts interval %\" PRId64 \"\",\n           lim.stabilize, inc.stabilize);\n    report (stable ? '[' : '{');\n    if (stable)\n      START (stable);\n    else\n      START (unstable);\n  }\n  return stable;\n}\n\n// Restarts are scheduled by a variant of the Glucose scheme as presented in\n// our POS'15 paper using exponential moving averages.  There is a slow\n// moving average of the average recent glucose level of learned clauses as\n// well as a fast moving average of those glues.  If the end of a base\n// restart conflict interval has passed and the fast moving average is above\n// a certain margin over the slow moving average then we restart.\n\nbool Internal::restarting () {\n  if (!opts.restart)\n    return false;\n  if ((size_t) level < assumptions.size () + 2)\n    return false;\n  if (stabilizing ())\n    return reluctant;\n  if (stats.conflicts <= lim.restart)\n    return false;\n  {{ replace_code_restarting }}\n}\n\n// This is Marijn's reuse trail idea.  Instead of always backtracking to the\n// top we figure out which decisions will be made again anyhow and only\n// backtrack to the level of the last such decision or to the top if no such\n// decision exists top (in which case we do not reuse any level).\n\nint Internal::reuse_trail () {\n  const int trivial_decisions =\n      assumptions.size ()\n      // Plus 1 if the constraint is satisfied via implications of\n      // assumptions and a pseudo-decision level was introduced.\n      + !control[assumptions.size () + 1].decision;\n  if (!opts.restartreusetrail)\n    return trivial_decisions;\n  int next_decision = next_decision_variable ();\n  assert (1 <= next_decision);\n  int res = trivial_decisions;\n  if (use_scores ()) {\n    while (res < level) {\n      int decision = control[res + 1].decision;\n      if (decision && score_smaller (this) (abs (decision), next_decision))\n        break;\n      res++;\n    }\n  } else {\n    int64_t limit = bumped (next_decision);\n    while (res < level) {\n      int decision = control[res + 1].decision;\n      if (decision && bumped (decision) < limit)\n        break;\n      res++;\n    }\n  }\n  int reused = res - trivial_decisions;\n  if (reused > 0) {\n    stats.reused++;\n    stats.reusedlevels += reused;\n    if (stable)\n      stats.reusedstable++;\n  }\n  return res;\n}\n\nvoid Internal::restart () {\n  START (restart);\n  stats.restarts++;\n  stats.restartlevels += level;\n  if (stable)\n    stats.restartstable++;\n  LOG (\"restart %\" PRId64 \"\", stats.restarts);\n  backtrack (reuse_trail ());\n\n  {{ replace_code_restart }}\n  LOG (\"new restart limit at %\" PRId64 \" conflicts\", lim.restart);\n\n  report ('R', 2);\n  STOP (restart);\n}\n\n} // namespace CaDiCaL\n\n// end\n\nPlease think step-by-step and then respond with your improved code snippet.\n", "chosen": "// start\n\n// Introduce a more nuanced increment adjustment\ndouble factor = opts.stabilizefactor * 1e-2;\ninc.stabilize *= factor;\n\n// Implement a minimum threshold to avoid extremely low increments\nconst int64_t min_increment = 10; // Arbitrary minimum increment value\nif (inc.stabilize < min_increment)\n  inc.stabilize = min_increment;\n\n// Cap the increment at the specified maximum to prevent excessive growth\nif (inc.stabilize > opts.stabilizemaxint)\n  inc.stabilize = opts.stabilizemaxint;\n\n// Adjust the stabilization limit more dynamically\nlim.stabilize = stats.conflicts + inc.stabilize;\n\n// Ensure the stabilization limit is always strictly greater than current conflicts\nif (lim.stabilize <= stats.conflicts)\n  lim.stabilize = stats.conflicts + min_increment;\n\n// end\n", "rejected": "// start\n// Calculate a dynamic factor based on historical data or trends.\n// This could be a function of stats.stabphases or other relevant metrics.\ndouble dynamic_factor = 1.0;\n\n// For demonstration, let's assume we make the factor depend on the number of stabilization phases.\n// If the solver has been in stable mode for a long time, we might want to extend the next stabilization period.\nif (stats.stabphases > 10) {\n  dynamic_factor += 0.1;  // Increase factor slightly after many stable phases.\n}\n\n// Now use the dynamic factor in calculating the new stabilization increment.\ninc.stabilize *= (opts.stabilizefactor * 1e-2 * dynamic_factor);\n\n// Ensure the stabilization increment does not exceed the maximum allowed value.\nif (inc.stabilize > opts.stabilizemaxint) {\n  inc.stabilize = opts.stabilizemaxint;\n}\n\n// Set the new stabilization limit based on the updated increment.\nlim.stabilize = stats.conflicts + inc.stabilize;\n\n// Ensure the stabilization limit is always set to a future point.\nif (lim.stabilize <= stats.conflicts) {\n  lim.stabilize = stats.conflicts + 1;\n}\n// end\n"}
-{"prompt": "\nYou are an intelligent AI researcher for coding and heuristic design, specializing in SAT solver research. Your task is to improve the performance of the CaDiCaL SAT solver by modifying its code. \nYour goal is to conduct cutting-edge SAT solver research by creatively improving the CaDiCaL solver, with a primary focus on increasing the number of solved instances and reducing the PAR-2 score.\nFollow the user's requirements carefully and ensure you fully understand them.\nAlways document your code with clear comments explaining the reason behind each change.\nAlways present your code in Markdown code blocks.\nImplement all solutions in C++, adhering to modern best practices for readability and performance.\n\n\nYou are a SAT solver researcher trying to improve the 'reduce' function in reduce.cpp to help SAT solver achieve faster performance.\n\nHere is the description of the function: This function is the decision engine of the CDCL solver, responsible for choosing the next variable to assign a truth value to when no more logical deductions (propagations) can be made. Its primary role is to guide the search for a satisfying assignment. The function operates in a prioritized sequence: first, it satisfies any user-provided assumptions, which are temporary constraints for a specific search. If all assumptions are handled, it then tries to satisfy a special constraint clause if one exists. This is often used for incremental solving. Only when all assumptions and the special constraint are dealt with does it fall back to its main heuristic decision-making process, which selects an unassigned variable based on internal activity scores (like VSIDS) to explore a new part of the search space. This structured approach allows the solver to handle incremental SAT calls and external constraints gracefully before resorting to its general search strategy.\nHere is the part of the original code which you should focus on improving, your improved code will replace the code below and other parts of 'reduce' function will remain unchanged:\ncpp\n// start\n{\n  int64_t delta = opts.reduceint * (stats.reductions + 1);\n  if (irredundant () > 1e5) {\n    delta *= log (irredundant () / 1e4) / log (10);\n    if (delta < 1)\n      delta = 1;\n  }\n  lim.reduce = stats.conflicts + delta;\n  PHASE (\"reduce\", stats.reductions,\n         \"new reduce limit %\" PRId64 \" after %\" PRId64 \" conflicts\",\n         lim.reduce, delta);\n}\n\n\n// end\n\nYou must:\n1) carefully study the <key code> block and traverse all relevant variables.\n2) only rewrite the logic inside the marked region.\n3) generate code different from the original one.\n4) use existing class-internal variables.\n5) not use any undeclared variables, functions or unexisting configuration options.\n\n<code> of reduce.cpp:\ncpp\n// start\n#include \"internal.hpp\"\n\nnamespace CaDiCaL {\n\n/*------------------------------------------------------------------------*/\n\n// Once in a while we reduce, e.g., we remove learned clauses which are\n// supposed to be less useful in the future.  This is done in increasing\n// intervals, which has the effect of allowing more and more learned clause\n// to be kept for a longer period.  The number of learned clauses kept\n// in memory corresponds to an upper bound on the 'space' of a resolution\n// proof needed to refute a formula in proof complexity sense.\n\nbool Internal::reducing () {\n  if (!opts.reduce)\n    return false;\n  if (!stats.current.redundant)\n    return false;\n  return stats.conflicts >= lim.reduce;\n}\n\n/*------------------------------------------------------------------------*/\n\n// Even less regularly we are flushing all redundant clauses.\n\nbool Internal::flushing () {\n  if (!opts.flush)\n    return false;\n  return stats.conflicts >= lim.flush;\n}\n\n/*------------------------------------------------------------------------*/\n\nvoid Internal::mark_clauses_to_be_flushed () {\n  for (const auto &c : clauses) {\n    if (!c->redundant)\n      continue; // keep irredundant\n    if (c->garbage)\n      continue; // already marked as garbage\n    if (c->reason)\n      continue; // need to keep reasons\n    const unsigned used = c->used;\n    if (used)\n      c->used--;\n    if (used)\n      continue;       // but keep recently used clauses\n    mark_garbage (c); // flush unused clauses\n    if (c->hyper)\n      stats.flush.hyper++;\n    else\n      stats.flush.learned++;\n  }\n  // No change to 'lim.kept{size,glue}'.\n}\n\n/*------------------------------------------------------------------------*/\n\n// Clauses of larger glue or larger size are considered less useful.\n//\n// We also follow the observations made by the Glucose team in their\n// IJCAI'09 paper and keep all low glue clauses limited by\n// 'options.keepglue' (typically '2').\n//\n// In earlier versions we pre-computed a 64-bit sort key per clause and\n// wrapped a pointer to the clause and the 64-bit sort key into a separate\n// data structure for sorting.  This was probably faster but awkward and\n// so we moved back to a simpler scheme which also uses 'stable_sort'\n// instead of 'rsort' below.  Sorting here is not a hot-spot anyhow.\n\nstruct reduce_less_useful {\n  bool operator() (const Clause *c, const Clause *d) const {\n    if (c->glue > d->glue)\n      return true;\n    if (c->glue < d->glue)\n      return false;\n    return c->size > d->size;\n  }\n};\n\n// This function implements the important reduction policy. It determines\n// which redundant clauses are considered not useful and thus will be\n// collected in a subsequent garbage collection phase.\n\nvoid Internal::mark_useless_redundant_clauses_as_garbage () {\n\n  // We use a separate stack for sorting candidates for removal.  This uses\n  // (slightly) more memory but has the advantage to keep the relative order\n  // in 'clauses' intact, which actually due to using stable sorting goes\n  // into the candidate selection (more recently learned clauses are kept if\n  // they otherwise have the same glue and size).\n\n  vector<Clause *> stack;\n\n  stack.reserve (stats.current.redundant);\n\n  for (const auto &c : clauses) {\n    if (!c->redundant)\n      continue; // Keep irredundant.\n    if (c->garbage)\n      continue; // Skip already marked.\n    if (c->reason)\n      continue; // Need to keep reasons.\n    const unsigned used = c->used;\n    if (used)\n      c->used--;\n    if (c->hyper) {          // Hyper binary and ternary resolvents\n      assert (c->size <= 3); // are only kept for one reduce round\n      if (!used)\n        mark_garbage (c); // (even if 'c->keep' is true) unless\n      continue;           //  used recently.\n    }\n    if (used)\n      continue; // Do keep recently used clauses.\n    if (c->keep)\n      continue; // Forced to keep (see above).\n\n    stack.push_back (c);\n  }\n\n  stable_sort (stack.begin (), stack.end (), reduce_less_useful ());\n\n  size_t target = 1e-2 * opts.reducetarget * stack.size ();\n\n  // This is defensive code, which I usually consider a bug, but here I am\n  // just not sure that using floating points in the line above is precise\n  // in all situations and instead of figuring that out, I just use this.\n  //\n  if (target > stack.size ())\n    target = stack.size ();\n\n  PHASE (\"reduce\", stats.reductions, \"reducing %zd clauses %.0f%%\", target,\n         percent (target, stats.current.redundant));\n\n  auto i = stack.begin ();\n  const auto t = i + target;\n  while (i != t) {\n    Clause *c = *i++;\n    LOG (c, \"marking useless to be collected\");\n    mark_garbage (c);\n    stats.reduced++;\n  }\n\n  lim.keptsize = lim.keptglue = 0;\n\n  const auto end = stack.end ();\n  for (i = t; i != end; i++) {\n    Clause *c = *i;\n    LOG (c, \"keeping\");\n    if (c->size > lim.keptsize)\n      lim.keptsize = c->size;\n    if (c->glue > lim.keptglue)\n      lim.keptglue = c->glue;\n  }\n\n  erase_vector (stack);\n\n  PHASE (\"reduce\", stats.reductions, \"maximum kept size %d glue %d\",\n         lim.keptsize, lim.keptglue);\n}\n\n/*------------------------------------------------------------------------*/\n\n// If chronological backtracking produces out-of-order assigned units, then\n// it is necessary to completely propagate them at the root level in order\n// to derive all implied units.  Otherwise the blocking literals in\n// 'flush_watches' are messed up and assertion 'FW1' fails.\n\nbool Internal::propagate_out_of_order_units () {\n  if (!level)\n    return true;\n  int oou = 0;\n  for (size_t i = control[1].trail; !oou && i < trail.size (); i++) {\n    const int lit = trail[i];\n    assert (val (lit) > 0);\n    if (var (lit).level)\n      continue;\n    LOG (\"found out-of-order assigned unit %d\", oou);\n    oou = lit;\n  }\n  if (!oou)\n    return true;\n  assert (opts.chrono || external_prop);\n  backtrack (0);\n  if (propagate ())\n    return true;\n  learn_empty_clause ();\n  return false;\n}\n\n/*------------------------------------------------------------------------*/\n\nvoid Internal::reduce () {\n  START (reduce);\n\n  stats.reductions++;\n  report ('.', 1);\n\n  bool flush = flushing ();\n  if (flush)\n    stats.flush.count++;\n\n  if (!propagate_out_of_order_units ())\n    goto DONE;\n\n  mark_satisfied_clauses_as_garbage ();\n  protect_reasons ();\n  if (flush)\n    mark_clauses_to_be_flushed ();\n  else\n    mark_useless_redundant_clauses_as_garbage ();\n  garbage_collection ();\n\n  {{ replace_code_reduce }}\n\n  if (flush) {\n    PHASE (\"flush\", stats.flush.count, \"new flush increment %\" PRId64 \"\",\n           inc.flush);\n    inc.flush *= opts.flushfactor;\n    lim.flush = stats.conflicts + inc.flush;\n    PHASE (\"flush\", stats.flush.count, \"new flush limit %\" PRId64 \"\",\n           lim.flush);\n  }\n\n  last.reduce.conflicts = stats.conflicts;\n\nDONE:\n\n  report (flush ? 'f' : '-');\n  STOP (reduce);\n}\n\n} // namespace CaDiCaL\n\n// end\n\nPlease think step-by-step and then respond with your improved code snippet.\n", "chosen": "// start\n{\n  // Base delta calculation based on the number of reductions performed.\n  int64_t base_delta = opts.reduceint * (stats.reductions + 1);\n  \n  // Calculate the scaling factor using a refined logarithmic approach.\n  double scaling_factor = 1.0;\n  int64_t irredundant_clauses = irredundant();\n\n  // Apply a dynamic scaling based on irredundant clauses.\n  if (irredundant_clauses > 1e5) {\n    scaling_factor = log10(irredundant_clauses / 1e4);\n  } else if (irredundant_clauses > 1e4) {\n    scaling_factor = log10(irredundant_clauses / 1e3) / 2;\n  }\n\n  // Calculate the final delta, ensuring it stays positive.\n  int64_t delta = base_delta * scaling_factor;\n  delta = std::max(delta, int64_t(1));\n\n  // Set the new reduction limit.\n  lim.reduce = stats.conflicts + delta;\n\n  PHASE(\"reduce\", stats.reductions,\n        \"new reduce limit %\" PRId64 \" after %\" PRId64 \" conflicts\",\n        lim.reduce, delta);\n}\n// end\n", "rejected": "// start\n{\n  // Calculate a base delta using the configured interval and the number of previous reductions.\n  int64_t base_delta = opts.reduceint * (stats.reductions + 1);\n\n  // Adjust the base delta by considering both the number of irredundant and redundant clauses.\n  // This modification aims to stabilize the rate at which we perform reductions, especially\n  // when the solver is handling a large number of clauses.\n  int64_t irredundant_clauses = irredundant();\n  int64_t redundant_clauses = stats.current.redundant;\n\n  // Use a factor that considers the ratio of irredundant to redundant clauses.\n  // This aims to ensure that the reduction rate adapts to the solver's workload.\n  double adjustment_factor = 1.0;\n  if (irredundant_clauses > 1e4) {\n    adjustment_factor = (log(irredundant_clauses / 1e4) + 1) / (log(10) + 1);\n  }\n  if (redundant_clauses > 1e5) {\n    adjustment_factor *= (log(redundant_clauses / 1e5) + 1) / (log(10) + 1);\n  }\n\n  // Apply the adjustment factor to the base delta, ensuring it does not drop below 1.\n  int64_t delta = static_cast<int64_t>(base_delta * adjustment_factor);\n  if (delta < 1) delta = 1;\n\n  // Set the new reduction limit.\n  lim.reduce = stats.conflicts + delta;\n\n  // Log the new reduction limit and the computed delta.\n  PHASE (\"reduce\", stats.reductions,\n         \"new reduce limit %\" PRId64 \" after %\" PRId64 \" conflicts\",\n         lim.reduce, delta);\n}\n// end\n"}
+
+You are an intelligent AI researcher for coding and heuristic design, specializing in SAT solver research. Your task is to improve the performance of the CaDiCaL SAT solver by modifying its code. 
+Your goal is to conduct cutting-edge SAT solver research by creatively improving the CaDiCaL solver, with a primary focus on increasing the number of solved instances and reducing the PAR-2 score.
+Follow the user's requirements carefully and ensure you fully understand them.
+Always document your code with clear comments explaining the reason behind each change.
+Always present your code in Markdown code blocks.
+Implement all solutions in C++, adhering to modern best practices for readability and performance.
+
+
+You are a SAT solver researcher trying to improve the 'decide' function in decide.cpp to help SAT solver achieve faster performance.
+
+Here is the description of the function: This function is the decision engine of the CDCL solver, responsible for choosing the next variable to assign a truth value to when no more logical deductions (propagations) can be made. Its primary role is to guide the search for a satisfying assignment. The function operates in a prioritized sequence: first, it satisfies any user-provided assumptions, which are temporary constraints for a specific search. If all assumptions are handled, it then tries to satisfy a special constraint clause if one exists. This is often used for incremental solving. Only when all assumptions and the special constraint are dealt with does it fall back to its main heuristic decision-making process, which selects an unassigned variable based on internal activity scores (like VSIDS) to explore a new part of the search space. This structured approach allows the solver to handle incremental SAT calls and external constraints gracefully before resorting to its general search strategy.
+Here is the part of the original code which you should focus on improving, your improved code will replace the code below and other parts of 'decide' function will remain unchanged:
+cpp
+// start
+if (!unassigned_lit || better_decision (lit, unassigned_lit))
+    unassigned_lit = lit;
+// end
+
+You must:
+1) carefully study the <key code> block and traverse all relevant variables.
+2) only rewrite the logic inside the marked region.
+3) generate code different from the original one.
+4) use existing class-internal variables.
+5) not use any undeclared variables, functions or unexisting configuration options.
+
+<code> of decide.cpp:
+cpp
+// start
+#include "internal.hpp"
+
+namespace CaDiCaL {
+
+// This function determines the next decision variable on the queue, without
+// actually removing it from the decision queue, e.g., calling it multiple
+// times without any assignment will return the same result.  This is of
+// course used below in 'decide' but also in 'reuse_trail' to determine the
+// largest decision level to backtrack to during 'restart' without changing
+// the assigned variables (if 'opts.restartreusetrail' is non-zero).
+
+int Internal::next_decision_variable_on_queue () {
+  int64_t searched = 0;
+  int res = queue.unassigned;
+  while (val (res))
+    res = link (res).prev, searched++;
+  if (searched) {
+    stats.searched += searched;
+    update_queue_unassigned (res);
+  }
+  LOG ("next queue decision variable %d bumped %" PRId64 "", res,
+       bumped (res));
+  return res;
+}
+
+// This function determines the best decision with respect to score.
+//
+int Internal::next_decision_variable_with_best_score () {
+  int res = 0;
+  for (;;) {
+    res = scores.front ();
+    if (!val (res))
+      break;
+    (void) scores.pop_front ();
+  }
+  LOG ("next decision variable %d with score %g", res, score (res));
+  return res;
+}
+
+int Internal::next_decision_variable () {
+  if (use_scores ())
+    return next_decision_variable_with_best_score ();
+  else
+    return next_decision_variable_on_queue ();
+}
+
+/*------------------------------------------------------------------------*/
+
+// Implements phase saving as well using a target phase during
+// stabilization unless decision phase is forced to the initial value
+// of a phase is forced through the 'phase' option.
+
+int Internal::decide_phase (int idx, bool target) {
+  const int initial_phase = opts.phase ? 1 : -1;
+  int phase = 0;
+  if (force_saved_phase)
+    phase = phases.saved[idx];
+  if (!phase)
+    phase = phases.forced[idx]; // swapped with opts.forcephase case!
+  if (!phase && opts.forcephase)
+    phase = initial_phase;
+  if (!phase && target)
+    phase = phases.target[idx];
+  if (!phase)
+    phase = phases.saved[idx];
+
+  // The following should not be necessary and in some version we had even
+  // a hard 'COVER' assertion here to check for this.   Unfortunately it
+  // triggered for some users and we could not get to the root cause of
+  // 'phase' still not being set here.  The logic for phase and target
+  // saving is pretty complex, particularly in combination with local
+  // search, and to avoid running in such an issue in the future again, we
+  // now use this 'defensive' code here, even though such defensive code is
+  // considered bad programming practice.
+  //
+  if (!phase)
+    phase = initial_phase;
+
+  return phase * idx;
+}
+
+// The likely phase of an variable used in 'collect' for optimizing
+// co-location of clauses likely accessed together during search.
+
+int Internal::likely_phase (int idx) { return decide_phase (idx, false); }
+
+/*------------------------------------------------------------------------*/
+
+// adds new level to control and trail
+//
+void Internal::new_trail_level (int lit) {
+  level++;
+  control.push_back (Level (lit, trail.size ()));
+}
+
+/*------------------------------------------------------------------------*/
+
+bool Internal::satisfied () {
+  if ((size_t) level < assumptions.size () + (!!constraint.size ()))
+    return false;
+  if (num_assigned < (size_t) max_var)
+    return false;
+  assert (num_assigned == (size_t) max_var);
+  if (propagated < trail.size ())
+    return false;
+  size_t assigned = num_assigned;
+  return (assigned == (size_t) max_var);
+}
+
+bool Internal::better_decision (int lit, int other) {
+  int lit_idx = abs (lit);
+  int other_idx = abs (other);
+  if (stable)
+    return stab[lit_idx] > stab[other_idx];
+  else
+    return btab[lit_idx] > btab[other_idx];
+}
+
+// Search for the next decision and assign it to the saved phase.  Requires
+// that not all variables are assigned.
+
+int Internal::decide () {
+  assert (!satisfied ());
+  START (decide);
+  int res = 0;
+  if ((size_t) level < assumptions.size ()) {
+    const int lit = assumptions[level];
+    assert (assumed (lit));
+    const signed char tmp = val (lit);
+    if (tmp < 0) {
+      LOG ("assumption %d falsified", lit);
+      res = 20;
+    } else if (tmp > 0) {
+      LOG ("assumption %d already satisfied", lit);
+      new_trail_level (0);
+      LOG ("added pseudo decision level");
+      notify_decision ();
+    } else {
+      LOG ("deciding assumption %d", lit);
+      search_assume_decision (lit);
+    }
+  } else if ((size_t) level == assumptions.size () && constraint.size ()) {
+
+    int satisfied_lit = 0;  // The literal satisfying the constrain.
+    int unassigned_lit = 0; // Highest score unassigned literal.
+    int previous_lit = 0;   // Move satisfied literals to the front.
+
+    const size_t size_constraint = constraint.size ();
+
+#ifndef NDEBUG
+    unsigned sum = 0;
+    for (auto lit : constraint)
+      sum += lit;
+#endif
+    for (size_t i = 0; i != size_constraint; i++) {
+
+      // Get literal and move 'constraint[i] = constraint[i-1]'.
+
+      int lit = constraint[i];
+      constraint[i] = previous_lit;
+      previous_lit = lit;
+
+      const signed char tmp = val (lit);
+      if (tmp < 0) {
+        LOG ("constraint literal %d falsified", lit);
+        continue;
+      }
+
+      if (tmp > 0) {
+        LOG ("constraint literal %d satisfied", lit);
+        satisfied_lit = lit;
+        break;
+      }
+
+      assert (!tmp);
+      LOG ("constraint literal %d unassigned", lit);
+
+      {{ replace_code_decide }}
+    }
+
+    if (satisfied_lit) {
+
+      constraint[0] = satisfied_lit; // Move satisfied to the front.
+
+      LOG ("literal %d satisfies constraint and "
+           "is implied by assumptions",
+           satisfied_lit);
+
+      new_trail_level (0);
+      LOG ("added pseudo decision level for constraint");
+      notify_decision ();
+
+    } else {
+
+      // Just move all the literals back.  If we found an unsatisfied
+      // literal then it will be satisfied (most likely) at the next
+      // decision and moved then to the first position.
+
+      if (size_constraint) {
+
+        for (size_t i = 0; i + 1 != size_constraint; i++)
+          constraint[i] = constraint[i + 1];
+
+        constraint[size_constraint - 1] = previous_lit;
+      }
+
+      if (unassigned_lit) {
+
+        LOG ("deciding %d to satisfy constraint", unassigned_lit);
+        search_assume_decision (unassigned_lit);
+
+      } else {
+
+        LOG ("failing constraint");
+        unsat_constraint = true;
+        res = 20;
+      }
+    }
+
+#ifndef NDEBUG
+    for (auto lit : constraint)
+      sum -= lit;
+    assert (!sum); // Checksum of literal should not change!
+#endif
+
+  } else {
+
+    int decision = ask_decision ();
+    if ((size_t) level < assumptions.size () ||
+        ((size_t) level == assumptions.size () && constraint.size ())) {
+      // Forced backtrack below pseudo decision levels.
+      // So one of the two branches above will handle it.
+      STOP (decide);
+      res = decide (); // STARTS and STOPS profiling
+      START (decide);
+    } else {
+      stats.decisions++;
+      if (!decision) {
+        int idx = next_decision_variable ();
+        const bool target = (opts.target > 1 || (stable && opts.target));
+        decision = decide_phase (idx, target);
+      }
+      search_assume_decision (decision);
+    }
+  }
+  if (res)
+    marked_failed = false;
+  STOP (decide);
+  return res;
+}
+
+} // namespace CaDiCaL
+
+// end
+
+Please think step-by-step and then respond with your improved code snippet.
+We need to rewrite code inside replace_code_decide block in decide.cpp. The original code:
+
+```cpp
+// start
+if (!unassigned_lit || better_decision (lit, unassigned_lit))
+    unassigned_lit = lit;
+// end
+```
+
+We must rewrite logic differently, perhaps consider scores or other heuristics. Let's analyze the context: In the constraint block, iterating over each literal of the constraint clause. We want to track a highest-score unassigned literal for later decision. They use `unassigned_lit` as a variable to update if better decision. `better_decision(lit, unassigned_lit)` returns true if lit has higher static metric: uses `stab` or `btab` depending on stable. We could modify that: perhaps use not static but dynamic "score" or "activity" or maybe integrate new heuristic: use `max` of `abs`. Or use variable-level or variable-activity.
+
+Simplify: Instead of static decision from existing arrays, use combination of activity and index tie-breaker. Or use value `val` of literal's variable? Wait `better_decision` uses only array of ints. Could replace with check that picks the first found unassigned if `unassigned_lit==0`, else picks that with higher `btab` or `stab`. But we may modify to use dynamic "activity" or "phase" or "conflict numbers".
+
+Given we can use internal variables existing: `num_conflicts`, `activity`? Not sure. Let's look at other parts in code. Search for variable names.
+
+But we cannot search entire repo; only snippet. Let's think about typical CaDiCaL internals: Usually there are arrays: `btab` maybe for activity, `stab` for static? Actually `btab` maybe branching table for dynamic branching heuristics (like VSIDS). `stab` might be for stable variable scores? I'm not sure.
+
+But we only need to modify logic inside block; we can still call functions defined earlier like `val`, `better_decision`. But we cannot modify other parts. We must still use existing variables like `unassigned_lit`, `lit`, `literal`. We might use additional variables such as `activity[abs(lit)]`, might exist in the class? We don't know. But maybe there is `scores.front()` used earlier; but that uses `scores` list of scores sorted by some metric. But we may use `value_score` or `phase` arrays.
+
+Better to keep simple: Instead of using `better_decision(lit, unassigned_lit)`, we might choose `unassigned_lit` based on smaller index or larger `abs(lit)`. But they'd like improved performance: maybe use bit-level heuristics: choose unassigned with highest `btab`? But that's same as `better_decision`. Maybe we can change to dynamic `activity` after conflict.
+
+Alternatively, we can choose top 3 and shuffle? Hmm.
+
+But the key is to produce new code that is different from original but still correct.
+
+We might incorporate a local threshold: we compute score = activity[abs(lit)] + 1.0 / (num_assigned + 1); choose better.
+
+Let's inspect names of arrays: We earlier saw `btab` and `stab`; these arrays hold int. The `scores` list earlier uses `scores.front()` to get variable from front of list, but uses `scores.pop_front()` to pop if already assigned. That `scores` is a list sorted by activity maybe.
+
+But `btab` is maybe 'branching table' dynamic. `stab` might be 'stable' static table used only for initial decisions when stable mode.
+
+We don't know if there is a `var_activity` array. But maybe there is `activity` as a double array used for VSIDS. Let's quickly think: Many SAT solvers use arrays: `activity` (double), but rarely called 'activity' maybe in CaDiCaL the variable 'varactivity' maybe. But here `btab` might be used to compute branching table; might hold `btab[v]` = `activity*1000` or something. `stab` maybe not.
+
+The best path: Instead of using `better_decision`, we can compute a heuristic based on activity: if `abs(lit) > abs(unassigned_lit)` maybe choose one. But we can't rely on unknown arrays.
+
+Alternatively, perhaps we can use randomization: keep track of the last chosen variable; if conflict occurs too often, we might start selecting a random unassigned variable as fallback.
+
+But we need to produce code that compiles and remains in same semantics: choose best unassigned variable from constraint.
+
+Simplest: Replace with code that chooses the variable with highest static metric but using a custom comparison like using `abs(lit) > abs(unassigned_lit)` or `abs(lit) > abs(unassigned_lit)` or `abs(lit) < abs(unassigned_lit)`. Let's propose to incorporate dynamic variable `activity`. Let's examine earlier code to see what other arrays exist. Search for `var_activity`? Not possible. but there are `activity` or `var_activity`. Let's look at rest of file or other files but can't. However, I think there is `activity[abs(lit)]` defined elsewhere. I'll check my memory: In CaDiCaL code, there is an array `activity` defined as `std::vector<double> activity`. This function `next_decision_variable_with_best_score()` earlier uses `scores.front()` where `scores` likely uses `activity` to order variables by activity. So yes there is a double or float array `activity`. Therefore, within block, we can refer to `activity[abs(lit)]`. We can use to pick maximum. Let's confirm: In ask_decision? Wait not necessary.
+
+Hence we can replace the `if (!unassigned_lit || better_decision (lit, unassigned_lit)) ...` with:
+
+```
+int lit_idx = abs(lit);
+if (!unassigned_lit) {
+    unassigned_lit = lit;
+} else {
+    // Choose variable with higher activity; break ties by lower index
+    int other_idx = abs(unassigned_lit);
+    if (activity[lit_idx] > activity[other_idx] ||
+        (activity[lit_idx] == activity[other_idx] && lit_idx < other_idx))
+        unassigned_lit = lit;
+}
+```
+
+But we are in `Internal::decide`. We must ensure `activity` and `varactivity` exist and accessible. Provided the class has `activity` vector. But we cannot guarantee. In CaDiCaL internal.hpp, there may be a public array `scores` etc. Let's check memory: In CaDiCaL, variable activity is `std::vector<double> varactivity;` maybe named `activity` or `vardead`. Let's open memory: Hmm.
+
+Better search my memory: I previously looked at CaDiCaL 2.0 code. There is `activity` vector of doubles, used for variable activity and "lbd" etc. `btab` is an integer array for branching decision table; basically `btab[i] = varactivity[i]` maybe scaled to int for quick comparison. `stab` might be static variable for stable decisions used when static heuristics. So I think we can rely on `activity`. Let's confirm: In decision code above, they had alternative path using `use_scores()` to compute next decision variable from scores list. That uses `scores.front()` which is sorted by score (score array presumably). But when not using scores, they either use queue or scores depending on `use_scores`. But this block (constraint block) uses `better_decision` for unassigned lit. This may use either `stab` or `btab`. So we can replace with activity-based evaluation. That ensures different logic.
+
+But we must ensure not using undeclared arrays. The class might have `score` function, `score(int)`. Indeed earlier there is function `int score (int)` maybe defined elsewhere. Wait in `next_decision_variable_with_best_score`, they log:
+
+```
+LOG ("next decision variable %d with score %g", res, score (res));
+```
+
+So there is a function `score(int)`. That likely returns double. So we can call `score(abs(lit))`. But we just need to choose maximum among `unassigned`. Actually we can use `score` double.
+
+Hence implement:
+
+```
+if (!unassigned_lit) {
+    unassigned_lit = lit;
+} else {
+    // choose higher score variable (smaller index if equal to avoid bias)
+    int other = abs(unassigned_lit);
+    int cur = abs(lit);
+    double s_cur = score(cur);
+    double s_other = score(other);
+    if (s_cur > s_other || (s_cur == s_other && cur < other))
+        unassigned_lit = lit;
+}
+```
+
+But we might need to handle tie-breaking: use activity or order-of-appearance.
+
+But we might also incorporate randomness: use a flag `opts.random_decision` but not defined. But to keep code simple, use above.
+
+Potential compile errors: If `score` is a function defined in this class: `double Internal::score (int)` maybe defined else. But we can call `score(abs(lit))`. Another function `activity` but we used `score`, so safe.
+
+Alternatively, we could use `stable` or `use_scores`.
+
+Additionally, we can use `if ((!unassigned_lit || score(lit)>score(unassigned_lit)) && (abs(lit)>some threshold))`, etc. But keep simple.
+
+Edge: In `score`, expects variable idx, not literal. So use `abs(lit)`.
+
+Thus replaced code:
+
+```
+if (!unassigned_lit) {
+    unassigned_lit = lit;
+} else {
+    // Prefer the variable with higher dynamic activity
+    int cur_idx = abs (lit);
+    int other_idx = abs (unassigned_lit);
+    double cur_score = score (cur_idx);
+    double other_score = score (other_idx);
+    // in case of tie, pick smaller index (lexicographic order) to keep determinism
+    if (cur_score > other_score || (cur_score == other_score && cur_idx < other_idx))
+        unassigned_lit = lit;
+}
+```
+
+But is `score` static? Actually `score(int)`, defined somewhere else, maybe static or uses array `vscore`. We'll assume compile.
+
+Edge: `unassigned_lit` is int, may hold signed literal. We compute scores from variable indices. Works.
+
+Now implement.
+
+But we also used `LOG` macros etc.
+
+Will compile? yes.
+
+Let's finalize snippet.
+
+Remember to mark code lines.
+
+Now respond with improved code snippet inside the replace block.
+
+We need to output just entire region of code or snippet? The user said "Please think step-by-step and then respond with your improved code snippet." So we will provide the code for this block.
+
+So I'll output a fenced code block with the new code.
+
+Let's produce final answer.
+
+But also may want to consider small variation: include a randomness factor: e.g., use `use_scores() && !stable` etc. But keep simple.
+
+Thus final snippet:
+
+```
+int cur_idx = abs (lit);
+if (!unassigned_lit) {
+    unassigned_lit = lit;
+} else {
+    int other_idx = abs (unassigned_lit);
+    double cur_score = score (cur_idx);
+    double other_score = score (other_idx);
+    /* Dynamic heuristic: choose literal whose variable has higher
+       current activity (score).  Break ties deterministically by
+       smaller variable index (lexicographic order). This replaces the
+       older static comparison that used 'btab' or 'stab', giving a
+       more up‑to‑date decision basis. */
+    if (cur_score > other_score ||
+        (cur_score == other_score && cur_idx < other_idx))
+        unassigned_lit = lit;
+}
+```
+
+Add comment that code replaced to use dynamic score.
+
+All good. We'll deliver final answer.assistantfinalHere’s a replacement for the commented block inside `decide()` that uses the current variable
+activity (`score()`) instead of the static tables `btab`/`stab`.  
+It picks the unassigned literal whose variable has the highest
+dynamic activity, breaking ties deterministically by the smaller variable
+index.
+
+```cpp
+// start -- replace_code_decide
+{
+    int cur_idx = abs(lit);
+    if (!unassigned_lit) {
+        // First unassigned literal found
+        unassigned_lit = lit;
+    } else {
+        // Choose the literal with the higher current activity.
+        // Ties are broken by the smaller variable index to keep
+        // determinism. This replaces the older static "better_decision"
+        // comparison, giving the solver a more up‑to‑date basis for
+        // deciding which literal may help satisfy the constraint.
+        int other_idx = abs(unassigned_lit);
+        double cur_score  = score(cur_idx);
+        double other_score = score(other_idx);
+        if (cur_score > other_score ||
+            (cur_score == other_score && cur_idx < other_idx))
+            unassigned_lit = lit;
+    }
+}
+// end -- replace_code_decide
+```
+
+This new logic is functionally distinct from the original, leverages the
+solver’s dynamic activity information, and may lead to more efficient
+constraint satisfaction decisions.
