@@ -1,22 +1,24 @@
 import logging
 from dataclasses import dataclass
-
-NOT_INITIALIZED = -1
+from typing import List, Dict
+import hashlib
+NOT_INITIALIZED = "NOT_INITIALIZED"
 BASE_SOLVER_PATH = "solvers/base"
 SAT2025_BENCHMARK_PATH = "benchmarks/SAT2025"
 PYENV_PATH = "~/.pyenv/versions/3.10.10/bin/python"
 
-class TaskStatus:
-    Completed = "completed"
-    Failed = "failed"
-    InProgress = "in_progress"
+class CodeStatus:
     Pending = "pending"
-    Cancelled = "cancelled"
-    Queued = "queued"
-    Running = "running"
-    Stopped = "stopped"
-    Suspended = "suspended"
+    Generated = "generated"
+    BuildFailed = "build_failed"
+    Evaluating = "evaluating"
+    Evaluated = "evaluated"
 
+class AlgorithmStatus:
+    Generated = "generated"
+    CodeGenerated = "code_generated"
+    Evaluating = "evaluating"
+    Evaluated = "evaluated"
 
 @dataclass
 class TaskResult:
@@ -26,7 +28,10 @@ class TaskResult:
 
 @dataclass
 class AlgorithmResult:
+    id: str
     algorithm: str
+    status: str
+    last_updated: str
     prompt: str
     par2: float
     error_rate: float
@@ -34,13 +39,16 @@ class AlgorithmResult:
     other_metrics: Dict[str, float]
 
 @dataclass
-class CodeResult(TaskResult):
+class CodeResult:
+    id: str
     algorithm_id: str
     code: str
-    solver_id: str
+    status: str
+    last_updated: str
     build_success: bool
 
 def get_id(input_str: str) -> str:
+
     return hashlib.sha256(input_str.encode()).hexdigest()
 
 ALGORITHMS_CODE_MAP_PATH = "data/algorithms_code_map.json"
@@ -57,14 +65,26 @@ def setup_logging(level: int = logging.INFO, format_string: str | None = None) -
         level: Logging level (default: INFO)
         format_string: Custom format string. If None, uses a default format.
     """
-    if format_string is None:
-        format_string = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    
-    logging.basicConfig(
-        level=level,
-        format=format_string,
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
+    # Try to use Rich for colored, pretty logs in terminal. Fallback to standard logging.
+    try:
+        from rich.logging import RichHandler  # type: ignore
+        handler: logging.Handler = RichHandler(rich_tracebacks=True, markup=True)
+        # With RichHandler it's recommended to keep format minimal and let handler render details
+        fmt = "%(message)s" if format_string is None else format_string
+        logging.basicConfig(
+            level=level,
+            format=fmt,
+            datefmt="%Y-%m-%d %H:%M:%S",
+            handlers=[handler],
+        )
+    except Exception:
+        if format_string is None:
+            format_string = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        logging.basicConfig(
+            level=level,
+            format=format_string,
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
 
 
 def get_logger(name: str) -> logging.Logger:

@@ -1,0 +1,4 @@
+credentials/
+solvers/algorithm_*/
+data/benchmarks/*
+!data/benchmarks/**/*.uri

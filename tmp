@@ -1,0 +1,383 @@
+We have to output a JSON object with code string that will replace the content after // LLMSAT: start marker. So need to provide code implementing the described algorithm. We must ensure that code compiles and integrates into kissat. Implementation should be in C. The code snippet is inserted in the function kissat_restarting. We should modify the function to implement described hybrid EWMA restart. The original code snippet uses AVERAGE macro probably. The new code should:
+
+- After each conflict, record current glue_ewma and agility_ewma.
+- Track min_glue_ewma since last restart.
+- restart trigger: glue_ewma > 1.3 * min_glue_ewma (i.e., >30% higher than min)
+- restart trigger: agility_ewma > 0.05 and conflicts_since_restart >= restart_interval, only if stable false.
+- Only allow restarts when stable false. But spec in Tie-breaking says if restart triggered but stable true, defer until stable false. Also, only one restart per conflict.
+
+Also, if both triggers fire, glue wins.
+
+We need to implement these in code. We have access to solver structure. Need to track these values. Probably need fields in solver struct: double min_glue_ewma, double glue_ewma (current), double agility_ewma. And conflicts_since_restart, restart_interval.
+
+But since can't modify struct, we can assume fields exist? We can add static local variables? But restart function called per conflict? Wait, kissat_restarting called when conflict count reaches limit. So we can perform checks there.
+
+But we need to update min_glue_ewma, conflicts_since_restart on each conflict? Use other parts? Since we cannot modify other code, maybe we can rely on existing fields: solver->restart.counter? In kissat code, there is solver->restart.conflicts, etc. Let's scan known Kissat fields. I can approximate. In Kissat, there is solver->conflicts and solver->levels, solver->restart.conflicts and solver->restart.interval? Let's search memory.
+
+But we maybe can implement minimal logic: only perform restart based on solver->glue_ewma and solver->agility_ewma. But need to store min_glue_ewma and conflicts_since_restart.
+
+However we might not have direct access to these fields. We could store them as static variables inside function or static global. But that would not survive across calls? static inside function persists across calls. Let's do that.
+
+We also need to track conflicts_since_restart: each time kissat_restarting returns true, restart occurs. But we need to compute conflicts_since_restart for second trigger: if agility_ewma > 0.05 and conflicts_since_restart >= restart_interval and stable false.
+
+We can maintain static int conflicts_since_restart; increment when conflict occurs? But we need to increment each conflict, not each restart? But we only know when conflict occurs if kissat_restarting called. So we can increment static conflicts_since_restart when returning false? but restart could be triggered earlier? Actually kissat_restarting called when conflict count reaches limit. So it's not called on every conflict. It's called to decide restart after a limit number of conflicts? Wait typical implementation: restart strategy monitors conflict counts and triggers restart when threshold reached. That function will be called after each conflict to decide whether to restart. But given the snippet, I think it's called each conflict to decide restart after incremented conflicts count.
+
+Therefore we can use static int conflicts_since_restart; increment each call when solver->conflicts increments? We can compare current conflicts vs previous?
+
+Simpler: We maintain static int conflicts_since_restart; increment every time solver->conflicts (the global conflict counter) is increased. But inside function we know the current conflicts value: solver->conflicts - but we need previous. We'll need static variable prev_conflicts to compute delta.
+
+Similarly for min_glue_ewma: track min value seen since last restart. We'll need to store static double min_glue_ewma_initial perhaps.
+
+Let's draft code:
+
+static double min_glue_after_restart = 0.0;
+static int first_time = 1;
+static int reset_after_restart = 0;
+
+Also static int conflicts_since_restart, prev_conflicts;
+ static double prev_glue_ewma, prev_agility_ewma;
+
+But we will need to compute current glue_ewma via AVERAGE macro? The code snippet earlier uses AVERAGE(fast_glue) etc. In original code, there are macros: AVERAGE(fast_glue). But we can assume we have macros: solver->fast_glue, solver->slow_glue. But no glue_ewma variable.
+
+In Kissat, glue_ewma refers to EWMA of clause glue. There might be fields solver->glue_ewma, solver->agility_ewma? I can search memory: but can't. Instead we can compute them as average of glue? maybe macros exist
+2025-11-17 18:47:06 - Coder - ERROR - Unable to parse code from model response.
+2025-11-17 18:47:32 - Coder - INFO - Code response:  */
+    //...
+We need to replace code after // LLMSAT: start marker. Provide minified JSON with code string.
+
+We create restart function: similar to reference but implementing algorithm spec: track min_glue_ewma since last restart, compute EWMA of glue and agility. Need variables in solver: maybe solver->statistics? Assume solver struct has fields: glue_ewma, agility_ewma, min_glue_ewma, conflict_since_restart, restart_interval, stable. We need restart logic per spec: if glue_ewma > 1.3 * min_glue_ewma => restart; if agility_ewma > 0.05 and conflicts_since_restart >= restart_interval => restart; only if stable==false otherwise defer. If both triggers, prioritize glue_ewma.
+
+We need to update min_glue_ewma after restart.
+
+Return bool.
+
+Provide code. Use placeholder types: AVERAGE macro? Instead use existing fields.
+
+Simplify: assume solver has double glue_ewma, agility_ewma, min_glue_ewma; int conflicts_since_restart, restart_interval; bool stable; bool GET_OPTION(restart)? We'll call GET_OPTION(restart). Use kissat_restarting function signature. For printing, we may use kissat_extremely_verbose.
+
+Implement:
+
+{
+ if (!GET_OPTION(restart)) return false;
+ if (!solver->level) return false;
+ if (CONFLICTS < solver->limits.restart.conflicts) return false;
+
+ // update min_glue_ewma
+ if (solver->glue_ewma < solver->min_glue_ewma) solver->min_glue_ewma = solver->glue_ewma;
+
+ bool trigger_glue = solver->glue_ewma > 1.3 * solver->min_glue_ewma;
+ bool trigger_agility = (solver->agility_ewma > 0.05) && (solver->conflicts_since_restart >= solver->restart_interval);
+
+ if (!solver->stable && (trigger_glue || trigger_agility)) {
+   if (trigger_glue) {
+       kissat_extremely_verbose(solver,"glue restart triggered");
+   } else {
+       kissat_extremely_verbose(solver,"agility restart triggered");
+   }
+   // reset min glue ewma
+   solver->min_glue_ewma = solver->glue_ewma;
+   solver->conflicts_since_restart = 0;
+   return true;
+ } 
+ else if (solver->stable && (trigger_glue || trigger_agility)) {
+   // defer
+   return false;
+ }
+ return false;
+
+}
+
+Also maybe need to return kissat_reluctant_triggered for stable case. Use same as reference: if solver->stable return kissat_reluctant_triggered... but we need to adjust. We'll replicate: if (solver->stable) return kissat_reluctant_triggered(&solver->reluctant);
+
+But spec says only allow restarts when stable is false; if triggers but stable true, defer until stable false, thus no restart now.
+
+We'll just return false.
+
+Let's craft code.
+
+Need to include necessary headers? Code snippet will be inserted after start marker. Provide full function body as in reference.
+
+We'll output code string.
+
+Ensure JSON escaping: use \n etc. Provide single-line string with escaped newlines and double quotes.
+
+Write code as raw code; minify; but ok.
+
+Let's produce the JSON.assistantfinaljson
+{"code":"bool kissat_restarting (kissat *solver) { if (!GET_OPTION (restart)) return false; if (!solver->level) return false; if (CONFLICTS < solver->limits.restart.conflicts) return false; if (solver->glue_ewma < solver->min_glue_ewma) solver->min_glue_ewma = solver->glue_ewma; bool trigger_glue = solver->glue_ewma > 1.3 * solver->min_glue_ewma; bool trigger_agility = (solver->agility_ewma > 0.05) && (solver->conflicts_since_restart >= solver->restart_interval); if (!solver->stable && (trigger_glue || trigger_agility)) { if (trigger_glue) kissat_extremely_verbose(solver, \"glue restart triggered\"); else kissat_extremely_verbose(solver, \"agility restart triggered\"); solver->min_glue_ewma = solver->glue_ewma; solver->conflicts_since_restart = 0; return true; } return false; }"}
+2025-11-17 18:47:32 - llmsat.utils.aws - INFO - trying to connect to db
+2025-11-17 18:47:33 - llmsat.utils.aws - INFO - connected to db
+2025-11-17 18:47:33 - llmsat.utils.aws - INFO - trying to connect to db
+2025-11-17 18:47:33 - llmsat.utils.aws - INFO - connected to db
+2025-11-17 18:47:33 - llmsat.utils.aws - INFO - Updating code result 43187f52ef5f096d104f2c8d1ac8068cbdb9609c399e367823c2ec8694bfa9fc
+2025-11-17 18:47:34 - llmsat.utils.aws - INFO - Updated code result 43187f52ef5f096d104f2c8d1ac8068cbdb9609c399e367823c2ec8694bfa9fc
+2025-11-17 18:48:01 - Coder - INFO - Code response:  */
+We need to output code that replaces after LLMSAT start marker. We need to implement algorithm described: Hybrid EWMA Agility-Glue Adaptive Restarts.
+
+We should write code in C consistent with Kissat code style. The rest of solver is not available, but we implement a function that triggers restart based on glue and agility EMAs, conflicts_since_restart, restart_interval, stable flag, min_glue_ewma since last restart etc. Let's produce function that returns bool and updates variables.
+
+We need to adapt to Kissat style: function bool kissat_restarting(kissat* solver). Already partial code provided, we replace the body after // LLMSAT: start with our implementation.
+
+We need to use solver fields: solver->glue_ewma, solver->agility_ewma, solver->conflicts_since_restart, solver->restart_interval, solver->stable, solver->min_glue_ewma, maybe solver->reluctant? For simplicity, we just implement the logic. We might compute trigger.
+
+Return true if restart needed.
+
+Simplify: if !GET_OPTION(restart) or !solver->level or CONFLICTS < restart_conflicts then false. Then check triggers:
+
+bool glue_trigger = solver->glue_ewma > 1.3 * solver->min_glue_ewma;
+
+bool agility_trigger = solver->agility_ewma > 0.05 && solver->conflicts_since_restart >= solver->restart_interval;
+
+If both triggers true, glue has priority. If stable is true, no restart. Else restart.
+
+After restart, update min_glue_ewma to current glue_ewma? In actual algorithm, record min after restart. But we can just reset min_glue_ewma = solver->glue_ewma.
+
+Implement.
+
+Also use kissat_extremely_verbose for debug.
+
+We need to use macros and data as expected: solver->glue_ewma, solver->agility_ewma, solver->conflicts_since_restart, solver->restart_interval, solver->stable, solver->min_glue_ewma, CONFLICTS? In Kissat code, there is a macro CONFLICTS that returns solver->conflicts? Use solver->conflicts maybe.
+
+Simplify: Use solver->conflicts as conflicts.
+
+Implementation.
+
+We must produce code as string to be inserted after // LLMSAT: start marker. So final output JSON string containing entire source code after marker.
+
+We need to provide the code portion only for replacement.
+
+The code likely fits within function bool kissat_restarting(kissat *solver). The body after marker will replace the existing code block. We'll output entire implementation body, but need to maintain function signature and possibly other braces. Provided original had code until return (limit <= fast); We will replace the code after marker with ours, but keep rest like return false; etc? The marker indicates start of new code after comment. We have:
+
+// LLMSAT: start
+  const double fast = AVERAGE (fast_glue);
+  ...
+  return (limit <= fast);
+// LLMSAT: end
+} // function end
+
+So we need to replace inside that block all code. So final code should be the new implementation inside that part. Should include braces maybe?
+
+We just output the code snippet, which is body of function. So we output code exactly those lines. Provide lines: compute triggers etc. Ensure compile.
+
+Let's craft:
+
+bool kissat_restarting(kissat* solver){
+   assert(solver->unassigned);
+   if (!GET_OPTION(restart))
+     return false;
+   if (!solver->level)
+     return false;
+   if (CONFLICTS < solver->limits.restart.conflicts)
+     return false;
+   if (solver->stable)
+     return false; // stable, no restart
+   // update min_glue_ewma
+   if (!solver->min_glue_ewma || solver->glue_ewma < solver->min_glue_ewma)
+     solver->min_glue_ewma = solver->glue_ewma;
+   bool glue_trigger = solver->glue_ewma > 1.3 * solver->min_glue_ewma;
+   bool agility_trigger = solver->agility_ewma > 0.05 &&
+                          solver->conflicts_since_restart >= solver->restart_interval;
+   bool trigger = glue_trigger || agility_trigger;
+   if (!trigger)
+     return false;
+   if (glue_trigger)
+     kissat_extremely_verbose(solver, "glue_ewma=%g exceeds 1.3*min_glue_ewma=%g, restart", solver->glue_ewma, 1.3*solver->min_glue_ewma);
+   else
+     kissat_extremely_verbose(solver, "agility_ewma=%g threshold=0.05 and conflicts_since_restart=%zu>=restart_interval=%zu, restart", solver->agility_ewma, solver
+2025-11-17 18:48:01 - Coder - ERROR - Unable to parse code from model response.
+2025-11-17 18:48:29 - Coder - INFO - Code response:  */
+We need to generate C code that replaces after // LLMSAT: start marker. Should implement algorithm described.
+
+We need to compute after each conflict record glue_ewma and agility_ewma; track min_glue_ewma since last restart; if glue_ewma > 1.3 * min_glue_ewma or agility_ewma > 0.05 and conflicts_since_restart >= restart_interval and stable is false, trigger restart.
+
+We must return single line JSON {'code': "<source>"}. Code inside string with proper escaping.
+
+We assume existence of Kissat struct with fields: double glue_ewma, agility_ewma, conflicts_since_restart, restart_interval, stable; maybe other fields. We'll just manipulate.
+
+Function signature bool kissat_restarting(kissat *solver). We'll implement using given reference; modify conditions.
+
+Simplify: compute min_glue_ewma stored in solver->min_glue_ewma.
+
+We need to update min_glue_ewma each conflict: if (solver->glue_ewma < solver->min_glue_ewma) solver->min_glue_ewma = solver->glue_ewma;
+
+When restart occurs, reset min_glue_ewma to large value maybe INF.
+
+But focus just restart triggering.
+
+Implement:
+
+bool kissat_restarting(kissat *solver) {
+    assert(solver->unassigned);
+    if (!GET_OPTION(restart)) return false;
+    if (!solver->level) return false;
+    if (CONFLICTS < solver->limits.restart.conflicts) return false;
+
+    // update min glue
+    if (solver->glue_ewma < solver->min_glue_ewma) solver->min_glue_ewma = solver->glue_ewma;
+
+    bool glue_trigger = solver->glue_ewma > (1.3 * solver->min_glue_ewma);
+    bool agility_trigger = solver->agility_ewma > 0.05 &&
+                           solver->conflicts_since_restart >= solver->restart_interval;
+    bool trigger = false;
+    if (glue_trigger) trigger = true;
+    else if (agility_trigger) trigger = true;
+    if (!trigger || solver->stable) return false;
+
+    // reset
+    solver->min_glue_ewma = INFINITY;
+    solver->conflicts_since_restart = 0;
+    return true;
+}
+
+But we need to keep rest of functionality? The reference also logs with kissat_extremely_verbose. They want a compact version? Provide this custom logic.
+
+Let's implement constants: INFINITY as huge double.
+
+Need macros: GET_OPTION, CONFLICTS, etc. Assume defined elsewhere.
+
+Also the original code had a call to kissat_reluctant_triggered for stable. We'll keep simple.
+
+Return bool.
+
+Add include <float.h> for INFINITY maybe.
+
+But we must put all code inside string. We'll write code minimal.
+
+Edge: min_glue_ewma should be initialized to HUGE_VAL when restart occurs.
+
+Ok.
+
+We'll produce JSON with code string.
+
+Now produce string with escaped newlines and quotes.
+
+Let's craft code:
+
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+  if (solver->glue_ewma < solver->min_glue_ewma)
+    solver->min_glue_ewma = solver->glue_ewma;
+  bool glue_trigger = solver->glue_ewma > (1.3 * solver->min_glue_ewma);
+  bool agility_trigger = solver->agility_ewma > 0.05 &&
+                         solver->conflicts_since_restart >= solver->restart_interval;
+  bool trigger = false;
+  if (glue_trigger)
+    trigger = true;
+  else if (agility_trigger)
+    trigger = true;
+  if (!trigger || solver->stable)
+    return false;
+  solver->min_glue_ewma = INFINITY;
+  solver->conflicts_since_restart = 0;
+  return true;
+}
+
+Need to include INFINITY. We'll assume <float.h>. Add #include <float.h> at top, but maybe irrelevant. We'll include comment to not break.
+
+We'll output that inside JSON string with \n escaped.
+
+Now craft JSON.
+
+Let's produce.
+
+Ensure JSON object: {"code":"..."} and only that.
+
+Make sure string has proper escaping for \n and quotes.
+
+Let's craft final string.
+
+We'll need to escape newline as \n and double quotes as \". There are no double quotes inside code though.
+
+Return final.
+
+Let's produce JSON.
+{"code":"bool kissat_restarting(kissat *solver) {\n  assert(solver->unassigned);\n  if (!GET_OPTION(restart))\n    return
+2025-11-17 18:48:29 - llmsat.utils.aws - INFO - trying to connect to db
+2025-11-17 18:48:30 - llmsat.utils.aws - INFO - connected to db
+2025-11-17 18:48:30 - llmsat.utils.aws - INFO - trying to connect to db
+2025-11-17 18:48:30 - llmsat.utils.aws - INFO - connected to db
+2025-11-17 18:48:30 - llmsat.utils.aws - INFO - Updating code result ab5df625bc76dbd4e163bed2dd888df828f90159bb93556525c31821b6541d46
+2025-11-17 18:48:31 - llmsat.utils.aws - INFO - Updated code result ab5df625bc76dbd4e163bed2dd888df828f90159bb93556525c31821b6541d46
+2025-11-17 18:48:58 - Coder - INFO - Code response:  */
+        // This content...
+
+Ok, the marker shows `// LLMSAT: start` and then code inserted; then `// LLMSAT: end`. The code after marker is currently a stub block that implements new restart logic. We need to replace it with the full implementation of the algorithm. Provide C/C++ code that implements the described restart logic into kissat_restarting. The reference implementation shows an older restart criteria. We'll produce new code accordingly.
+
+We'll craft a function `bool kissat_restarting(kissat *solver)` with the new logic. But the code inside has to fit within existing function. The marker encloses the block of code we generate; we should produce code that defines the new logic. We might keep the old logic but modify. The user says: "Replace the old restarts with this new logic, ensuring it is integrated with the rest of the solver (e.g. using existing data structures, conflict counters, and solver state such as `solver->stable`)." So we need to show code that implements the described algorithm, uses solver->conflicts etc.
+
+We also need to not include surrounding function header? In reference, the function is defined with signature already. The marker is inside the function; the code block presumably replaces whatever existed. In the original snippet, after // LLMSAT: start appears a block of code computing fast,slow glue, etc, and returns bool. That likely replaced previously whatever logic, but they might not have had old logic. So we need to replace that block with new logic.
+
+But the output must be just the code to replace content after // LLMSAT: start up to // LLMSAT: end. We don't do outside. So we produce code that will be inserted.
+
+Thus we generate the code snippet that implements restart logic described.
+
+We need to know variables:
+
+- `solver`: pointer to kissat struct.
+
+From reference we used AVERAGE, GET_OPTION, etc.
+
+We need `solver->conflicts`, `solver->limits.restart.conflicts`, `solver->stable`, etc.
+
+We need to record `glue_ewma`, `agility_ewma`, `min_glue_ewma_since_last_restart`, `conflicts_since_restart`, `restart_interval`.
+
+Where to keep these? There might be fields in solver struct; but we must assume they exist? The problem states: ensure integrated with rest of solver. So we assume there exists fields:
+
+- solver->glue_ewma
+- solver->agility_ewma
+- solver->min_glue_ewma_since_restart (maybe track min)
+- solver->conflicts_since_restart
+- solver->restart_interval
+- solver->stable
+
+But not sure if such exist. Since this is mock code for demonstration, we can define if not exist? We can't modify struct, but we can refer to fields. But risk if they don't exist. For safety we can use static local variables that persist across calls using static. But the algorithm refers to solver state; probably better to rely on solver fields; but we not know.
+
+We could compute min_glue_ewma_since_restart each restart; but we need to maintain it across conflicts. We can store it as a field in solver: solver->min_glue_ewma_since_restart.
+
+Define:
+
+```
+if (!solver->min_glue_ewma_since_restart) init.
+```
+
+But we can't create fields.
+
+Simplest: use static variable in function to track min.
+
+But static variable will reset when program restarts? Not across runs.
+
+However, restart logic needs to be correct across solver runs but across conflicts. So we can track using solver->glue_ewma but we need to store min value since last restart. We can use solver->glue_ewma as global? But need new field; maybe solver->min_glue_ewma.
+
+We can simulate by using static variable. That is acceptable for mock.
+
+Also, restart_interval: we need a value. We can define a static constant, say rest_interval = 1000 conflicts? Or get from solver->limits.restart.conflicts?
+
+But we need both conditions: "agility_ewma > 0.05 AND conflicts_since_restart >= restart_interval".
+
+We can use solver->conflicts_since_restart (assuming exists) else compute by counting.
+
+Simplify: we can compute if (solver->conflicts - solver->last_restart_conflict >= restart_interval). But we need to store last_restart_conflict. Could store static variable.
+
+Thus we produce code like:
+
+```
+static double min_glue_ewma_since_restart = 1e30;
+static unsigned last_restart_conflicts = 0;
+static const double restart_interval = 5000; // or from solver->limits.restart.conflicts
+
+if (solver->conflicts < last_restart_conflicts + restart_interval) return false; // conflict threshold
+```
+
+But we also need to check stable.
+
+Implement:
+
+```
+if (!GET_OPTION(restart) || solver->level == 0)
+2025-11-17 18:48:58 - Coder - ERROR - Unable to parse code from model response.
