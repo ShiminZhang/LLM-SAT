@@ -71,7 +71,7 @@ def atomic_append(file_path: str, content: str) -> None:
 def wrap_command_to_slurm(
     command: str,
     mem: str="8G",
-    time: str="00:00:50",
+    time: str="00:00:5000",
     nodes: int=1,
     ntasks: int=1,
     cpus_per_task: int=1,

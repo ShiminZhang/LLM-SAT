@@ -8,7 +8,7 @@ SAT2025_BENCHMARK_PATH = "benchmarks/SAT2025"
 PYENV_PATH = "~/.pyenv/versions/3.10.10/bin/python"
 
 class CodeStatus:
-    Pending = "pending"
+    Pending = "pending" # generating
     Generated = "generated"
     BuildFailed = "build_failed"
     Evaluating = "evaluating"
@@ -32,7 +32,7 @@ class AlgorithmResult:
     algorithm: str
     status: str
     last_updated: str
-    prompt: str
+    prompt: str # not implemented yet
     par2: float
     error_rate: float
     code_id_list: List[str] # list of code ids that have been generated for this algorithm

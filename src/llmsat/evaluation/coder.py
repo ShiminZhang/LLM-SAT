@@ -61,7 +61,7 @@ class Coder:
         algorithms = get_algorithm_result_of_status(status)
         return algorithms
 
-    def parse_response(self, response: str) -> str:
+    def parse_response(self, response: str) -> str: # <code> ... </code>
         # Prefer <code>...</code> tags first
         code_tag = re.search(r"<code[^>]*>([\s\S]*?)</code>", response, re.IGNORECASE)
         if code_tag:
@@ -140,7 +140,9 @@ class Coder:
         code = self.parse_response(code_response)
         return code
 
-    def create_prompt(self, algorithm: str) -> str:
+    def create_prompt(self, algorithm: str) -> str: # TODO: optimize
+        # original kissat
+        # TODO: kissat-MAB, AE-MAB
         kissat_restarting_function = """
         bool kissat_restarting (kissat *solver) {
             assert (solver->unassigned);

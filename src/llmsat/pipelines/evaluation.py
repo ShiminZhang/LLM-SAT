@@ -7,6 +7,7 @@ import subprocess
 import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+import argparse
 from llmsat.utils.aws import (
     get_algorithm_result,
     get_algorithm_result_of_status,
@@ -135,11 +136,13 @@ class EvaluationPipeline:
             update_algorithm_result(algorithm_result)
             logger.debug(f"Updated algorithm result par2={algorithm_result.par2} for algorithm_id={algorithm_id}")
         with open(get_solver_solving_times_path(algorithm_id, code_id), "w") as f:
-            json.dump(solving_times, f)
+            json.dump(solving_times, f)--
         logger.info(f"Wrote solving times to {get_solver_solving_times_path(algorithm_id, code_id)}")
+
+        # remove all the solvers
         return par2
 
-    def slurm_colloct_result(self, slurm_ids: List[str], code_id: str) -> None:
+    def slurm_collect_result(self, slurm_ids: List[str], code_id: str) -> None:
         activate_python_path = _get_activation_cmd()
         logger.info(f"Collecting SLURM results for code_id={code_id}, {len(slurm_ids)} jobs")
         logger.info(f"do nothing for now")
@@ -214,10 +217,10 @@ class EvaluationPipeline:
             return None
         return extracted
 
-    def build_solver(self, code_result: CodeResult) -> None:
+    def build_solver(self, code_result: CodeResult) -> str: # if success, return the solver path, otherwise return None
         logger.info(f"Building solver for code_result={code_result}")
         code = code_result.code
-        code = self.filter_code(code)
+        code = self.filter_code(code) # 
         if code is None:
             logger.error("Failed to find kissat_restarting function in code")
             return None
@@ -322,12 +325,12 @@ class EvaluationPipeline:
 
     def slurm_run_evaluate(self, solver_path: str, benchmark_path: str) -> None:
         # run the solver on the benchmark
-        activate_python_path = _get_activation_cmd()
+        # activate_python_path = _get_activation_cmd()
         logger.info(f"Submitting SLURM jobs for solver {solver_path} on benchmarks {benchmark_path}")
         slurm_ids = []
         for benchmark_file in os.listdir(benchmark_path):
             if benchmark_file.endswith(".cnf"):
-                command = f"{activate_python_path} && {solver_path}/kissat {benchmark_path}/{benchmark_file} > {solver_path}/{benchmark_file}.solving.log"
+                command = f"{solver_path}/kissat {benchmark_path}/{benchmark_file} > {solver_path}/{benchmark_file}.solving.log"
                 slurm_log = f"{solver_path}/{benchmark_file}.slurm.log"
                 slurm_cmd = wrap_command_to_slurm(command, output_file=slurm_log, job_name=f"solve_{benchmark_file}")
                 logger.debug(f"Submitting job with command: {slurm_cmd}")
@@ -337,7 +340,7 @@ class EvaluationPipeline:
                 slurm_ids.append(slurm_id)
         return slurm_ids
 
-    def run_single_solver(self, code_id: str) -> None:  # pragma: no cover - declaration only
+    def run_single_solver(self, code_id: str) -> None:  # process single code
         """Run evaluation for configured components."""
         code_result = get_code_result(code_id)
         if code_result.status == CodeStatus.BuildFailed:
@@ -349,7 +352,7 @@ class EvaluationPipeline:
         if solver_path is not None: # build successful
             logger.info(f"Solver built successfully: {solver_path}")
             slurm_ids = self.slurm_run_evaluate(solver_path, SAT2025_BENCHMARK_PATH)
-            self.slurm_colloct_result(slurm_ids, code_id)
+            self.slurm_collect_result(slurm_ids, code_id)
         else: # build failed
             code_result.status = CodeStatus.BuildFailed
             update_code_result(code_result) 
@@ -389,10 +392,24 @@ class EvaluationPipeline:
 
 def main():
     setup_logging()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--algorithm_id", type=str, default=None)
+    parser.add_argument("--first_n", type=int, default=None)
+    parser.add_argument("--run_all", action="store_true", default=False)
+    args = parser.parse_args()
     evaluation_pipeline = EvaluationPipeline()
     # evaluation_pipeline.run_all_solvers("1")
-    algorithms = get_algorithm_result_of_status(AlgorithmStatus.CodeGenerated)
-    for algorithm in algorithms[:1]:
+    if args.run_all:
+        assert args.algorithm_id is None, "Cannot specify both --algorithm_id and --run_all"
+        algorithms = get_algorithm_result_of_status(AlgorithmStatus.CodeGenerated)
+        if args.first_n is not None:
+            algorithms = algorithms[:args.first_n]
+    elif args.algorithm_id is not None:
+        assert args.first_n is None, "Cannot specify both --algorithm_id and --first_n"
+        algorithms = [get_algorithm_result(args.algorithm_id)]
+    else:
+        assert False, "Must specify either --run_all or --algorithm_id"
+    for algorithm in algorithms:
         # print(algorithm.algorithm)
         logger.info(algorithm.id)
         evaluation_pipeline.run_all_solvers(algorithm.id)
