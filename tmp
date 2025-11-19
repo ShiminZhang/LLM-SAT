@@ -1,383 +1,664 @@
-We have to output a JSON object with code string that will replace the content after // LLMSAT: start marker. So need to provide code implementing the described algorithm. We must ensure that code compiles and integrates into kissat. Implementation should be in C. The code snippet is inserted in the function kissat_restarting. We should modify the function to implement described hybrid EWMA restart. The original code snippet uses AVERAGE macro probably. The new code should:
-
-- After each conflict, record current glue_ewma and agility_ewma.
-- Track min_glue_ewma since last restart.
-- restart trigger: glue_ewma > 1.3 * min_glue_ewma (i.e., >30% higher than min)
-- restart trigger: agility_ewma > 0.05 and conflicts_since_restart >= restart_interval, only if stable false.
-- Only allow restarts when stable false. But spec in Tie-breaking says if restart triggered but stable true, defer until stable false. Also, only one restart per conflict.
-
-Also, if both triggers fire, glue wins.
-
-We need to implement these in code. We have access to solver structure. Need to track these values. Probably need fields in solver struct: double min_glue_ewma, double glue_ewma (current), double agility_ewma. And conflicts_since_restart, restart_interval.
-
-But since can't modify struct, we can assume fields exist? We can add static local variables? But restart function called per conflict? Wait, kissat_restarting called when conflict count reaches limit. So we can perform checks there.
-
-But we need to update min_glue_ewma, conflicts_since_restart on each conflict? Use other parts? Since we cannot modify other code, maybe we can rely on existing fields: solver->restart.counter? In kissat code, there is solver->restart.conflicts, etc. Let's scan known Kissat fields. I can approximate. In Kissat, there is solver->conflicts and solver->levels, solver->restart.conflicts and solver->restart.interval? Let's search memory.
-
-But we maybe can implement minimal logic: only perform restart based on solver->glue_ewma and solver->agility_ewma. But need to store min_glue_ewma and conflicts_since_restart.
-
-However we might not have direct access to these fields. We could store them as static variables inside function or static global. But that would not survive across calls? static inside function persists across calls. Let's do that.
-
-We also need to track conflicts_since_restart: each time kissat_restarting returns true, restart occurs. But we need to compute conflicts_since_restart for second trigger: if agility_ewma > 0.05 and conflicts_since_restart >= restart_interval and stable false.
-
-We can maintain static int conflicts_since_restart; increment when conflict occurs? But we need to increment each conflict, not each restart? But we only know when conflict occurs if kissat_restarting called. So we can increment static conflicts_since_restart when returning false? but restart could be triggered earlier? Actually kissat_restarting called when conflict count reaches limit. So it's not called on every conflict. It's called to decide restart after a limit number of conflicts? Wait typical implementation: restart strategy monitors conflict counts and triggers restart when threshold reached. That function will be called after each conflict to decide whether to restart. But given the snippet, I think it's called each conflict to decide restart after incremented conflicts count.
-
-Therefore we can use static int conflicts_since_restart; increment each call when solver->conflicts increments? We can compare current conflicts vs previous?
-
-Simpler: We maintain static int conflicts_since_restart; increment every time solver->conflicts (the global conflict counter) is increased. But inside function we know the current conflicts value: solver->conflicts - but we need previous. We'll need static variable prev_conflicts to compute delta.
-
-Similarly for min_glue_ewma: track min value seen since last restart. We'll need to store static double min_glue_ewma_initial perhaps.
-
-Let's draft code:
-
-static double min_glue_after_restart = 0.0;
-static int first_time = 1;
-static int reset_after_restart = 0;
-
-Also static int conflicts_since_restart, prev_conflicts;
- static double prev_glue_ewma, prev_agility_ewma;
-
-But we will need to compute current glue_ewma via AVERAGE macro? The code snippet earlier uses AVERAGE(fast_glue) etc. In original code, there are macros: AVERAGE(fast_glue). But we can assume we have macros: solver->fast_glue, solver->slow_glue. But no glue_ewma variable.
-
-In Kissat, glue_ewma refers to EWMA of clause glue. There might be fields solver->glue_ewma, solver->agility_ewma? I can search memory: but can't. Instead we can compute them as average of glue? maybe macros exist
-2025-11-17 18:47:06 - Coder - ERROR - Unable to parse code from model response.
-2025-11-17 18:47:32 - Coder - INFO - Code response:  */
-    //...
-We need to replace code after // LLMSAT: start marker. Provide minified JSON with code string.
-
-We create restart function: similar to reference but implementing algorithm spec: track min_glue_ewma since last restart, compute EWMA of glue and agility. Need variables in solver: maybe solver->statistics? Assume solver struct has fields: glue_ewma, agility_ewma, min_glue_ewma, conflict_since_restart, restart_interval, stable. We need restart logic per spec: if glue_ewma > 1.3 * min_glue_ewma => restart; if agility_ewma > 0.05 and conflicts_since_restart >= restart_interval => restart; only if stable==false otherwise defer. If both triggers, prioritize glue_ewma.
-
-We need to update min_glue_ewma after restart.
-
-Return bool.
-
-Provide code. Use placeholder types: AVERAGE macro? Instead use existing fields.
-
-Simplify: assume solver has double glue_ewma, agility_ewma, min_glue_ewma; int conflicts_since_restart, restart_interval; bool stable; bool GET_OPTION(restart)? We'll call GET_OPTION(restart). Use kissat_restarting function signature. For printing, we may use kissat_extremely_verbose.
-
-Implement:
-
-{
- if (!GET_OPTION(restart)) return false;
- if (!solver->level) return false;
- if (CONFLICTS < solver->limits.restart.conflicts) return false;
-
- // update min_glue_ewma
- if (solver->glue_ewma < solver->min_glue_ewma) solver->min_glue_ewma = solver->glue_ewma;
-
- bool trigger_glue = solver->glue_ewma > 1.3 * solver->min_glue_ewma;
- bool trigger_agility = (solver->agility_ewma > 0.05) && (solver->conflicts_since_restart >= solver->restart_interval);
-
- if (!solver->stable && (trigger_glue || trigger_agility)) {
-   if (trigger_glue) {
-       kissat_extremely_verbose(solver,"glue restart triggered");
-   } else {
-       kissat_extremely_verbose(solver,"agility restart triggered");
-   }
-   // reset min glue ewma
-   solver->min_glue_ewma = solver->glue_ewma;
-   solver->conflicts_since_restart = 0;
-   return true;
- } 
- else if (solver->stable && (trigger_glue || trigger_agility)) {
-   // defer
-   return false;
- }
- return false;
-
-}
-
-Also maybe need to return kissat_reluctant_triggered for stable case. Use same as reference: if solver->stable return kissat_reluctant_triggered... but we need to adjust. We'll replicate: if (solver->stable) return kissat_reluctant_triggered(&solver->reluctant);
-
-But spec says only allow restarts when stable is false; if triggers but stable true, defer until stable false, thus no restart now.
-
-We'll just return false.
-
-Let's craft code.
-
-Need to include necessary headers? Code snippet will be inserted after start marker. Provide full function body as in reference.
-
-We'll output code string.
-
-Ensure JSON escaping: use \n etc. Provide single-line string with escaped newlines and double quotes.
-
-Write code as raw code; minify; but ok.
-
-Let's produce the JSON.assistantfinaljson
-{"code":"bool kissat_restarting (kissat *solver) { if (!GET_OPTION (restart)) return false; if (!solver->level) return false; if (CONFLICTS < solver->limits.restart.conflicts) return false; if (solver->glue_ewma < solver->min_glue_ewma) solver->min_glue_ewma = solver->glue_ewma; bool trigger_glue = solver->glue_ewma > 1.3 * solver->min_glue_ewma; bool trigger_agility = (solver->agility_ewma > 0.05) && (solver->conflicts_since_restart >= solver->restart_interval); if (!solver->stable && (trigger_glue || trigger_agility)) { if (trigger_glue) kissat_extremely_verbose(solver, \"glue restart triggered\"); else kissat_extremely_verbose(solver, \"agility restart triggered\"); solver->min_glue_ewma = solver->glue_ewma; solver->conflicts_since_restart = 0; return true; } return false; }"}
-2025-11-17 18:47:32 - llmsat.utils.aws - INFO - trying to connect to db
-2025-11-17 18:47:33 - llmsat.utils.aws - INFO - connected to db
-2025-11-17 18:47:33 - llmsat.utils.aws - INFO - trying to connect to db
-2025-11-17 18:47:33 - llmsat.utils.aws - INFO - connected to db
-2025-11-17 18:47:33 - llmsat.utils.aws - INFO - Updating code result 43187f52ef5f096d104f2c8d1ac8068cbdb9609c399e367823c2ec8694bfa9fc
-2025-11-17 18:47:34 - llmsat.utils.aws - INFO - Updated code result 43187f52ef5f096d104f2c8d1ac8068cbdb9609c399e367823c2ec8694bfa9fc
-2025-11-17 18:48:01 - Coder - INFO - Code response:  */
-We need to output code that replaces after LLMSAT start marker. We need to implement algorithm described: Hybrid EWMA Agility-Glue Adaptive Restarts.
-
-We should write code in C consistent with Kissat code style. The rest of solver is not available, but we implement a function that triggers restart based on glue and agility EMAs, conflicts_since_restart, restart_interval, stable flag, min_glue_ewma since last restart etc. Let's produce function that returns bool and updates variables.
-
-We need to adapt to Kissat style: function bool kissat_restarting(kissat* solver). Already partial code provided, we replace the body after // LLMSAT: start with our implementation.
-
-We need to use solver fields: solver->glue_ewma, solver->agility_ewma, solver->conflicts_since_restart, solver->restart_interval, solver->stable, solver->min_glue_ewma, maybe solver->reluctant? For simplicity, we just implement the logic. We might compute trigger.
-
-Return true if restart needed.
-
-Simplify: if !GET_OPTION(restart) or !solver->level or CONFLICTS < restart_conflicts then false. Then check triggers:
-
-bool glue_trigger = solver->glue_ewma > 1.3 * solver->min_glue_ewma;
-
-bool agility_trigger = solver->agility_ewma > 0.05 && solver->conflicts_since_restart >= solver->restart_interval;
-
-If both triggers true, glue has priority. If stable is true, no restart. Else restart.
-
-After restart, update min_glue_ewma to current glue_ewma? In actual algorithm, record min after restart. But we can just reset min_glue_ewma = solver->glue_ewma.
-
-Implement.
-
-Also use kissat_extremely_verbose for debug.
-
-We need to use macros and data as expected: solver->glue_ewma, solver->agility_ewma, solver->conflicts_since_restart, solver->restart_interval, solver->stable, solver->min_glue_ewma, CONFLICTS? In Kissat code, there is a macro CONFLICTS that returns solver->conflicts? Use solver->conflicts maybe.
-
-Simplify: Use solver->conflicts as conflicts.
-
-Implementation.
-
-We must produce code as string to be inserted after // LLMSAT: start marker. So final output JSON string containing entire source code after marker.
-
-We need to provide the code portion only for replacement.
-
-The code likely fits within function bool kissat_restarting(kissat *solver). The body after marker will replace the existing code block. We'll output entire implementation body, but need to maintain function signature and possibly other braces. Provided original had code until return (limit <= fast); We will replace the code after marker with ours, but keep rest like return false; etc? The marker indicates start of new code after comment. We have:
-
-// LLMSAT: start
-  const double fast = AVERAGE (fast_glue);
-  ...
-  return (limit <= fast);
-// LLMSAT: end
-} // function end
-
-So we need to replace inside that block all code. So final code should be the new implementation inside that part. Should include braces maybe?
-
-We just output the code snippet, which is body of function. So we output code exactly those lines. Provide lines: compute triggers etc. Ensure compile.
-
-Let's craft:
-
-bool kissat_restarting(kissat* solver){
-   assert(solver->unassigned);
-   if (!GET_OPTION(restart))
-     return false;
-   if (!solver->level)
-     return false;
-   if (CONFLICTS < solver->limits.restart.conflicts)
-     return false;
-   if (solver->stable)
-     return false; // stable, no restart
-   // update min_glue_ewma
-   if (!solver->min_glue_ewma || solver->glue_ewma < solver->min_glue_ewma)
-     solver->min_glue_ewma = solver->glue_ewma;
-   bool glue_trigger = solver->glue_ewma > 1.3 * solver->min_glue_ewma;
-   bool agility_trigger = solver->agility_ewma > 0.05 &&
-                          solver->conflicts_since_restart >= solver->restart_interval;
-   bool trigger = glue_trigger || agility_trigger;
-   if (!trigger)
-     return false;
-   if (glue_trigger)
-     kissat_extremely_verbose(solver, "glue_ewma=%g exceeds 1.3*min_glue_ewma=%g, restart", solver->glue_ewma, 1.3*solver->min_glue_ewma);
-   else
-     kissat_extremely_verbose(solver, "agility_ewma=%g threshold=0.05 and conflicts_since_restart=%zu>=restart_interval=%zu, restart", solver->agility_ewma, solver
-2025-11-17 18:48:01 - Coder - ERROR - Unable to parse code from model response.
-2025-11-17 18:48:29 - Coder - INFO - Code response:  */
-We need to generate C code that replaces after // LLMSAT: start marker. Should implement algorithm described.
-
-We need to compute after each conflict record glue_ewma and agility_ewma; track min_glue_ewma since last restart; if glue_ewma > 1.3 * min_glue_ewma or agility_ewma > 0.05 and conflicts_since_restart >= restart_interval and stable is false, trigger restart.
-
-We must return single line JSON {'code': "<source>"}. Code inside string with proper escaping.
-
-We assume existence of Kissat struct with fields: double glue_ewma, agility_ewma, conflicts_since_restart, restart_interval, stable; maybe other fields. We'll just manipulate.
-
-Function signature bool kissat_restarting(kissat *solver). We'll implement using given reference; modify conditions.
-
-Simplify: compute min_glue_ewma stored in solver->min_glue_ewma.
-
-We need to update min_glue_ewma each conflict: if (solver->glue_ewma < solver->min_glue_ewma) solver->min_glue_ewma = solver->glue_ewma;
-
-When restart occurs, reset min_glue_ewma to large value maybe INF.
-
-But focus just restart triggering.
-
-Implement:
-
-bool kissat_restarting(kissat *solver) {
-    assert(solver->unassigned);
-    if (!GET_OPTION(restart)) return false;
-    if (!solver->level) return false;
-    if (CONFLICTS < solver->limits.restart.conflicts) return false;
-
-    // update min glue
-    if (solver->glue_ewma < solver->min_glue_ewma) solver->min_glue_ewma = solver->glue_ewma;
-
-    bool glue_trigger = solver->glue_ewma > (1.3 * solver->min_glue_ewma);
-    bool agility_trigger = solver->agility_ewma > 0.05 &&
-                           solver->conflicts_since_restart >= solver->restart_interval;
-    bool trigger = false;
-    if (glue_trigger) trigger = true;
-    else if (agility_trigger) trigger = true;
-    if (!trigger || solver->stable) return false;
-
-    // reset
-    solver->min_glue_ewma = INFINITY;
-    solver->conflicts_since_restart = 0;
-    return true;
-}
-
-But we need to keep rest of functionality? The reference also logs with kissat_extremely_verbose. They want a compact version? Provide this custom logic.
-
-Let's implement constants: INFINITY as huge double.
-
-Need macros: GET_OPTION, CONFLICTS, etc. Assume defined elsewhere.
-
-Also the original code had a call to kissat_reluctant_triggered for stable. We'll keep simple.
-
-Return bool.
-
-Add include <float.h> for INFINITY maybe.
-
-But we must put all code inside string. We'll write code minimal.
-
-Edge: min_glue_ewma should be initialized to HUGE_VAL when restart occurs.
-
-Ok.
-
-We'll produce JSON with code string.
-
-Now produce string with escaped newlines and quotes.
-
-Let's craft code:
-
-bool kissat_restarting(kissat *solver) {
-  assert(solver->unassigned);
-  if (!GET_OPTION(restart))
-    return false;
-  if (!solver->level)
-    return false;
-  if (CONFLICTS < solver->limits.restart.conflicts)
-    return false;
-  if (solver->glue_ewma < solver->min_glue_ewma)
-    solver->min_glue_ewma = solver->glue_ewma;
-  bool glue_trigger = solver->glue_ewma > (1.3 * solver->min_glue_ewma);
-  bool agility_trigger = solver->agility_ewma > 0.05 &&
-                         solver->conflicts_since_restart >= solver->restart_interval;
-  bool trigger = false;
-  if (glue_trigger)
-    trigger = true;
-  else if (agility_trigger)
-    trigger = true;
-  if (!trigger || solver->stable)
-    return false;
-  solver->min_glue_ewma = INFINITY;
-  solver->conflicts_since_restart = 0;
-  return true;
-}
-
-Need to include INFINITY. We'll assume <float.h>. Add #include <float.h> at top, but maybe irrelevant. We'll include comment to not break.
-
-We'll output that inside JSON string with \n escaped.
-
-Now craft JSON.
-
-Let's produce.
-
-Ensure JSON object: {"code":"..."} and only that.
-
-Make sure string has proper escaping for \n and quotes.
-
-Let's craft final string.
-
-We'll need to escape newline as \n and double quotes as \". There are no double quotes inside code though.
-
-Return final.
-
-Let's produce JSON.
-{"code":"bool kissat_restarting(kissat *solver) {\n  assert(solver->unassigned);\n  if (!GET_OPTION(restart))\n    return
-2025-11-17 18:48:29 - llmsat.utils.aws - INFO - trying to connect to db
-2025-11-17 18:48:30 - llmsat.utils.aws - INFO - connected to db
-2025-11-17 18:48:30 - llmsat.utils.aws - INFO - trying to connect to db
-2025-11-17 18:48:30 - llmsat.utils.aws - INFO - connected to db
-2025-11-17 18:48:30 - llmsat.utils.aws - INFO - Updating code result ab5df625bc76dbd4e163bed2dd888df828f90159bb93556525c31821b6541d46
-2025-11-17 18:48:31 - llmsat.utils.aws - INFO - Updated code result ab5df625bc76dbd4e163bed2dd888df828f90159bb93556525c31821b6541d46
-2025-11-17 18:48:58 - Coder - INFO - Code response:  */
-        // This content...
-
-Ok, the marker shows `// LLMSAT: start` and then code inserted; then `// LLMSAT: end`. The code after marker is currently a stub block that implements new restart logic. We need to replace it with the full implementation of the algorithm. Provide C/C++ code that implements the described restart logic into kissat_restarting. The reference implementation shows an older restart criteria. We'll produce new code accordingly.
-
-We'll craft a function `bool kissat_restarting(kissat *solver)` with the new logic. But the code inside has to fit within existing function. The marker encloses the block of code we generate; we should produce code that defines the new logic. We might keep the old logic but modify. The user says: "Replace the old restarts with this new logic, ensuring it is integrated with the rest of the solver (e.g. using existing data structures, conflict counters, and solver state such as `solver->stable`)." So we need to show code that implements the described algorithm, uses solver->conflicts etc.
-
-We also need to not include surrounding function header? In reference, the function is defined with signature already. The marker is inside the function; the code block presumably replaces whatever existed. In the original snippet, after // LLMSAT: start appears a block of code computing fast,slow glue, etc, and returns bool. That likely replaced previously whatever logic, but they might not have had old logic. So we need to replace that block with new logic.
-
-But the output must be just the code to replace content after // LLMSAT: start up to // LLMSAT: end. We don't do outside. So we produce code that will be inserted.
-
-Thus we generate the code snippet that implements restart logic described.
-
-We need to know variables:
-
-- `solver`: pointer to kissat struct.
-
-From reference we used AVERAGE, GET_OPTION, etc.
-
-We need `solver->conflicts`, `solver->limits.restart.conflicts`, `solver->stable`, etc.
-
-We need to record `glue_ewma`, `agility_ewma`, `min_glue_ewma_since_last_restart`, `conflicts_since_restart`, `restart_interval`.
-
-Where to keep these? There might be fields in solver struct; but we must assume they exist? The problem states: ensure integrated with rest of solver. So we assume there exists fields:
-
-- solver->glue_ewma
-- solver->agility_ewma
-- solver->min_glue_ewma_since_restart (maybe track min)
-- solver->conflicts_since_restart
-- solver->restart_interval
-- solver->stable
-
-But not sure if such exist. Since this is mock code for demonstration, we can define if not exist? We can't modify struct, but we can refer to fields. But risk if they don't exist. For safety we can use static local variables that persist across calls using static. But the algorithm refers to solver state; probably better to rely on solver fields; but we not know.
-
-We could compute min_glue_ewma_since_restart each restart; but we need to maintain it across conflicts. We can store it as a field in solver: solver->min_glue_ewma_since_restart.
-
-Define:
-
-```
-if (!solver->min_glue_ewma_since_restart) init.
-```
-
-But we can't create fields.
-
-Simplest: use static variable in function to track min.
-
-But static variable will reset when program restarts? Not across runs.
-
-However, restart logic needs to be correct across solver runs but across conflicts. So we can track using solver->glue_ewma but we need to store min value since last restart. We can use solver->glue_ewma as global? But need new field; maybe solver->min_glue_ewma.
-
-We can simulate by using static variable. That is acceptable for mock.
-
-Also, restart_interval: we need a value. We can define a static constant, say rest_interval = 1000 conflicts? Or get from solver->limits.restart.conflicts?
-
-But we need both conditions: "agility_ewma > 0.05 AND conflicts_since_restart >= restart_interval".
-
-We can use solver->conflicts_since_restart (assuming exists) else compute by counting.
-
-Simplify: we can compute if (solver->conflicts - solver->last_restart_conflict >= restart_interval). But we need to store last_restart_conflict. Could store static variable.
-
-Thus we produce code like:
-
-```
-static double min_glue_ewma_since_restart = 1e30;
-static unsigned last_restart_conflicts = 0;
-static const double restart_interval = 5000; // or from solver->limits.restart.conflicts
-
-if (solver->conflicts < last_restart_conflicts + restart_interval) return false; // conflict threshold
-```
-
-But we also need to check stable.
-
-Implement:
-
-```
-if (!GET_OPTION(restart) || solver->level == 0)
-2025-11-17 18:48:58 - Coder - ERROR - Unable to parse code from model response.
+Found 64 algorithms to evaluate
+0f4aa66ce93bd1979e91f867848007a3badd57172c15f5abb8858192c7946843
+bbae2544ec73016dba32db99f90bdfcc335cd76370e645bf7d251bbc102c0768
+41e75a2344b071915af0c08854a20ba7884181628fcaf85d351a8f20ff995d4e
+199ba5b9367c44d71993c180f42cebfd8e95d12a58116bcd076027d4056152e1
+418a0ee8e07fd6f2c940bec97140a34e8c59dfed50f3014760cbef4bf2fdb5fb
+f65b31893c1f61075947794dc633aef8c392265a8f99e66891857f983d67f51e
+41625d469713c51c992934a471f8ac499f668322252ba3daef42eb396afab20a
+846bc923841406286f30169adde6aaa9c59319367a5978e9be74d18672d17a1c
+9eafb027a8fe4c756038aed68a4f31d3cf23502d03729e6a4fe2c4737424d70f
+8a1ccfb4f98215cf73cf8216130811fb3c7e57c37adf2a8226addf63561c6f2f
+e27e1414958e2d77f751f912e2057d0bab83ad580e8df48d7f9f7f3557e9b69d
+eb9d3e63052dd698e421f0a3f3d676008cf5f9bcf43acdb6c773a68719385b9b
+c0104ab1857bc92d62a0539b01e79728ad187e90c552a87d3d5a5f4aae61f8c7
+29903ac296214a2ceadd318072afdd10cca3ef390f73cc2f1142ce0a9028f5fe
+be059b723e6fded6c11e142d62d95e474201775db0bf00614b7f970069a1741b
+ccaa73b2b1f2276e0d5b7ac74acdf0c6a245b4ae48d687be18d9ce355b2da200
+db28dc93c914e4784b7427618206f489b93cdcb2fc869a354f2af8380635491f
+05bfa2475a554dc70ed38b391edc49f46e6a107be64a777041dca756ca987077
+75c6bea25c9345be5935ba5dcc1e9bb9a33495b22a4481f616a0237bab35d837
+1c45ec3dcca1d6238fc6c67a991f66f15711c987b088e23fbdc09c6ecb513990
+37ffc930341f7b3a07e41ef555d988fe169468a99d71b00f45b60e7c34dc72fe
+9b89075f35ac3c2319208c8c6b76cea0d4b416c840db7d6e9f1f0a15bbf7fa13
+eca3030debfcd020f14107d12630f6dec40eebb912624876b809d5610372bde7
+ae69389b28acfa515daad5c02e35255a90f2a6e4b2171457d10e8d4fe43ebc1e
+35c38e5dff5122811583e17543bf9eaa9544de965d34d0af78041ac175a7c30e
+2d83d9eb23f01588b91963367c0d15d13b6218caa463b722e52adcc08ba31558
+8a9851c56952e50629ca7634d3e9f16042cbf5fbb5cfec56385eaa509a54d041
+508cdf6fb5f127446dc6040d982d80457000cac2fce880e9007b956a2c4f898c
+c4694e2729521e7e4d45365980a7bdfaa2e858bbd6b0a0ecd5cb633218e52737
+4c6196f21dde63de19013c5654f782a82ebe191bb28ca738c523978eda827a44
+743121e8d3f2fb3f06c0fa77dc1547663167112d19d34d1506a1d561bc2fe26f
+57c7ae884a886bf80d285215c84960571150266ec5306134d7163b5f8a496de4
+7a1b03d309d89d95080b85291052614fdd93a772849739725a7dde190d29345c
+14a6249a2a905d2c6eca13fc550e08d5b05ccfc5f27448550cc517ffd3dc9ed1
+8a3b992c6be3f01f3f2cd2d267fa022042c076ec3ff05a3ce76f6e56d9722ea1
+69e2375297ac4eef9853f73678bcb6e7c68c70e9eb42f8162869a1b709ccec9f
+66264af141aabe92d663a75b48a1112f443bfcc9113185bf1e3d02ee686e665d
+7a17fa908390e461f5ec76e517ac90ce033c20c2ca9208f2d25e1013ae80b347
+1eebb28ecc4c7d384bbae0e3d91a4993b31048b593755cb74fba831ddd6fd209
+c72a550abfd966d5aefc5c5a2828ff649be90161230ae1631e42bc196c48601b
+89a7b55c73c543a7fb0c64ec4ca5e4b89e528f7157ffa4b42b9928c34a468c1b
+98844d9e853507a4b4a99dd92282beac46c07fac86a54cbedd6dcb14346e6a88
+7da3c7eb7f564cb866c996acb2b420d4b664063f547976080026b0de3406d857
+82d28f2c4a797a5c68086d8b3c3fef78d0b9dd226ac78c1974088e7514e9c0ee
+e3fb527ddd4884f83c38380788ea19a521eef5d68434e98c49a672a34a7dbe68
+94411c01f102af46419932e5e7937eb4c796a441747546969f49f0cb11df236b
+b276b4352cf784e32f19d75e5d7db0c8924a4d78b9a73cbaf823061aa766738a
+7f400738d55d7bc5cbb4cbc1601555a76344f13eccae14c563fccb1c4cd9d342
+c5a3b0002f3e20ad6aaefa5e2f6080861efad00dcfa797c4cd4791b15097181e
+69ebc94b83f962f85f28178fa5bae76a5f2abc10bf2b3c462ec31130a2b36880
+7ee710a563bb3e1b8f38ee21d92c4213ee7f58d262cc2f0ff18f96a3c25da7ac
+80ba17b7095767154e176d726a7ac552fb6f423875506ee4111544f02232eb14
+91880a0a4fb31f74bbbbb17a9249a8077104edc2ee2e8ddfd685a6d1779d6ae5
+e067b6d7662578bd53d1c29d651ef0200ad77efaed386f25e854c7e5920ebbfc
+e8ae0ba7ac51dc6c8aa5e6ea6092de8b4be5d67cd690dd9a3dd11364faf051d0
+c8cc00c659f132c93a126edf40d87624a0082d3aca81263157a4f94f4628ad90
+ddd6c7096e1c91cd35f8e3df54c5cb68b8abc61e2cffac5cc63cc3fe8b377ba2
+ef0af0a077a9862fd6a9a73eaa9040f1904feb5d65095efff6ad306453e7be96
+3bc0cff3bea65074b5087b72344ebb2b68da2e2d0ea37e682feb847a767c40b5
+f85115e4653f35eb527577160572f03d938fd02045ccc2a135223386ab5fcf15
+537f36fd8c7bd5f4916e39de4726152c5ed2014132711521c118047f9feebe61
+f5ec60e310666f3fd2c4992fbfa35d004af4f45b2ff9a659078273cfaea5c960
+038faeb51ef44f7b62abe522b2da7d8052ce9ed2971ec1dfc079aab1ceedabe2
+e17c379b3ba1241fecb90aebdf65ce2141a8aa2ee252dbe5ea8da84e27158353
+Found 0 algorithms evaluating
+Found 411 codes generated but not evaluated
+3e3251fc344b8348712279d525f43500e5f6055bb6165dd3f8ec118541b80525 None
+1e983d59fc54979a9b0e1a63a7d2d4ff906e7a8da34924f0c8d6057075fced12 None
+ab365c1fb32c3489fd0e2e6a55dc24b33ac6c932273d1da2a3f4c5bc90ed70ad None
+d99921d56212f3d2b8844d5d2557a256d968667f77e21c2b642846ddd9a19ca1 None
+5030299da098f481b2d8b7a9aa30b11e95248dde34a8ff5bcf38f7e5ec7c5e83 None
+f93a8a92ddcc019d59e4d2470878a05574449ed4fa94959a2c5cb6e9aa7fbf37 None
+151483d6ab918f99ee7d40b1f01344d8ffbc195bd1a0c13522c091507abeb9cb None
+1af27b4299dd006624cda3f832e5cfbff0b061677b3c609b6d727214ba03c3af None
+8b31ba0550539a093f6e4ec8a8220917aa2fa2258b8c8105ae866169916930de None
+956e5925d4dc75ee43bc52bb62bd575146b90f1ae201d15c11a9df618a4ea2e6 None
+038633018c067505802230b98d8b783a8e45a32f69ed652f4674d622b45bf227 None
+084a380aabea24e2c63966be1e9fa7f2dffa49579f85676ea2cf403f444f6140 None
+62c868fa6313be7e05ddd8b706ef7f69359a2e423ae45229cea3c2ede5ae4f18 None
+807f756e2c6d895bd070ee51887764a7ee9219bfcb8b9aae3e1fcc956fde7905 None
+f40a2b400f7ece7996ca3e42e0d2664e2df05742037cc7417f2d4d16af884b62 None
+0ecc49ff37c424e740c36db0786abf70dac46d72521111f8edc8973309716080 None
+f3add9eff7a8871914b0fc0c0c24f866246c6abb0d3d892546d9e27f455bee2e None
+ad10b350109b0822bc369b7ba256e82561167998711683b43161f5472d91f5d4 None
+489e1d32579ca0918e169a2f8db7caa379792ce48b4513843a4b6b21da2ff21f None
+6782374a441b0c90f16bfc59ee069c7671d0a48c95d298a7b73c63c3f67be67a None
+ca1e9119ee759539ae308357c27bc607e2f2abb7bcf8847cd26470a8194172a6 None
+9a90d78d5fe6e2d7dc5d75b5a21483bf564afab799ede545f131861f68447a6f None
+432d45f1ac26f3dbe8b943edbe2541fe23364eda4543ee58142fa2739008c9a5 None
+5ccc15f79434ade53674270895d45c9abdeaee9229d7eb832d70c598f9370728 None
+6ef1fe4d6db9135ba1db6c18687fb6005951cbe1697211196f20c55f33648b50 None
+65572e0b3981de97b365cf28c04a6eed5d9e1c49a35db13cc46c907e912be8fe None
+d0891e79e0a67bc5a8455e44f015e30b8b9a55fe4b495921f1b28f7c0dcb9cdc None
+ddb9d1e458453d34e798ef636d4010f63c29e7d8431f389f39a0adb7618094ef None
+2e38eecaca2f3582f851f928dd8dd9121b4fc7556f0787bdfd3f04eb6a857bf5 None
+c51dfe1113c851c14cfc8211129a2a789b8bec157b32957edef065e42cd7dd80 None
+913c8f55d2e29babdb41b5c5a785ed4e6c0a34dd97f7c461ed40c457715ed72c None
+2c45058e12b45a4044d9c223b439628eadcce1c63a13690c578458f7829ebf9b None
+3ca419822933b1dd9c1d7be774d0e9f508baaaf3d3042a448b8e5c3aa99b139f None
+802fff3bbbd55fbee562cfbb85391c01ea42edaa2bd2040fe1ef515f82e96f02 None
+a23440fa9c08d5ba603d4186ed49d5f73a80f3273e396bcf893cd7b0e4e5f801 None
+f32cbdc40b5d4a00f0d68f8a6ca4d1a0b36fe6e36d36462cd3cad4f85eab570f None
+03e3dff294aedbfc0db868a9e43899da820f8f121257f4a3bfbcc8fc10a34b62 None
+934136ab53d58a900080779d78c826da7bbc2a5b0b861d84b0093dcabf93ea7e None
+9330f4ec12e06d9523680a4b17eab5c1e97d1541e9aa5164bf369af003dc7262 None
+707ec85d5d024cfe6d5ee61eb06b1cd99a12d0c60769bbd3fb7a3b57fd3a95f9 None
+b05161f38ab0e36f3027efec636c20b6aa2652e82286d007c1c248879ad4ec8d None
+e3a92302976bd4df289af390ebca0ecb34640012e35ce4d3e2761b2d22c91398 None
+2bb8f908b597626c20c9711985cdccb4b585f32c21ea22bca6ca8d8d215020e9 None
+e6f87ca14da11e0c24f29a9a2e32e9c20414acb333a211eeb7dcd00014cdf99a None
+6ae6324eb701750a6615c9734fa1aac0ea3598d162fe811fed09df9ed54dac4c None
+4f279ff2d314526141ef7bd52aa799eb9a7b9fd64a0cd1841035f58ae9f6b1f2 None
+22a8e5686a5b83a8a7c0c22864bcb366a4eb7f914ce070c158942e6f117d6500 None
+46fd5095b0d5f662f29334ec98c3692cf4ce6454eb3f8d5260a5f74355899501 None
+1422b5fc9fa9afb9a80d290c93de806a614fa5c7f66d5d5baf131a1b9d2b0565 None
+1ded72a28cc2f99e81cfb5e166d0d5e79f8ca5aa2e54750f0c3c7a968f9ee864 None
+ab5df625bc76dbd4e163bed2dd888df828f90159bb93556525c31821b6541d46 None
+a4c33de250fd0016725fd2cbdf6ee525f3008bedd2e048e223d070b735695fa6 None
+5dde1f5f0d83115c79bf6a0cbeedacb54d0d4de911a011a4061bbd7fd5e0e378 None
+3059e98004c1a9dbdd79357e51605311ee060002c67e5b7712d666efe7a2fd2b None
+bf378f29d472c5a9b744279d8cd4bf7864d913c604c7a45d42c201ed3a4c72ec None
+643dff871bacd86cdbe9e8bdf3463c4aa739f958bd458ff6c61a728e20c44de7 None
+654d48d43460b5b98ea04f686386256c3b37b8c81b0931dbb08b89eb8037881f None
+cd9d636823b98f32a3bcd6a6e934fccc0eee4ea89e34df7207d1d30b0e3451a9 None
+0c7ef1b3a0a647aa85d34fa9647ac4665bdd5b35cd3420d4a52e5b1172e61332 None
+dffd12119377bc2f160d059785bd4b8f16cf83d56d828a6293ea5b0f122f10fe None
+c7b1cea372eda86da7b6c9d7eac215d2ccd2bf34e1a576a11124ba8e0d7a1760 None
+071bda2839961d30ab4b546d083ae8bc7b2f0fbb8be3053bf329983516b072fd None
+8f0786c92df04a0e3013eee2eb3915e06319f209af64e8f22c7624fc2bbaa748 None
+1a71b70f620ee86bc60bc26002dc6ce34720504160c50117181aa3595b6683a5 None
+a6b4a9718fba9ad8dac8c4ec9f0ddfeed3c9c5171cd8d021cd928ada1c2fb07a None
+9fb8d9404d975186ee2c4c9348d1d515f951683df930de97ec289f9b4b11824f None
+a847875a21f8f0873db4a9bb363c13ef02d919558cbc58384757b1f33e4635a1 None
+d15fd6ddf8e57ea461072604d14a8ad03b480025a13b2893f531e163908998e2 None
+e044e8754c36a1554b83e63aac1edaeb9d105254d4d210f165f17ecbcfe6674c None
+e176575f10ff3a21230df5ec30c180243669ee2e6b05b70cc8b8f50a3cd1d2d2 None
+6a50507fbf87cad133cc681344651cdcdad368ae944346b3b0826656320a4c8f None
+7975e00d2f3d74419818cc909eed258e354d40a3e743b5a226a6e9d549d03a0f None
+06fea7b2a7d0facae596e8ccb9baf5a2ae3f9a295053f8e247dc888ddd02db5e None
+1fd7d23a43e4d1b39a1306a4197f98981e7fb5fa2eec1a61f1dcbe22e991a071 None
+b0149d6462cd9f894eec9dd325bdb88fab4fc4fff0259b3590da8f6abf737a04 None
+90fd79821f5c5e17c01337604b9ec7a3151804db6c50a2db5e282f7422237d55 None
+2371b07d0180b63e1f203d1345e48a0de3eecb5470dc9ec21e55ffe43fe4c096 None
+1d665487e17c1c9f9c7acf840f29f6d79e56ae9f450f50fd23bb83f88a2991db None
+67eb36f09940edd7848184013b0f3fc5141dbd2e959bde49f5368ba6656932ef None
+ed4d3e5ebc5c0070eb17aca99de9a7ee60bf0956ec7e744ddc7951612f58ae0b None
+f91a4aeb298836a5a43037a97c9b1fbdf2ab325adf8c045ed785895015eace46 None
+0ee231833ba0e7ae71b4fc38c331049e4ae792c803a8e66377c663cbe2c4cfc3 None
+14c5d1b478cd78b543ebc1efb95c6bd5425fa8855d6b22740f81df27b38dd7fc None
+135a59a616545a350c5ab980a1814fb7e7e90cf1973931ea46e4a7f1cb9da784 None
+5e2004322495b049d8e23aa41899a8fecb74ce82058974cb2f1a98ac5117b9bf None
+c61e54b562fa57b241fb2bce5edb18dc8bea93aff51a1109e5d7b00a2466b6d7 None
+fe88c0ecf01b490bbb83d0e03e9e8f9b5b6d328350750ccf82c6a1d55b77d6de None
+82329c6720cb006baafebda393a710f2ff34f34a4030adcb61c611d9f563875b None
+fdb748f7486f8c5c3900cef9ef1a98e6f7336709df9a3d28ce8966379bf72738 None
+61dcb1ca7d6ba80cf813306ea8faa1221beccf01750cb42ca02defc024c7ee9b None
+eedca4283c5ede298e19a745c606a22f34ce4fe4c2c799b48957f82bc0226c17 None
+6093626e4a52c98888801c858e64383233969735428daab056b6b40024d45097 None
+1adfd8cd31322adc6009be38be126ca8df964812e34e14dba9b29e3f5ca07f42 None
+daa452370a8336aead6c257efb32e8115d4d1a4e4608698522c9353e79d63a78 None
+9c09375e90ff3836791d2384535c6f549bde1e314f5556149dc257b5e225f247 None
+c19289c2e01cdaa89676c6d83af03974ec2b9c9f676476bfa91ff72dc6351d6a None
+39738976115e66025b23bd14ef5a28a414b2b58bb518d9f783a195c49c90a0cf None
+1bc3ea2c31e7fea3878568c79f4fee059ccdb14a1c868587c168008e82866b83 None
+7e7cd896bd1aea0f4d2d2dc3c6da002e7d70fd419953d413cf81e0c81ffef0f1 None
+6667f77d536aad02b100bdfe6c3523055f0f24a0c17a1201032352f66c3f7868 None
+289fc606162c3eafe559d477701eceb54e72ca7c25d475abd0579f640acf6726 None
+d24de0ecf2d350bcf9bd03f3a8c4b0ed7c72a70819f06a48c17a1a510be3c907 None
+7ea8b8ebea069907047799dc282f92b76bb9f08270e28a476733a39dc85ef91d None
+7ffacb9e3b7b4b95e1ea5e4a83979dd4844204605199f3ed46c89caf4be6d769 None
+f912caec2c1abe6aef2f47f643ff45a8bdd65f5337fbe84d6f9587fbc1ef52aa None
+18ea7981f2617981fa8c0211a816fee5e017c9d195aabc2a1cf65f703844924f None
+64b87747ecd176fad1be63b63dad8e8345c42ced70c8d1e765323e50aac384f9 None
+cbb6512e3746fbe08c101e7bb6bd90a4888fb785595990e7181f8f7d1b6712a4 None
+861dba10a1d8f9289aa3aab02ef0f29681fa041cc83b21d4f7e3212a922fb91d None
+0c098ee1f23d0197c5508023e02e090f83229b9b1c4b5db255d76214aa6e6768 None
+ca9b819bf141839d10f38a0f3d3f84457ee0b054bc01f5591b24b096c9268bdc None
+073815e9eee8c9e4b474ad760963e2db3dcc40edab5e251c9b1eaeae3d32a0b9 None
+01c59e22fdd7b2c105ee6478601a768e2132310eb2bb74c7f267023b19cae5bd None
+1c5af8cd8ed36420c50aa23c8ac5bfbe200adf76b7012e509bbe9e37ab7a45ac None
+6890aa1a1a6d7565974fc894837ac67e2906deb35c31295331ca6e4ade91bea9 None
+6b229419f93ec0d3130f1768a9303c52966aae5900f10fcff1f68d49f6d92c17 None
+cf1ffb2112ef2b0971bd89d1c5e52b8948e582bde95a3f728afc64c08e8a1912 None
+3afa9f610b0c50a09952d34368229cbe64c064b9875bd70aa750165ed614cd52 None
+3d452938ac62a157df8cf2606579ddbb459946bb767e1059dd2bd24c34eb1cc4 None
+29d569311588b2eac14a4127efa52b3de79719e6b2eed0c9de884ea89a0c80a9 None
+f0a9e62251962f8ad6d944cba13d1afb20797cecff8875a5a9a5844afbfd23fd None
+5b460edc9d447e3d10ede25ba364dacca4bc7df821b76d4c592e3f4a5f8566d1 None
+14d7e542a622d8e3eb8663661cabcc28ac054bf6fdbafebd28a66b2377606baf None
+e7460fdf78d1023a3451b71fbf1856cf7ebaea72ef0ad7366b273a69f96ec2d1 None
+dc2eb12be0e02da30f7cdd232215c71cade285c42de8421a16b9e7a46305e6df None
+2c196c4cffb809a8be15d2582e4ffe104363bd00c921e4bf5d0bbfc2b01d56ce None
+b02acf22c1a60174f852b1f4e1d25eec53fb165ea7dd45e4960304812d110e72 None
+f8322355f612d648b1ddfc4a193e7e1e9a8d4cf20d955631aec74c95b956275d None
+084b34e1ee923086131a39c2c5f41baddef5a9af143c6f11f49907feda1295f3 None
+5385cbbe89656f75b6ca4bbc06edc05ccd4b29fd2e04c2d4b6210ca55e03862d None
+1b3a6b4618c660349df6678c2f5bd4ac9c5f9ff72d1657f3833fe0f414f537e0 None
+67460a871ba1e1bf5bdfe8a00ced060ffe0c73bf93f7137ecfeefbbabc578c4e None
+dd4662604220665a8d980a83e066fd06373f61285d771b933815531217040c01 None
+83b2a76ace73471dc22c384d8481d030432a48c51bc1c78cccd0fed34ddc708f None
+538334b11d7c80e847ca8659759a8191a59d887ab2d36e452b338216cabf62ec None
+5e5361b6591a237948a3f57129f1f7a24c499333e3a85a4fbfe1d3f6659c4384 None
+f0e37b370ca8cd77df3c06392e5a9d518da31e2a0141165ab6054199f83feed4 None
+d0ab0b1a2ac4142654b0f271b4fd9eec17d447a1ba352e7f9127ff8e41255670 None
+5a1a72ec7f08945ca9c1225652cf20bb48781a88c43528d7250a18863ff20e45 None
+43925f04c14837ae850758c9fdf5e54961b8c4157971b774cad374658c544985 None
+50caf48d568c86dd6d722b44d6c8f2e60b554c9962097a473129bf0d23c992c8 None
+7d6e4ae2cf8db545715940d73f7b8f55019a49640ebb3f10aebf219454c63386 None
+cc6ec9847ececba59688cac0930ab0f646997c0e6b71ed8bc39bcaa8c52911ed None
+ca1541d704317a7e301807e66e226c2d58f72c1f21e3f71fc9ae99b08e854cd5 None
+29203ddc43e8e45792ce178376affbdedc51a45d0f6a37ebe509cce1f6832801 None
+83929ee551259d857ef371d09f6861ce1bb5c76b1472acdf03e5e5e010c5ec9c None
+4af7190ab05e3e3b119d1499cad39b05af2cb74f97ac0c1f73d03ef4539895b0 None
+1cbb9dedf00b7b45511d0d92860ee84521c7d527c7ffbee7092770b3ec262e9e None
+c0c84c695a2034e585cdb56a7b2f8e4a6309d2f16ea731176d13fb2c0bff7833 None
+6b779690734c4e8f69e5b8fac89ad07f8a215a31d453aa3558bba92c82c216b6 None
+733311fc25aedef56edfdc3a39cdbca7132265f40225e3da80e77ba2bbc35850 None
+97e1f39ace02479e27c9d447dbeaf2be7d448a14ac7e2649d68c717ae319730a None
+8223f7609f103425353048c1dd2fd8106fecaf336796186f6685cd79d514dc9b None
+46a2c8a5f4d0e95db75d7ef15d14ec0af9f0574db597bc75a1959d14b0b3a985 None
+bffe7baa732ac61135167ba5ff79f4bbf970881741562254facd208b054e6c81 None
+2bf641c426bde0d4bf08ae0b1f3d9b5c6b33931865e4f7ce38d18a967d823fdc None
+3df0d0acb4a88acca53578f77cc1e4d7be27cf0dc33c26542c47d7b2fc92c5ed None
+9d4edd013df8bbfc91801eb079f29c2c5fb290c4a55ff7238d4c64c9e6643511 None
+55eba3cf72d637537d39f8ee521495f00e545b6bf620b3b219de33728397dd8d None
+d2093791bc5a229e1fc121b9d73cfca75d791265b5930452c5079b47961d236c None
+a63d02f270c7f0cd000645fcbea9f4515f56b79168cdb6942291a93440703759 None
+79ae15f5787d3274bf0c60b61e19a867115db41d526683ee335091d845597d42 None
+26c339cc70ea84ece681f8200592d018575eb2d70ba1bee903cf7d4ca7ad8f15 None
+eb80bf4e4793b1c8904e27947ca0e3e3b725d3f6298e3571185df2b411f06349 None
+e3dcb27483f52f1dbca269a63ae4a327618a774c565e5a0ecf5069c9f194e00f None
+70e32451df3f77842d0274c019400c1bd8442f13d120ad647c0494b03a9efa46 None
+67d05afa0eeac9365db219a9724b35f32223700262689fd6407fe25e043b45e5 None
+5ec71abfc530c8b6784259b4f4a9ff7018c2e76307d244fcf234c6a282c79381 None
+38834ec1fd19fb57883f0e4eaf253519c50b02d459f0e6d5a63275b2d173ed5b None
+8b231882a380bb8560d46ec36a82ce6b0c32902d4f5ef50b6f26ce2c547cbe31 None
+fd0ae95b694d5e08e4019464bf4588281a7da2bddd6a3673d205abac0b0391fa None
+843b24e99bfd4dcedc8190fbe9d993df20b4e9c3ba7191568c9e436b4a4786de None
+0735e6f2999e7734279e922dd5ff7e21cd570ceb68021afe5a6c3ac7cf76191f None
+4d0fcccf3b184f41919db786362f43b9d68c2c66ca14af023c032cfdec70cea1 None
+241a009b4d94846624d19095eddfc385f7f90fe75600193679eaf3df6b04a04d None
+095fd0bcd215131510c1f87fab0313829ccd01fe22a4dbce314831afaad8b7f5 None
+5cfb44ef5e30dc5e930881d3e83f94d7dff9666388fa1dce0a69ad9fbcc65a3b None
+1bc14860cfb4faff54ba10f51d27a1a3f3b50d5044b976b1f8e654363756573c None
+622e8706eb8f53dde7ed1d7d2e9a9363ff3fd4f10131166f487fa0efcb112863 None
+6a8aad417f8ab8f14955e83a6da0ec2313c608c2d1cc9c81a91bd207b089d3c8 None
+aef35c7801373b206d7a9e9cf2b288d389222737584ec4fc5eca749ccd23efe4 None
+c0229fe2c4b5fe4b67959e8b71a0946903be60d65c9fcfd526470ebeaa780973 None
+affd4c3b3a3ffb3f51ecaa76ee625f8fba9a68276dcd64c821d446a9bf8b5c6f None
+d8e0989333a12c528afa49fae37ad3780a86b863bc778958044a6074d282de1e None
+0dce5809412090ee2753aa2f1174ed8619501feb7f3306596826a48badb53448 None
+4de2a5094b622c0602dd3718322caa28ef24a8e1bbcf307793da37faf801b827 None
+19dff1d18e3f2693849afaa5b108481a0bf4ac933dbfaebe994ce908ac31ecd2 None
+5ec1f7e700f37c3d0b2981d04855fc34b94aaa15457b05ca571817442d228f81 None
+5be6b461063f2ea15410bfcb8f55514c756d976b2f0727e706671243c9af9dc5 None
+2a1720ed1125f8de1ae1346d64cbfc1f4932eb22b98aa311c5e3653ecc42c956 None
+2d7158b609d93fc42438fedd5e7f5c4634ffd1856df5f33ae710d07d863f728c None
+b851ef9b78413c1b50573c1db71be1203e780ced551028cd8e5b4991554890db None
+b2ed33c616b07dfd7487277807d423e36778ad3ea5a808f4bb17358ddfa88d74 None
+33cc21e040d7282f02528e26522f4b68161b6ad2a0c1b3e33c5e7c0c040b273b None
+22edbe8d156fb048843e8f2cc6ef179cfea0b50dd8d6c17d3f5bc914b19234d9 None
+5bdc813e7720be4025f79ff4d6d7c7d6b5d6e39f11b69d2baba0748f20bb67f9 None
+c7b65e6d4abca409261492d2eb47b6a53f6a287723ea1e012b6de3aa09467a9c None
+b271fae14f19744b0ce601085a81f979a4556f90acceb5f36efc1ded4080f0ec None
+de831b3786e79d1ee3602fcf62bfa060ad66944e875542e2fcaa97abf5474839 None
+74d40cb095fc7d1a205cefc48aedc3c466b592b5e0d382121b2e98c282ed0205 None
+60023863472eadb454748020dccc07e30a5435a1df31fa261e507b85e985be1a None
+beb70f8006686deb8fd82713e350756ab1e9f2d1de63b8d5c58ca1fe4b50cf50 None
+24ea7d63e509da608194d6bff391023e1f4941a1d4652097244855bc6ab4615d None
+0fd2f32914f77ba9f5a24ed2a2d8f9c51ec33584760506d8d0d2efe9f6b75a15 None
+115016c1c66cb130eb312362a40869e623cd65226b3e3a0abea7abd55338b44e None
+b6abc549c74d4afff57fd15eed552d0f3ae870afe218a9c546594ccff300409e None
+b16e97884236682a680e927e44c4f93d8e3f701538ad6569611a553d1b6c51dd None
+990dfb6ca8a6b24030f6438e6330368d15e1a3cfa22804e67c6149ac3645c64a None
+8c2565668b6a2cfd3ea6287d0305851a57b89333cd55a9cb29ff0b9c694cbd3f None
+5aabced7db64be08e5f96e4a29fc6e74e2c07f172bc2e01d217ec7aa666db785 None
+4ff8855940f0baadeb9b2452dc924e79686f2ce50dc8ed610b25c6e1b1fd557a None
+658aaa399834f0628f4ec4bc4db3a5b1b31c2f57522202de2ebaad2072ad47ea None
+0fb4fc3e6bde90f55f512b1c3e17fb78a1cf04e6cdc59d27b1e452e775dc81d4 None
+ce9a1002862451fae23acb82573ac83909d3d8a1357267845f69a07769eaacc2 None
+282d2048aaf1258dc6cfcffd5a7f3878819b25e5d4317c950c8ba8d3900695ed None
+7fcecfc4b629dd9e10a9629360f3cb0c66b5be0b74be1295e1115d3f339de662 None
+e8d640171da7cbb6ad77ab2595dd7713fb5f832f5bd4e2b5157cc287a8f633de None
+39ed6b23772d55707ba812fb72bf9d0f279a096b23559d4805d57ccb5fdfd564 None
+fe0f0b46af06fee3c40d2260aed7784a69e2ace2d5e0cb68d702efb21146eaca None
+599789971f6694b3b84043de43d8cf9192b4a122714379b0b81cc29900bca7ef None
+46e9d11b7aca189316eed6c3e57acb6e45129821a28d65718ca7481e0a2e834b None
+1d56748f3661ab83e7d8f623f907c4b55540e92140cecb36d5b60d55df71ca83 None
+1c231ee8a6b778c0cd273fc8f4036e8f8344643f12ad7b4925d99575b80bfb99 None
+f796a8b23bdab693b03949233b3bff9b755b3e371054ab8377b4b87f95225d8d None
+05abdbc60193dc785c5de7cff90c2de1df8768f0ae6704a71111abc81de4bee7 None
+1e9889a578f9f9ae46d49f68c72579a2177ab7598f9950123ff430b0eb517af1 None
+850fc98f2d42482ed4f6d53fd453f32d5218adbc0448f09f65f22c842219c916 None
+6e81d133d34956ff40e226c9f087f27ced895c3e062e661e323cf1f375863344 None
+dcdb9360e1ebb4693b6687d08f5324b548129751798d87c046fd0c8c5cff5cda None
+0dadca71401c1cf4ee9e619d4cd098af9d3e323651ff13b441145c0afd318518 None
+bf920faac8dab687af8aa55e08c94b8f1e2ec28a1492adf76fba6a5b442834c9 None
+02b8413c137b5a953262ecb7da6e264400a58c889985f71565be0dc907befbf0 None
+e276ed9de9ce619a7ff4bf5fc62efddac615d71b3c5741bd00f3e210d1edb84b None
+5a7b1eeb2131bb791181c7338f5aa8a2faf600ad693ad74de9eb47afc2f1187a None
+18a2c4c72766e84c85fb3fa1c789f3acde28e3ccb101376a78143230d5ccd44a None
+20e0d1f1be3ba5e1ea78654d0af5cd43d3417eb7be6bfab18209278772ddb0f4 None
+c14ad4f755d871cc6febd1f9ea25aed012bc9beadc5fb63277a6ef670ebe637a None
+2c06a579cac2f79725e54133332e43917176c86f4e53fe63a67f2ae73b4a9f96 None
+d0ff1b152cbcc1bb8c1af1df082350ddf182dd3b50b883241b1b3644202a9ac2 None
+fe1f149c9376fc110055ed2968c8748daa0ca19afdcbe933c3701ab042850209 None
+c408d67eda133973d4a263ebd0e13efde615455101b088efb4c63b1950123411 None
+133d1ad288a0b131e10235eb64adfb69713eadc5709c617e8d77517188f19d27 None
+61343248aeb80ce99df59639e93a4192fa90a8906cb3d088ecfce3e652774d74 None
+dd20a8c809603f79ee7bc3128706e2ec6f6458ce9d82f6d4b8a3087db57c4470 None
+dff99deca01a550ee17e0c6131bb1becbf7c71ce3a787701843d2425ce1736b6 None
+1d6dc0baf9f95daacba8af300bc41a8f8a19ff83e19ba6dd5531e86d1a28fb20 None
+00d829d4ffb6ccf00f9c275faab7e85ca197851cd9a7155288224d24c8d89098 None
+d846c522abe22c664195a6c2e1b1ad0223add4fbac11075de1fc2d431e004800 None
+2e58ab90aa42a01fa1aa59ea4d8a3fec5dfa2a9e25a5cd119423f3feaa8797f1 None
+5f07bbd04c57ae8e121ffe103fcf9f3d3ec8af9d6cbc424e442087535da68c04 None
+f9f4075b4b0b94cecfe6f006872ed301d611b681bc3bf5810acc70d423a067af None
+50416668907589e4f11cda000ac8a58365be78c9040cbd12e6393e51525860d5 None
+dc9c0e81be3f34ef790987b2688448dd1d60fa2a0a0c1a60191259a2ab4b1cf8 None
+ba7705521d5c8a3a4a2365f3675609b5c4b294f8b62a77a0a9083ea535c956ed None
+90fff74c7b49ebfb18c11704c847887d3f860589000633c59411165973b60c46 None
+1b4d63a81e69ceabbe117a1f9f3a55e5eaf637d6134319383bdfb251a3c2dbf2 None
+6c0f679bb17a6553d52d0b0340f81939ef64fdf29c20eba17a89eb6d2d54cc7c None
+67500185fee5f8cd06c460a02690a95d1af57e1b3a93ec993e844cfb958322d6 None
+ac3a5115f2138c7f2087e5018d3717a589df3094b2f8b222f239df32255d4d36 None
+607213a07a1940ba60f9c41d55e3b6e46a1cb40d7009d9d764348b56b74dde2c None
+eeab9e03ffed514d9294b3b3ad66331009b08895e3d976b42f1aa44ec6b15e54 None
+30668150894d7c69bcf573b64eda0ba43d1343af91f3be3bac32bcf97099e921 None
+7e2ff0e07643cf4c7f4f7c3613dd4324c601446eeb37981776288476577040ab None
+ba3cb9ed8b3606d3b8f8768f9b6d1943809670704ea36f71472b40cff1bac150 None
+41927e7e49bfc18af6c84d62167a46d7db309bc2246107bcde97f482e0aa1fb5 None
+b0c9ab9f14db88b3215303b93c738851d9e5906a3631ee95c25ea121ea9f05f7 None
+68600ff89f55760b02a58dc3512d88173e5a20f3fcc221be638d0fd6f9fb9cc3 None
+54a9468998914bf5f49d408c77f72d1f8db413b70d2da1ad378f90b72fd3bf84 None
+a05f06d5784706275667a635b6b442afd0c184f65db90c6bb9e104f4f86cd46f None
+4f3effabbf7b6f45280468265e0d2155246bf8d760ae53178fa53fc6540cff79 None
+6c7408ce133e5354e730d7ace97fe20ab9340f7f0638181f233dd4555cc65d44 None
+e087541835396ae9769fe1d7c106a660dd5aa5166522a067fa36f71921f9ce1b None
+5d6389d24c954634d86809cfb05054e594fb41ead4d9205692b27a97b6d64ddf None
+4c8c60e8c6e225ee9ea876bdc5a656d53ca070bdea0d989affb5a620b41b301f None
+fc7cfcddcac95f297c642848388ac615c7c02cc5f5489b20c546775c8a5adb3b None
+e33cb69be876c98417caa5188f3bab2b7fc662a4b3e47aac7892bddf059e5a73 None
+c2a23fa98613916e9fbaa8f4a130acf23afe5237621bfc73601f0d95e05af587 None
+aedc7b811d9107817a9931595d170dd82be985db3b0ca31fe35eaf714f70c4ed None
+4f8881c5c3e43598b3ecfe413cf6063f05ef740d063af792d1a6df9b17cb974e None
+e3d039e808ea1652303a77d240326d183128ec0edf62b1d872ed32f08d1e7a37 None
+be71d9a5604b9ed88de0d819a85bde36882f8290483e3581d0ef74f0e4a6bc4c None
+e72a497a78b76e4d4bf6d077903fcc8d73bbc7612899db1001c73ff16f354df5 None
+f523493211d406de5c6698f13aa505d7aa8531fe22a4baac5bb7385e33636683 None
+2977c378c060419048437dfc446cd4d3c20ebbadeca39e4a34573ae3506a4148 None
+fde81d6be6b5488ff9ee4689a2284811a2784dd989df6fc135444ab6993c844e None
+0e6a51dc9cb586a00c2fb8b45b38bbbcde987c40df2bfe0952b16da9cb9eb5cc None
+469a4e720f944dca4f7561fb4bfb52c4bc033396b899fd73340abccd1106514c None
+55356ccfce0a96952b9504f9fe6d56744f3c79663c8763cc78e26838c25c3658 None
+2806a3c115929ef31a4f03a8cbb33785e0930fa3e509a2c8e5bbfa4052a64d88 None
+71144ef8ec7566e9ef9046e033a974f774247d62a9c943ec9b6013770a2aa907 None
+b65cb8100a8fab9440b0e067878e7cd4225da8c20f97f0a559facf41baa60ead None
+29be698398b003dd48a2f5112a3a7f3d7a8ac60892b9a05eb3c40b80f81cb11d None
+5cef6f4f0dd6b82c2f6e8a7bed0bcb001e1bc28f06abd094eb5bc35d1e03217f None
+355b705f001ef1942429d0eac0bd3b62e87c247eb45021878d42efe621df6046 None
+8010260fbfb7b54bf801086e8b105f8a448cbff0e50cff71dc6e0c9d3e8dcbe6 None
+248181b80a22c5164a4ebec364e73209aff172f327e1e1fb1aab145a9eff706d None
+c6adfebe0c2e246635be4444926c24fab3c7b275a4fc09397da52d619275a410 None
+216cfb868ed9691a8f3a2a9e041f0da49905c82057927fdfbfee8e07fdc1438f None
+b14f0a70928f3f06a8b01edc443da660f527b358b9d5a49c2bc171a57e168ae0 None
+62aa4ed7747fe7426087f7cda38792f70de7b9cfb1e5a4ea65bbe75829a10605 None
+78372dc2d7aff7866100337c59aa3ece1507cefced15b081890cdbb2db80e87b None
+9a5a1219f61d7611853c829d16ff0b9698ce89ba030f7f2db31ffe611c98a977 None
+65dec48ccd785eab9626c3e4e78566775faa852cb2be84fde6e0df9336a52f71 None
+eb5c086eebefecd794736080428b0ad936286d8e29d3be5891e759bb8680ea24 None
+1dc341ba3595a13aae8e092dc730a9b6bf21a40dbdfc1b3d0c69e88f884045ac None
+61ccd17ede484708a02c21eed71e6f828b73845aea7732689f66bf2d009928a6 None
+f75e61a41d583cb2769a4e4a1c652fa6122b6578e824c9da8c5fe336b590f04e None
+2abeefac74f935a14f8bf22826e922d2d0a9e090da28f8f92a2f833c1eb2d489 None
+2c4bc76507006e8077b5dc7718832c4af88adba9006788fa872e20dd13e6dac9 None
+9b0e3ecbaf255e1d797badfa0c808edbb9ce4956339e9b3e3a355dae60c7ebe8 None
+907a0befe6c3b5ef1199515443ac60318c4f6ba757f83b2290900f7f24e9817b None
+6ba2fa788d2ecf1d6259b162da4a10507b54b480e3abbb7aebfafd487ac7079f None
+3b0a7f6c8493cb424013e9cf769b660678cbc38e6ef5b0845dd053cd5edfa17f None
+9871e37e07106d399f77bb1d7d03164d7df9c1d263e895d48dccf41683f02f31 None
+554968b52e5c008e7002f03a986f41d24b98ef48bee18977d5c1e6698c07821f None
+f120aba3bd66d9af096c8a9f6598db9537dfd7389bceccb5ab668cb759658f54 None
+493b8e38c67c526b91d564ba6520b4cf2f60989f3fb34bef80ffe8d2f89aae70 None
+048589459cb7c00441be4be6dff81993d007b43d18085297c62bea336c1cdbb1 None
+837373d7d9f36d36f0dbe00fff5bfa203a8b2b3f83a8864f37cb146b2c03a17a None
+ef7e7e89334e329547e374ca6eee714155f10003e313df1fb80753688e1972a4 None
+c501e02580e1d877e6e881052148f4f9fb4cca150e15893762a5b1ca29605f31 None
+e2d6b332617eccf36ea5f080914243fdd0ebfcec7d11c0a8e382cea1f5cdd0ad None
+96934456f98ecbc482f56c0df9758659263a25ed5a5ff85734abe32769f76784 None
+d408d9703c66f894628b45c4f08ae96a93f294a5fadd662338d636ce817506fa None
+cdb74a2d9d186951c8df05112a1fec1ead4677dd2a5f05f37e9a347a8f09fe85 None
+72fe6bdaa590cb7fe69875de73b1df4b338f4e8dd23bbe5f689a121dba5fe70d None
+3c2a05d4d85368f8a0079d5d11d50f70c35b0d7db3aa11412a5f0c095b858e7a None
+2c3c6ecf182cc85cc7fb9d9fa36ce9fbe674a5129baef3cd54c6d886f9db85b7 None
+916cd188cd072f39939d00dd82fe6525226c7a20b2e731176ac2a1b8c9e51f81 None
+64af1aaa375110023c094ad4132eba4ea34cade7b3b3954ff51b09358a3eb40d None
+e71a38610727cfabfcb30f3f07027204150d7a3caac223edf5a0fab294fd930a None
+777faa8d838adff6f453a9b457bcb7dbf662d5f450364dd6e663c36efbbbe8cb None
+4e72f2b5c090cc4ed44567b53bc34493b055ccf3c33ba519f02b6e89b62c6da3 None
+cafa0f6c93db0cd9c5b4cb32086e9233494d624dcc8c071a44ae1516210b0e2b None
+ee3db340aa55afc3808fa141af660cf0a0451e0f8101a53af8660697a6fba575 None
+aa760c367d3c178e53aed9f537584b385567e3eeeb8f7253eaa175967c52f3ad None
+6d948d8167f0524e3b43381c84761dbf2cb8e42e88157cfc611fde1c12a04274 None
+ba1dd592a3036dbee155d2256980e7c066284908a83a9386c3895139c9f3daf4 None
+d4e260340195d45ca25cedc174bd8372373ca4846112de0fa3104209a5f93ffd None
+3307d61a53993c5b10d8c38c6d47c5403b87409def9087887e92c7aa4d7e033e None
+d2486843b3e838639315eafd482c4df6c8fdc52f1583d9964cc1bd805d564210 None
+b4a91f9be519efa8b4efd439c39f68f3f0c5b31471b392ac89270afd10da253f None
+b242dd6b5172e4ddab6f69602b9790a7fa99e425b816fbfe6b16095877f7f18b None
+5ae4346596c9dabc8fad8ce637324f8d7c1062257116d75641d961e67cd2b033 None
+0ef8243228b31c45ffbdccb0a74925b8993e234515370f266b949b55099f929f None
+1b5ae211a6d5f72ea57425b8d19f1c32fdc491873f17514dfabd822a82351e30 None
+b3754b485d2c1c8a9883272e0c8d228fb1da5c52bbff207dcffeb734c82fdbb5 None
+f5f50b4642f9d9d737ef9691b1409cd562b2282afd409c6cb6709bf5ab9cfdbb None
+d12566adab7627eaa3e986df22c60d9efd618d919e2f531560ded4eaca0a7985 None
+4c92a9a09ba61a1923fdf484e2aac4979667ed50f4440f8c9a5119cf245d10c8 None
+a6b43f537d4139881849908c9a0a1edd89bb504f328efd40d710d7c6ba20fd95 None
+4271b3fb8bf4c2d61f9a283af24532f08ef34bf4cbf74e6b6dc6c55c03cb6ce5 None
+4edb362a8b668bae622adc164bd39e0c3424cc9035b155d865bfe7c5d579fee5 None
+29b7bef7318d907a9653c31f6c51af993dc51c3a85386e44d40dba47666ddc2f None
+e55a78aff4d613a470f9b8e260bf5f8cae49ab5676505a75171a66b47e71d416 None
+73a96a337661dc762ca4c305ebf579667909ec018335964e4b0f54da1dfc17f2 None
+b5b0d52b0cecfb6bfd50022a3f4626aa1ff33eab22cc78989cbacbe68f7a8b2d None
+4991459a45983518903b488bb662a00e821c14a204f94ec5a182cdc8931b2d5d None
+5a278da9b86062765bc6dcb24d102c09a5daf9bcfd4f3780e311be4762ac4c9f None
+6201111b83a0cb5b0922cb37cc442b9a40e24e3b1ce100a4bb204f4c63fd2ac0 None
+ee84dc0371814d1b3acbf19c9307393af20f0bab34c9602fbd2ef4ebb6cf412b None
+236aaadbdebc0d558467a238ceba4d77c674bea8d5c07ab79878a8e2de818d22 None
+6b208976938f46d960b9e7cb667068cc601e18342e3f29b8a5b621aaea87fab8 None
+ee2a4958d31d4a816ad7304223c3a05906ba7674b641d24260ace03b272ddfec None
+88749ee7c6561e75352913100eca78d03c08ad9c7643e6bbbc2d562cbcda9da0 None
+b6de030eeced074cf7dc99be88c87f7ba3f9c4c68bbae268050d5c5ef03b2b73 None
+c2d04d6bf4c9c864a50e4ffa15016c58831fe0213eb4d687d5f128eec0800670 None
+fc1c6bc7263d0177caa5b1813296f9c2cef235abbf3162f0f4d517d4b624b05d None
+7841062a26a73484c897cae20c263d0d5794fd11191a4747cff401c70534b3dd None
+b040fef0302bebd6ef12ef288fcf94d39129745526e54ba34e246dd22559b5b5 None
+18daa6cd8ebc212a25f93964d5efe4180cf428f874c2f8d86e577b1660084eb4 None
+bf78d6021ca73ef82119a164315436a4dd5b68a7c0d828baa66416d5d9506d1d None
+5529b66ace20031e4a74d94702e4a1edaba881d698a0c97f136b58fec3a327f9 None
+352e34372d3b9922ef9fec5592c2c2d3995549e1db8d8363398f60bea64f3241 None
+f9909589ec6137adcd96363b812dce30291350319bc61b8bd8c724ac7cec161d None
+cb8817fcab75bfe28add53649359879d341a2467d94feb50a5b0642228130c25 None
+28ade52d278d13687bae2bdae331028f5dcba86e2f6ee97180e160dcf97855c3 None
+d1871ff02a3df18ce61b3d60c8d44b04ae6cf725d63957fdd0880fdb4d42ccc6 None
+2298c7e25cea0c53495df975fe0847b413374166dad286e9810e85ed33350e93 None
+c8c09534720a6345b5df7a1195bc29e32de9a3492e62479fbaa2fdbc30f6444f None
+d2694f78a29ec95165ebf41c0114985673ce4e5cb4af4949385dc2da37cd07c4 None
+b0e08854b86b55ee569545e44d5fb3bb2089e9b23ca799396d8f0b72bab03ec0 None
+8150d1ddf6721c0fdfb59554e3ba2ce7ce125f6c462b741f4960df1e02de6d10 None
+11dcb196d9f4333eeaf489cdf3841b52f064c570b3d23a516c63061f3044cb93 None
+86b2f8bf5136c1109270e971e21d1bc01003cc7faa1b754c2ccfa3d42606a21e None
+7b0a0eaf68e1ce90e9344f97c6bc5131968d4298d32db00a074188b0b31ad160 None
+b202d2daf24edb8be3c5640e41bb57086b71ffce9ec0d48741845a37dd94ebf7 None
+f3060ab54607b74fe7e023d5164bbc741e19adefc2ec375d5cba3fa03b07c68b None
+811609a0ad72351c59d9e7c9cd822d8c987d3d8862a61b353417d668376def93 None
+2d7b6522abf792f15c7baee31faa7c4b36a631f04b8b609a4f26d3560d3e962d None
+10ffd48ca4e431089e1565c5a71cb676dcaf7cdb5063d5b8e0f550efea863150 None
+492bac3e0b0ba98ea1ba7638f2e9a29d526dc2d3595a941765d62ba058c0e348 None
+341e27910d1f54156977cae95540e4dff3db59350aa84e48e309ee8c45102cc0 None
+a099294409768c99a30648faa876b6e112c564a192d3e99d4cfc33a5c16b32fa None
+a9115ec8e8d168d19c292017f32db8aa5c9f0e808eb1645c57c99299614ee080 None
+9d90a9035dd21fe4e7a20f2e77db341ce95bfde2404fce1b36d30f17150708ea None
+ddf7802f0f4342b2214e29b92baf5e84e5ba19ef05e1a7a24602c5ef7f265ea3 None
+53d83ea6581d916edb3e0edc587c308b7ab9ca3e15def6ae1847018b6c2da28f None
+d6b736b6cf304ae0b243ac9f33bb1cd84a77c6e129f48f66626fbd1295ac8cd6 None
+70ad2daae8c30d58dd49a7421fcd806979c276ee8260d9f57ca9ceabcfb9ac68 None
+890478e185c07339a1429e6ad600baffcee6f12b475b588fdc0c5daf65decacc None
+9c109e8f25b9df680710d65d4633654309650cb04b764f0a14f0b40f3f202fc9 None
+7693e7ab3bf573a95776561c7fb288182e935e47498910802e8dca2be492cb46 None
+87efffac132bf6766a57540bf535ac332f3557bdb6a160700c29da3df8546924 None
+c3bec848e51e460dedbb1177ca8d4f6d139b59f94447dc5ed8c3ce35a9ad521e None
+46ed6c54722b2fc410be3ad69babfd6e9405403d5b38bffb16b618064b6783f6 None
+85ff45ffcb551100d55b6382cee19a5a34c551b7abda83cc136efff09b093e1f None
+d27225b9c9336f192349d5bff0bdd9f412af3be308e6eb9c8ed397d4bd209e9d None
+c0b88fe45807c2174726bed89fa69430f1b40afcdf2ffcdbc2e536cec9eb0c97 None
+08d71a374101cc4acd570e3a29469353fa1595c1ccf9a5a802b65da3b6b87609 None
+546c6c082e474e0a1b82d57074a6aa31f7bdc75584a0e5e0cec7510fd9fcc745 None
+Found 11 codes evaluating
+46d049b5e2c1d89b2e99e9fe602ab988b9d83811a7d5c73a10e0beebc16e63f1 None
+223bfdf3e023f0991f0fd86a299ecf4defa5909ca64526dbafd5d9936d055979 None
+3f33d2465694dce1d03c9ddc210fa118c223703edb6fede23acb97a528b3e91d None
+044e0b348ab52e21d97bfb1f54a39c4af88713b39242291f530dac260909f12e None
+c298c74729afdd4ed3264f52b0f1c80253beedea132971efb481d76b15e50836 None
+88d76c530a6642a5d98114bc6c461dd9a5b1fd2b1d214f08db405ecbd3e1720d None
+280ef4b4c848588fca3c28d12539774c856a9f73607a7b104115e6e7bacd763c None
+aa93a14415c4d70444d169b3b904ddb8e78696bcda8400da79f1c76f355c208b None
+102c799b993403aa80de119e97dfe4b2f1748f004741f551b78e9c7d5ff0c89b None
+864c6af130398f933c5a9f8370a3669c694fe295a10b76ddb46288c4489c76c9 None
+2b51ef64e406ad3997c431c7a2d6d550a0ebb87056b57de5aab2a5d4fdf4a100 None
+Found 173 codes build failed
+0e661db30d4a428f900364d6ed55c03e98cef8d192c233dfaba06c3bac306f61 None
+90cd71021f64111446bc944186e181d5e0369a7645e7e409f9cc161c7c7bcf0d None
+4bbc4635f7b0da37c37dc87129258e5c2c750f3f1ff73d1561dc0345b540f3f6 None
+b07ffa8d52996efad0ebe2a4a9d63d20e7bb2138c239ded4b43dee6b5a881519 None
+a647190360961ee2b0abecd1cc64f34587688f539eea8658157a3560354fb042 None
+806c877a0795c54a58775753c2216fcaaf063572b939e7915a83dfc0d9231b34 None
+22a64573478abf438751481a92684b0b005156816e7292bee9ed2fd0ad7701e1 None
+301f0116701cbc0ef6c3e071c244e453e184d647139102c289f9608dccb03c66 None
+eb48b311bef6afa7a2662a40cf097478ee4282c50e3257505eb06e0d68f034db None
+b066a7508eebbea792519b35adc6857b0c01d61501c2791d4f533d35a7b6eee3 None
+a4df16c93d541dc4c5ed780df936fda8daf030ba6bb197249cd5a4adde3686c8 None
+163dc9e496b1a58ac123fbd49970447fa914fc2590e5d474992da14094664714 None
+05dbaa973dbf70e28a566bc823aa3aceaf345dc0bd7c237d85073107e6e74cb0 None
+a49b3cbc51f8ea6bbf51d434ddac91b0a1efe4e4e28879f2d0a46eb04e71306d None
+b036f770830dc42bd8b66b1dc9d9aac5f7deef1dca7f140b1aa81c5477acf517 None
+5ad5b099cac04aa97082aaae81c0b5d1b7d571dde9b275e189996d9989283116 None
+010406d8a0dff27d2ad0d3a1b9829a8abc6db15e5d23a83c010c749d345c3325 None
+b574b42628dde110b7bdf0b92a366ab5e1eb3ed428e5cca8b8eeb9bead79e3a6 None
+5a3ddf161176b87569c39ea79b64f26ab934b25146c2e9dadb0b0a5fd80a66ca None
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 None
+de0461df999cff0a06bc3ffb02374f708fdcfd54ef293a7a32aa15bce15b83f4 None
+70061494429bd7884f7157e5b077004f93b1405291e8077fd29125b1fc5ecbeb None
+25f0a303706de10f1b6944a4fb5d42247979c5ee51e9f2cea325d07a29a7dc27 None
+174a6c4b805f7f1be8b740dd1e0e731f1b08aa99fb108a07b6b200cbe955fe0e None
+b08fa671647ee4260b9f6ed8d24e6f4944301a339940a5dcbb30a2582151c14a None
+2ce50164af25fbaf12dc58db402d493e3517257eed524acd3cf332fb1810e13c None
+c83987045f761b42fb4701c2078c111e0b03aa379f27a9b9a492a8e8c2b0b705 None
+88578ac376581fbcd9e908a73965dc9b8ebfdd01c7aa8cd3b8b4ffa165099a52 None
+7a771e39bc9989e9809407aaad98b5a15939f364add742c6ce0e41f2775d4d1d None
+a54cdbfe80e27aed188db710f0d78760e8d0a8cc9054691da7658065a782ec68 None
+b317a9b279f9aab33ea06816e857eb8f91c2c773c8516540c738a5dc2b377602 None
+590306e7c5acef40aaca15ed2b64f61e3dd88cfab7aefd6834437a6dfa5e5df6 None
+279db9fd2bc853176a09e6178522287803b619655f05d43ab308e48feae94139 None
+54b15b322c1a7353fbd2c0aa659d24fafc9159decd1e0c642c5d4f4c7109b60a None
+6a961d1e135c119c1f1b38b16512a8caac35421bf5b562c6c504686a5dd30933 None
+bddb53ce6f8274c9552731911b8c1a1c61dc57dc01eda51fb664a7037242b9c6 None
+7cbfa8870d63b6e71f4fa6a697bb651f14b3bad280a04548870a094608900a76 None
+c74e039ee8e8fc60591dc2e8fe5768089a67b3a907396333607f229c2039ce7c None
+ad8c65aa4e62c3efb2166dc96ced646b301b897efe7145a9c967674edb90b636 None
+0b2bfcceb9e029fad67f5848b04ccd151db1d8301ce0f8317842245406f85c33 None
+c506ecc9bd6e252e9652bd08ff31d11a4c3088bd2fa36a2e93bd68d4bc9eedea None
+7df5b1566d1160c99b8ebbbe6f563d9483b7d3331f624df1550e94b5010abc48 None
+c233ec53c89f119d186d0301eb0cf406ddf81ac715f31021d0a8ac41cf31585b None
+56f40abacc86435a36b87770f5ade73d7096bdf27a14e3f6a1d20bfd37758abd None
+c58f23e474cd6752afd37711849e3e9d0115baf3b243df68bb1bddcc99c0d140 None
+08c15fde6f0cdb3e0e134c5099e56e0304858c9097bba88958a930c6d1bb9c8a None
+51237bbca6b1e8867b7436c2dc5550b880545b09556fa7d890e47cd3cacb5903 None
+abec6433ce120061090b242e2e1ac0ec910ba4913531164f33452286b2a1d22a None
+3f867617aab890f9c42946a3d6972e0e9610c0431cc050bb3c1d900a5e830c7a None
+420852defb418dc712932efed959e193faf5e0cb07e2826b9533840eabd46f07 None
+5b8cdd687436d32fddb27ebcb6ca1addbeafdd240c54bcdcffac2c56b0c10acc None
+e9b56a0bfedb792cba2e7bd96acf4e5bc6ae854c6371362eee7832fdd4865479 None
+63c5dc0b402481eab624d044da81d1505723ed77e2cbc3f423fc1d5cfc63c316 None
+88fa50048f1ceb5d82807fbd85706ee6101de888caed330576fb1368f8076ad0 None
+18b405799d3c2eedf576ff2b9c736fef4c990c9ecbf6d1b2dae2c8ac13689e48 None
+02a677df5e7f52452330d102f8e2782d54b49ba638304e41b15881ce6e38f186 None
+f82916467b9f57feb9eeb6e3c274e477c57d31e82af26ff30886094f8f854a4b None
+a30d2b8a32994d83470f4c5971bd51f5ab12c8af997f97bca93df15efc6ffca0 None
+d6b328167c8229b1edc8f9c5da65f1b667372c77ddd3552d4e4d17dff2f7aab5 None
+47e24588e6f2ef767bac711faba784ae01ee5a53b85607b2fba83c83bff21c3e None
+706cb4c235b0b393bc8f3b3632add31362ad6d6ee7707f8bd1354afd27f53173 None
+c1d858f40ade5ecc4708bac75241de839a98bee6c592697653810656411342b9 None
+537b345d9822a360b593bb531e2d533fe919679ab710b8220e536767e5f8f29f None
+b378a1ce6f82bfe5740460413c552cb51bb5b4174c7b2ce7ad1faa4e4382ffe5 None
+abe659c93672676fa7514e2080bc6486d78b85176df65afd4cbd2648384bf284 None
+ee582eaf9ce5968beca582d479758c4a6178f640d0ab47df6ef4aee7912849fa None
+7eb84773aaf43fbdee124e558ec4095131cd5e11d0f85567a81f4764cc80d0d2 None
+861718cfbc33fe5cab64a844c10cc943429abb7cf774182d0185ae4c9d6d2ca7 None
+60fda6a198b7aca51c6ff3b7d976c38336a97ee7fe80057becc1853b111bcc8f None
+ebf3dfa9239582dbc6a430400272ac7442e18ec0657d62fbea89d6f55aa7dfe4 None
+9940c88d191bcb0e91c1a8731e1fcc76688a712af89258bb2d82595049c4176d None
+b952852dc7362af16acce9fa64d75671770dbeb2cdbcd05f8609799d26beb537 None
+fa5994d3b743b534ef2839fe6112b57bd9586cb1acce4d0e41c844c331bb3d14 None
+ce0557587ced462d1d4b7a541cf55db32b32695b703bff65d7da751af6004ede None
+a1dc55dfd05c230eaaf3d6c0757631d8da7eb055f8f653eabac22d6b94d24c7f None
+5e5c1758d8da8d083f3bbbae720a8db19e1949b29a124bcb8930a28e74bf587a None
+9228279e5389d9153963dc9349d5a60bc75a65834e261f4b51104bf03bad03ca None
+9c9215fd58b030066fa8f316028429f5bf99caec05f93508f1c4e2b93bbef4cb None
+a7ab8a642b319b90814fce03937b8862e272986a3002271a6c83c40a56825e85 None
+15237671c5eff0664297c4bb18d9d4c5b7a57d0a171c484bb4534035c47f402a None
+8651f94aeb301bb3b7fee6d8c756b8af2f77f79e87936ce1bd4db2ae40798c5f None
+7e52270985b3fe06274c9289f4c4816e7a9e38c73508b83f2f4b4fcb28a29bd7 None
+1e9aff1a903144bbaf9af5aa6bf62df823765878c6e867ecc22792ff5fe76207 None
+c7a5406fe115fdf82e6a397304038555eefdea09b109cc2ee0d84bdf493eeed5 None
+6c0def45ceecd4d50ed0cb6d67c3bf46f94250a642cf08a6a70b582bdd320791 None
+30b3f69f3269e9be324a6d1ba1dd68d7c4fb710ccc189da4bf7b0be0eb243989 None
+54cfd281d32f410840c2a86035fe93aa311613afdaa7a6209bb9086147965798 None
+6cbc67263207675be84d1ffbe5fa2030de81bf9269d3f9dd6cf18c42f68b8ee5 None
+a97f5aed778fc208ced8b532cb70202c3bbcc25b77df20e0b541665e40d6e425 None
+52be6db2b3a051e35a1b87ced3c72293074648438f96e04ced8108af72e26300 None
+a98cd3eadf83957e15cf83d2d4edefffd9e0880b7c9480d664eb747335ff0c4c None
+7d4df1b8aed18f61edb8fb82e6e049d88c573ddb0eda52ef1c927fca43f2b806 None
+52f62d35f89ebaa2a8c6803db4c10f9b90221e7de9f1b755361639760cb354e5 None
+bc96e674dc59106b68b0a301b66c0d03c85f7097df44eb4afea625465e1f1e21 None
+ae782ccda8db7d4ba040d395a396ac9c99cb733962b00e25efe12cb516926c1a None
+e146f09eebcdc49fff7d688ec342ba9ff403db1b815a40df0905bde88bee7c82 None
+562729bb3e9954e01a986ea6d257976f2ba115befbf552c8532ca22c49eef3dd None
+e749687c7735c1b560125693dc59a99c2a49f59aee3c7743a6b86a97759e7fdb None
+3e7d0e36c48e148d5e632828256e0e3fa2a68b4210c7be6a431da8b3092efd47 None
+c39bfcf17015bf419a528134ce6264a4b573dc98e6c3624e2d9ff9ea84f7a20b None
+9d57c160d1790f8fec453ea40cd0bccd07c1fc2e573c90bc4d9e8be5e50d9b8e None
+b072c3763171c1cf41f87c18eef518b80e05bfa3823acfaeef2eecd1bce6ad52 None
+1e28a802a9a2e7ada6dbd72e21bfecb254a4d3852449a9f2ff20945ef5321414 None
+a8c11d737e7700c7e0482cafdb8007c5c4e32c85f75c0670b5c51674d8c16e0a None
+22521099b7012400ec420bcbd521c2873da31c4f3d01ac2409a705b6694d1c74 None
+778ba247547965383e1a2ba24586976405645c925f4710a65442467c3379dd2e None
+2bdf4c897ef967724301723a6e14c2674945ec9940cffadfaad8c55fde93879c None
+a89f593ad7d6bc81eb657677a6ca367294db4915a4982ebd02b20085b22c7309 None
+e733d965769c432b05e11823522a1b0d1df5a921974ac02a269fb87ad2f9ab78 None
+977eefa5d7c557ffc5b8cf3ee20d43b0b1fb510865a5ed4a8a594f11642882a3 None
+44e376746ea18c547214c0f20d0651f019ba25478f56bd53ae4b15ace4c75c6b None
+c59797294659eaf6e908f08c5e4ca0997a34a0d3681fd31198ed5df4ee49e504 None
+7517dd8ef333def845b5e219d5db8d916bd81706f1384973b1d4554385ea7624 None
+c6380ecd3b5b4473a39645a34db2dd1e5d1c68e0c11bcfcae3660282b52c39c2 None
+b8ae54059f34a41514a8bf2f25135d86c18813d2d22dc5de3cf13f56168c1cd9 None
+91b5f8a0398ef5762a0ad9c72e44389ad078c38979cdcd78347f66061bfb503e None
+3c98746ccc26d258b4d0bc7fccb9eac5fb7e1999748aa58ecd8bd60750d07be2 None
+072bddfaafa025704e850f81539f1827d0468c4ff6fe9ed5e162081df77a9be0 None
+d01cdd5538dbe0f24157bea238f9bb2344329606e411f5e7ae0252014c47797f None
+52092ede16bf157ba73f4fe287beb5d98e067a6116d3996c5bfdc8587fe395a0 None
+07f5f37c30f97d7c17a105ea5dcc1605ac7eaae4217b5e85b1cb5ff7f04401de None
+df15d9905cc93fbb097ca0c21259a98ab599e6d889ba905a92139f61485a0714 None
+5acdcf3cc5706d7db4514173cb562ef8192fabfcc3899073ff470e2a712c5118 None
+a571c661002911d59f0c8af5ab80668ba7e06e549a729634fd1ad2fcb48d08eb None
+3fa73cf58b804a3e5be511e88d73a6c38f624c98cb3d15ade841612b6a3e5377 None
+a4517c85ad41b05f93b4f92447a0a8b0a9d42e4278ac1749161f879c905846f3 None
+3921bab26cb93d6a9d734443703e2c4fbcc45fd2290e3ab186e25db33bbba3f7 None
+7d6e8ed986b5ea282f97bdaa19859b95bb748cffc3060c7b5ae2ff878c0967ce None
+a5d6d1abf15084d8b0b34c9ce9818525d1675966972831e950f99779fdd4be35 None
+f8ad041af54555450cb734f2401f44daed17ce7c24600ba8c7f9eec0a85b4596 None
+a343bf1d9738b160d6628ee17caf77d337a55cc226db064c637d540ce1632b53 None
+b358e9ac6fd168e49d96390e875abf92fc80a0fd078c8cf4b2da8c06f875c5e4 None
+e2b0b6dd78ab1fb212cb0f7f75b72b78c6fad79ee82e723aa42658538288af2b None
+d699a0cd83c2e59159f86d9b926349c9cbe7e02a6c0e06c755b3ed5a7d51afc7 None
+0185cc608a441ceb7080e8ce745d84b2294ac39c563aff6b5cebe8555a209613 None
+5715f075330745560a1680cfe9b8dfa22a68a840b091979156c661fa190665a2 None
+e0fd6bb61b254bbfd7ef4dacf0496705573f7484484270dd40910c65c23f11d4 None
+2a0f954ca74abfa31032cc0429adef70d3db0aef1cb35af9f3a53a39d5bcaa03 None
+e391c8ad3b5c688fbde8d868148872d6aed79a645720b012936f27d1152b4b50 None
+e06e116f81f4d4f6782f0087a853832179657f856e3dc1b2f0e4a470858f0d86 None
+0ce32d8c900e48a40879740b8838ab8436d60a11b011f77b4fb1b1a058fb9e71 None
+5b773c72e632a618d4ed754402b3bcf9db4f952b5035d198d10bd0af7a2c108b None
+3189fadda42bb22f4b372b8d82e218fb8d4cb7ff1e790f23bf5310527493d9c4 None
+f7e210ad7d2ac9d478f4d4045a97354628b767876f00422e5ecf50bdf941882d None
+4d76b15c2f64cd01ab0ded226f680530ae60bbad729d1cabbe29faa34a897af4 None
+44fbcf908ab3b24b169da9ddd78d8d7b6edc32b255a12ebb5174e79af3295360 None
+fe834334b12e5f5abd8fede868a2df7840b49e56c05f93328074df7670831e24 None
+132fd90b19d2d48271dd930a420fed9c72601b604cc7d299174a2dbab022079a None
+44e57da597a7546ea6385990c3734bf0a8ad145a357fa03e46bf6c33f6d46981 None
+873396f45680d6e2961a73d3e88fcdcf8f5020544fdf0ebe3bdc06817edbda9b None
+b371956a3c1928dd3ed0747fc6476a0b83c766b1413f7039a39c30df2d5df9fb None
+82dfb39d48a7a5422a50f9052d1a703cf0de0f35f3924d52437837c4976a753e None
+b7a3539ecbcb4fbdc679b2c93f1ead48400da2bed06df5633a683ad01d822ebe None
+b90ebf123edd6d66199f1171f8951a3c2c94c1592bd118dd0d552d809dc4263b None
+c675339a8f20d81d418a773e0889fc66a0c85ba0afd80f4e54e6143444961d7b None
+703fd46348be7d1928a12f43d0d6f6b28329265d84181f0ed45b1005b97ae42c None
+8e2c589f7d6ad244f485f7d1b16b7991c2ffef0dfe2812aa15289ab94a34b52b None
+a5c453ae3e971689851430408a7106a444062c0b55f235ee0e814e7d8f6cfe55 None
+0975a0e5c64d55d27b00ff33e6c8196c083ab894b1cbbb8ea8bbe8dd3a2646ee None
+55a9ab37290bf3ab1c1f50ffab04cd2276544bad14d9d8246a20ea0f64d480ae None
+c88ef9bbf712ec34670c3211da5eec4255ab4e71b1a6f438d8583e580e4a300e None
+f676905b46c7a805599b9eab3df15f5251c607141230625559310563a986894e None
+0b3d366c251944ce22e38c664d9a01d4ff32fab6610cb59568f13bd3cc57ca55 None
+293edb29d1d3b1ec41a1c1d1bf47ecb0dccbd85b66d2822420d099058476abb4 None
+834fc1bdccbecb59eaf165898be71e0005f0e3858cdbdfee9005eeae99f44870 None
+eb5196fb7f4a4f68d41f5f4cc560aa1a0b84b82c57444b68fbf1d4c569a6c31d None
+fe6256eaeab40d1f8a3e9fa30f586d5a2b415d5a3761b690b9f873027afb3b60 None
+beaa79158b287ebd5fcdb10d601246182492e834fb62d9bfa46583b5429ed6cd None
+4f75ecacd522197c741c91f4e38a79e8a13b3c0c969fdf33c767d0489607d41c None
+f14ccc341aeb1546c3c0e5b88d4891d0c3351bb9a564e55ba7f3d9efe92a824c None
+bcd133d134f14bc5afefcf9d584a65aa9c86a2833d94238288d07c6d08167fef None
+78438bc477ca9c8f1e9843bc4ccca57f624938e1a26207fa0c64a34ca88591f9 None
+6c6cef2daa2529936e3598cf7353e0af57e133c1169f728c3450bb0109410c1e None

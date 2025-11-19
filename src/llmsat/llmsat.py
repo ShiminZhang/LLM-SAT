@@ -4,8 +4,8 @@ from typing import List, Dict
 import hashlib
 NOT_INITIALIZED = "NOT_INITIALIZED"
 BASE_SOLVER_PATH = "solvers/base"
-SAT2025_BENCHMARK_PATH = "benchmarks/SAT2025"
-PYENV_PATH = "~/.pyenv/versions/3.10.10/bin/python"
+SAT2025_BENCHMARK_PATH = "data/benchmarks/satcomp2025"
+PYENV_PATH = "../../general/bin/activate"
 
 class CodeStatus:
     Pending = "pending" # generating
@@ -33,7 +33,7 @@ class AlgorithmResult:
     status: str
     last_updated: str
     prompt: str # not implemented yet
-    par2: float
+    par2: list[float]
     error_rate: float
     code_id_list: List[str] # list of code ids that have been generated for this algorithm
     other_metrics: Dict[str, float]

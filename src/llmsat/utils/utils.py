@@ -81,7 +81,7 @@ def wrap_command_to_slurm(
     dependencies: list[str]=None,
 ) -> str:
     dependencies_parameter = ""
-    if dependencies is not None:
+    if dependencies is not None and len(dependencies) > 0:
         dependencies_parameter = f"--dependency=afterok:{','.join(dependencies)}"
     job_name_parameter = ""
     if job_name is not None:

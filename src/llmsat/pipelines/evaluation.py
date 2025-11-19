@@ -14,6 +14,8 @@ from llmsat.utils.aws import (
     get_code_result,
     update_code_result,
     update_algorithm_result,
+    get_all_algorithm_ids,
+    get_all_algorithm_results,
     ToAlgorithmResult,
     ToCodeResult,
 )
@@ -27,7 +29,7 @@ from llmsat.llmsat import (
     setup_logging,
     AlgorithmStatus,
 )
-from llmsat.utils.paths import get_solver_dir, get_solver_solving_times_path, get_algorithm_dir
+from llmsat.utils.paths import get_solver_dir, get_solver_solving_times_path, get_algorithm_dir,get_solver_result_dir
 from llmsat.utils.utils import wrap_command_to_slurm
 
 logger = get_logger(__name__)
@@ -78,23 +80,32 @@ class EvaluationPipeline:
     def __init__(self):
         pass
 
-    def clean_solving_logs(self, algorithm_id: str, code_id: str) -> None:
-        # clean the solving logs
-        solver_dir = get_solver_dir(algorithm_id, code_id)
-        logger.info(f"Cleaning solving logs in {solver_dir}")
-        if not os.path.isdir(solver_dir):
-            logger.debug(f"Solver dir does not exist: {solver_dir}")
-            return
-        removed = 0
-        for file in os.listdir(solver_dir):
-            if file.endswith(".solving.log") or file.endswith(".slurm.log"):
-                try:
-                    os.remove(f"{solver_dir}/{file}")
-                    removed += 1
-                    logger.debug(f"Removed log file: {file}")
-                except FileNotFoundError:
-                    pass
-        logger.info(f"Removed {removed} log files from {solver_dir}")
+    # def clean_solving_logs(self, algorithm_id: str, code_id: str) -> None:
+    #     # clean the solving logs
+    #     solver_dir = get_solver_dir(algorithm_id, code_id)
+    #     logger.info(f"Cleaning solving logs in {solver_dir}")
+    #     if not os.path.isdir(solver_dir):
+    #         logger.debug(f"Solver dir does not exist: {solver_dir}")
+    #         return
+    #     removed = 0
+    #     for file in os.listdir(solver_dir):
+    #         if file.endswith(".solving.log") or file.endswith(".slurm.log"):
+    #             try:
+    #                 os.remove(f"{solver_dir}/{file}")
+    #                 removed += 1
+    #                 logger.debug(f"Removed log file: {file}")
+    #             except FileNotFoundError:
+    #                 pass
+    #     logger.info(f"Removed {removed} log files from {solver_dir}")
+
+    def test(self) -> None:
+        # test the evaluation pipeline
+        slurm_ids = self.slurm_run_evaluate("solvers/algorithm_1/code_1", SAT2025_BENCHMARK_PATH)
+        # self.slurm_collect_result([slurm_ids], "1")
+        # time = self.parse_solving_time("test/test.log")
+        # print(time)
+        # print(slurm_ids)
+        pass
 
     def clean_solver(self, algorithm_id: str, code_id: str) -> None:
         # clean the solver
@@ -102,6 +113,16 @@ class EvaluationPipeline:
         logger.info(f"Removing solver directory {solver_dir}")
         shutil.rmtree(solver_dir, ignore_errors=True)
         logger.debug(f"Removed solver directory {solver_dir} (ignore_errors=True)")
+
+    def parse_solving_time(self, file_path: str) -> Optional[float]:
+        lines = open(file_path, "r").readlines()
+        for line in reversed(lines): 
+            if "process-time" in line:
+                match = re.search(r'(\d+\.?\d*)\s+seconds', line)
+                if match:
+                    time = float(match.group(1))
+                    return time
+        return None
 
     def collect_results(self, algorithm_id: str, code_id: str) -> None:
         # collect the results from the solver
@@ -111,43 +132,46 @@ class EvaluationPipeline:
         if os.path.isdir(solver_dir):
             for file in os.listdir(solver_dir):
                 if file.endswith(".solving.log"):
-                    instance_name = file.split(".")[0]
-                    with open(f"{solver_dir}/{file}", "r") as f:
-                        content = f.read()
-                    instance_time = parse_solving_time(content)
+                    instance_time = self.parse_solving_time(f"{solver_dir}/{file}")
                     if instance_time is not None:
-                        solving_times[instance_name] = instance_time
-                        logger.debug(f"Parsed {instance_name} -> {instance_time}")
+                        solving_times[file] = instance_time
+                        logger.debug(f"Parsed {file} -> {instance_time}")
         else:
             logger.warning(f"Solver directory missing: {solver_dir}")
         par2 = _compute_average(list(solving_times.values()))
         logger.info(f"Computed PAR2 for algorithm {algorithm_id}, code {code_id}: {par2}")
 
         # update the code result and algorithm result
-        code_row = get_code_result(code_id)
-        if code_row is not None:
-            code_result = ToCodeResult(code_row)
+        code_result = get_code_result(code_id)
+        if code_result is not None:
+            code_result.par2 = str(par2)
+            code_result.build_success = True
+            code_result.status = CodeStatus.Evaluated
             update_code_result(code_result)
-            logger.debug(f"Updated code result (no PAR2 field) for code_id={code_id}")
-        algorithm_row = get_algorithm_result(algorithm_id)
-        if algorithm_row is not None:
-            algorithm_result = ToAlgorithmResult(algorithm_row)
-            algorithm_result.par2 = par2 if par2 is not None else algorithm_result.par2
-            update_algorithm_result(algorithm_result)
-            logger.debug(f"Updated algorithm result par2={algorithm_result.par2} for algorithm_id={algorithm_id}")
-        with open(get_solver_solving_times_path(algorithm_id, code_id), "w") as f:
-            json.dump(solving_times, f)--
-        logger.info(f"Wrote solving times to {get_solver_solving_times_path(algorithm_id, code_id)}")
+            logger.debug(f"Updated code result par2={code_result.par2} for code_id={code_id}")
+        result_dir = get_solver_result_dir(algorithm_id, code_id)
+        with open(f"{result_dir}/solving_times.json", "w") as f:
+            json.dump(solving_times, f)
+        logger.info(f"Wrote solving times to {result_dir}/solving_times.json")
 
         # remove all the solvers
         return par2
 
-    def slurm_collect_result(self, slurm_ids: List[str], code_id: str) -> None:
+    def slurm_collect_result(self, slurm_ids: List[int], code_id: str) -> None:
         activate_python_path = _get_activation_cmd()
         logger.info(f"Collecting SLURM results for code_id={code_id}, {len(slurm_ids)} jobs")
-        logger.info(f"do nothing for now")
+        logger.info(f"Submitting job to collect results for code_id={code_id}")
+        code_result = get_code_result(code_id)
+        algorithm_id = code_result.algorithm_id
+        result_dir = get_solver_result_dir(algorithm_id, code_id)
+        cmd = f"{activate_python_path} && python src/llmsat/pipelines/evaluation.py --algorithm_id {algorithm_id} --code_id {code_id} --collect_result"
+        output_file = f"{result_dir}/collect_result.log"
+        slurm_cmd = wrap_command_to_slurm(cmd, output_file=output_file, job_name=f"collect_result_{code_id}", dependencies=[str(slurm_id) for slurm_id in slurm_ids])
+        slurm_id = os.popen(slurm_cmd).read()
+        slurm_id = int(slurm_id.split()[-1])
+        logger.info(f"Submitted collect result job {slurm_id}, dependencies: {','.join([str(slurm_id) for slurm_id in slurm_ids])}")
+        logger.info(f"CMD: {slurm_cmd}")
 
-        pass
 
     def filter_code(self, code: str) -> str:
         def extract_function(text: str, func_name: str) -> Optional[str]:
@@ -323,19 +347,21 @@ class EvaluationPipeline:
             return None
         return 
 
-    def slurm_run_evaluate(self, solver_path: str, benchmark_path: str) -> None:
+    def slurm_run_evaluate(self, solver_path: str, benchmark_path: str, result_dir: str) -> List[int]:
         # run the solver on the benchmark
         # activate_python_path = _get_activation_cmd()
         logger.info(f"Submitting SLURM jobs for solver {solver_path} on benchmarks {benchmark_path}")
         slurm_ids = []
         for benchmark_file in os.listdir(benchmark_path):
             if benchmark_file.endswith(".cnf"):
-                command = f"{solver_path}/kissat {benchmark_path}/{benchmark_file} > {solver_path}/{benchmark_file}.solving.log"
-                slurm_log = f"{solver_path}/{benchmark_file}.slurm.log"
+                command = f"{solver_path}/build/kissat {benchmark_path}/{benchmark_file} > {result_dir}/{benchmark_file}.solving.log"
+                slurm_log = f"{result_dir}/{benchmark_file}.slurm.log"
+                if os.path.exists(f"{result_dir}/{benchmark_file}.solving.log"):
+                    continue
                 slurm_cmd = wrap_command_to_slurm(command, output_file=slurm_log, job_name=f"solve_{benchmark_file}")
-                logger.debug(f"Submitting job with command: {slurm_cmd}")
-                
-                slurm_id = os.popen(slurm_cmd).read().strip() # TODO test if this is correct, also , there might be a limit on the number of jobs that can be submitted at once
+                logger.info(f"Submitting job with command: {slurm_cmd}")
+                slurm_id = os.popen(slurm_cmd).read()
+                slurm_id = int(slurm_id.split()[-1])
                 logger.info(f"Submitted job {slurm_id} for {benchmark_file}")
                 slurm_ids.append(slurm_id)
         return slurm_ids
@@ -343,15 +369,25 @@ class EvaluationPipeline:
     def run_single_solver(self, code_id: str) -> None:  # process single code
         """Run evaluation for configured components."""
         code_result = get_code_result(code_id)
+        if code_result is None:
+            logger.error(f"Code result not found for code_id={code_id}")
+            return
         if code_result.status == CodeStatus.BuildFailed:
             logger.warning(f"Code result {code_id} is already build failed, skip?")
-            # return
+            return
+        if code_result.status == CodeStatus.Evaluating:
+            logger.warning(f"Code result {code_id} is already evaluating, skip")
+            return
         assert code_result is not None, "Code result not found"
         logger.info(f"Running single solver for code_id={code_id}, algorithm_id={code_result.algorithm_id}")
         solver_path = self.build_solver(code_result) # build in evaluation
         if solver_path is not None: # build successful
             logger.info(f"Solver built successfully: {solver_path}")
-            slurm_ids = self.slurm_run_evaluate(solver_path, SAT2025_BENCHMARK_PATH)
+            result_dir = get_solver_result_dir(code_result.algorithm_id, code_result.id)
+            slurm_ids = self.slurm_run_evaluate(solver_path, SAT2025_BENCHMARK_PATH, result_dir)
+            # slurm_ids = []
+            code_result.status = CodeStatus.Evaluating
+            update_code_result(code_result) 
             self.slurm_collect_result(slurm_ids, code_id)
         else: # build failed
             code_result.status = CodeStatus.BuildFailed
@@ -378,6 +414,8 @@ class EvaluationPipeline:
         for code_id in code_id_list:
             logger.info(f"Starting evaluation for code_id={code_id}")
             self.run_single_solver(code_id)
+        algorithm.status = AlgorithmStatus.Evaluating
+        update_algorithm_result(algorithm)
 
         # for code_id in code_id_list:
         #     logger.debug(f"Starting evaluation for code_id={code_id}")
@@ -394,19 +432,30 @@ def main():
     setup_logging()
     parser = argparse.ArgumentParser()
     parser.add_argument("--algorithm_id", type=str, default=None)
+    parser.add_argument("--code_id", type=str, default=None)
     parser.add_argument("--first_n", type=int, default=None)
     parser.add_argument("--run_all", action="store_true", default=False)
+    parser.add_argument("--collect_result", action="store_true", default=False)
+    parser.add_argument("--test", action="store_true", default=False)
     args = parser.parse_args()
     evaluation_pipeline = EvaluationPipeline()
     # evaluation_pipeline.run_all_solvers("1")
+
     if args.run_all:
         assert args.algorithm_id is None, "Cannot specify both --algorithm_id and --run_all"
         algorithms = get_algorithm_result_of_status(AlgorithmStatus.CodeGenerated)
+        logger.info(f"Found {len(algorithms)} algorithms to evaluate")
         if args.first_n is not None:
             algorithms = algorithms[:args.first_n]
     elif args.algorithm_id is not None:
         assert args.first_n is None, "Cannot specify both --algorithm_id and --first_n"
         algorithms = [get_algorithm_result(args.algorithm_id)]
+        if args.collect_result:
+            evaluation_pipeline.collect_results(args.algorithm_id, args.code_id)
+            return
+    elif args.test:
+        evaluation_pipeline.test()
+        return
     else:
         assert False, "Must specify either --run_all or --algorithm_id"
     for algorithm in algorithms:
@@ -414,5 +463,14 @@ def main():
         logger.info(algorithm.id)
         evaluation_pipeline.run_all_solvers(algorithm.id)
 
+def test():
+    setup_logging()
+
+    algorithms = get_algorithm_result_of_status(AlgorithmStatus.CodeGenerated)
+    # algorithms = get_all_algorithm_results()
+    logger.info(f"Found {len(algorithms)} algorithms to evaluate")
+    for algorithm in algorithms:
+        logger.info(f"{algorithm.id}, {algorithm.status}")
 if __name__ == "__main__":
+    # test()
     main()

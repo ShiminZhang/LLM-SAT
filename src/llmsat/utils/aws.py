@@ -30,6 +30,31 @@ logger = get_logger(__name__)
 #     last_updated: str
 #     build_success: bool
 
+
+def get_code_result_of_status(status: CodeStatus) -> List[CodeResult]:
+    logger.info(f"Getting code results of status {status}")
+    conn = connect_to_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM code_results WHERE status = %s;", (status,))
+    rows = cur.fetchall()
+    code_results = []
+    for row in rows:
+        if row is None:
+            logger.warning(f"Row is None for status {status}")
+            continue
+        if len(row) != 7:
+            logger.warning(f"Row has {len(row)} columns")
+            logger.warning(f"Row: {row}")
+            continue
+        try:
+            code_result = ToCodeResult(row)
+        except Exception as e:
+            logger.warning(f"Error converting row to CodeResult: {e}")
+            logger.warning(f"Row: {row}")
+            continue
+        code_results.append(code_result)
+    return code_results
+
 def get_algorithm_result_of_status(status: AlgorithmStatus) -> List[AlgorithmResult]:
     conn = connect_to_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -38,7 +63,7 @@ def get_algorithm_result_of_status(status: AlgorithmStatus) -> List[AlgorithmRes
     return [_row_to_algorithm_result(row) for row in rows]
 
 def connect_to_db():
-    logger.info("trying to connect to db")
+    # logger.info("trying to connect to db")
     conn = psycopg2.connect(
         host="llmsat.crac0kykqrxp.us-east-2.rds.amazonaws.com",
         database="postgres",
@@ -46,7 +71,7 @@ def connect_to_db():
         password=os.environ["DB_PASS"],
         port=5432,
     )
-    logger.info("connected to db")
+    # logger.info("connected to db")
     return conn
 
 def get_all_tasks():
@@ -84,6 +109,7 @@ def update_code_result(code_result: CodeResult):
     cur = conn.cursor()
     build_success_text = None if code_result.build_success is None else str(code_result.build_success)
     logger.info(f"Updating code result {code_result.id}")
+    code_result.last_updated = datetime.now()
     if existing_code_result is None: # add the code result
         cur.execute(
             "INSERT INTO code_results (id, code, algorithm, status, last_updated, build_success) VALUES (%s, %s, %s, %s, %s, %s);",
@@ -102,6 +128,7 @@ def update_algorithm_result(algorithm_result: AlgorithmResult):
     conn = connect_to_db()
     cur = conn.cursor()
     other_metrics_obj = algorithm_result.other_metrics
+    algorithm_result.last_updated = datetime.now()
     if other_metrics_obj is None:
         other_metrics_text = None
     elif isinstance(other_metrics_obj, (dict, list)):
@@ -173,13 +200,7 @@ def ToAlgorithmResult(result: tuple) -> AlgorithmResult:
         other_metrics=_to_other_metrics(result[8]))
 
 def ToCodeResult(result: tuple) -> CodeResult:
-    return CodeResult(
-        id=result[0],
-        algorithm_id=result[2],
-        code=result[1],
-        status=result[3],
-        last_updated=result[4],
-        build_success=_to_bool(result[6]))
+    return _row_to_code_result(result)
 
 def get_all_algorithm_results() -> List[AlgorithmResult]:
     conn = connect_to_db()
@@ -288,7 +309,15 @@ def _text_to_code_id_list(value: Any) -> List[str]:
     if "," in s:
         return [part.strip() for part in s.split(",") if part.strip()]
     return [s] if s else []
-
+def _row_to_code_result(row: Mapping[str, Any]) -> CodeResult:
+    return CodeResult(
+        id=row.get("id"),
+        code=row.get("code"),
+        algorithm_id=row.get("algorithm_id"),
+        status=row.get("status"),
+        last_updated=row.get("last_updated"),
+        build_success=_to_bool(row.get("build_success")),
+    )
 def _row_to_algorithm_result(row: Mapping[str, Any]) -> AlgorithmResult:
     return AlgorithmResult(
         id=row.get("id"),
