@@ -200,7 +200,16 @@ def ToAlgorithmResult(result: tuple) -> AlgorithmResult:
         other_metrics=_to_other_metrics(result[8]))
 
 def ToCodeResult(result: tuple) -> CodeResult:
-    return _row_to_code_result(result)
+    if type(result) != tuple:
+        return _row_to_code_result(result)
+    else:
+        return CodeResult(
+            id=result[0],
+            algorithm_id=result[2],
+            code=result[1],
+            status=result[3],
+            last_updated=result[4],
+            build_success=_to_bool(result[6]))
 
 def get_all_algorithm_results() -> List[AlgorithmResult]:
     conn = connect_to_db()
@@ -309,6 +318,7 @@ def _text_to_code_id_list(value: Any) -> List[str]:
     if "," in s:
         return [part.strip() for part in s.split(",") if part.strip()]
     return [s] if s else []
+
 def _row_to_code_result(row: Mapping[str, Any]) -> CodeResult:
     return CodeResult(
         id=row.get("id"),
@@ -318,6 +328,7 @@ def _row_to_code_result(row: Mapping[str, Any]) -> CodeResult:
         last_updated=row.get("last_updated"),
         build_success=_to_bool(row.get("build_success")),
     )
+    
 def _row_to_algorithm_result(row: Mapping[str, Any]) -> AlgorithmResult:
     return AlgorithmResult(
         id=row.get("id"),

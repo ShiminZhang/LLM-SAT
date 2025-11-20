@@ -8,10 +8,13 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 import argparse
+from datetime import datetime
+from llmsat.llmsat import NOT_INITIALIZED
 from llmsat.utils.aws import (
     get_algorithm_result,
     get_algorithm_result_of_status,
     get_code_result,
+    get_code_result_of_status,
     update_code_result,
     update_algorithm_result,
     get_all_algorithm_ids,
@@ -28,6 +31,7 @@ from llmsat.llmsat import (
     get_logger,
     setup_logging,
     AlgorithmStatus,
+    RECOVERED_ALGORITHM,
 )
 from llmsat.utils.paths import get_solver_dir, get_solver_solving_times_path, get_algorithm_dir,get_solver_result_dir
 from llmsat.utils.utils import wrap_command_to_slurm
@@ -122,19 +126,30 @@ class EvaluationPipeline:
                 if match:
                     time = float(match.group(1))
                     return time
-        return None
+            if "error" in line:
+                logger.warning(f"Error in solving time file {file_path}")
+                print(file_path)
+        
+        # logger.warning(f"Failed to parse solving time from")
+        # print(file_path)
+        return 5000
 
-    def collect_results(self, algorithm_id: str, code_id: str) -> None:
+    def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> None:
         # collect the results from the solver
-        solver_dir = get_solver_dir(algorithm_id, code_id)
-        logger.info(f"Collecting results from {solver_dir}")
+        solver_dir = get_solver_result_dir(algorithm_id, code_id)
+        result_path = get_solver_solving_times_path(algorithm_id, code_id)
+        if os.path.exists(result_path) and not force_recollect:
+            logger.warning(f"Results already collected for algorithm {algorithm_id}, code {code_id}")
+            return
+        print(f"Collecting results from {solver_dir}")
         solving_times: Dict[str, float] = {}
         if os.path.isdir(solver_dir):
             for file in os.listdir(solver_dir):
                 if file.endswith(".solving.log"):
+                    instance_name = file.split(".")[0]
                     instance_time = self.parse_solving_time(f"{solver_dir}/{file}")
                     if instance_time is not None:
-                        solving_times[file] = instance_time
+                        solving_times[instance_name] = instance_time
                         logger.debug(f"Parsed {file} -> {instance_time}")
         else:
             logger.warning(f"Solver directory missing: {solver_dir}")
@@ -149,10 +164,11 @@ class EvaluationPipeline:
             code_result.status = CodeStatus.Evaluated
             update_code_result(code_result)
             logger.debug(f"Updated code result par2={code_result.par2} for code_id={code_id}")
-        result_dir = get_solver_result_dir(algorithm_id, code_id)
-        with open(f"{result_dir}/solving_times.json", "w") as f:
+        with open(result_path, "w") as f:
             json.dump(solving_times, f)
-        logger.info(f"Wrote solving times to {result_dir}/solving_times.json")
+        print(f"Wrote solving times to {result_path}")
+        if len(solving_times) != 400:
+            logger.warning(f"Expected 400 instances, but got {len(solving_times)}")
 
         # remove all the solvers
         return par2
@@ -165,7 +181,7 @@ class EvaluationPipeline:
         algorithm_id = code_result.algorithm_id
         result_dir = get_solver_result_dir(algorithm_id, code_id)
         cmd = f"{activate_python_path} && python src/llmsat/pipelines/evaluation.py --algorithm_id {algorithm_id} --code_id {code_id} --collect_result"
-        output_file = f"{result_dir}/collect_result.log"
+        output_file = f"{result_dir}/00000000_collect_result.log"
         slurm_cmd = wrap_command_to_slurm(cmd, output_file=output_file, job_name=f"collect_result_{code_id}", dependencies=[str(slurm_id) for slurm_id in slurm_ids])
         slurm_id = os.popen(slurm_cmd).read()
         slurm_id = int(slurm_id.split()[-1])
@@ -414,19 +430,132 @@ class EvaluationPipeline:
         for code_id in code_id_list:
             logger.info(f"Starting evaluation for code_id={code_id}")
             self.run_single_solver(code_id)
-        algorithm.status = AlgorithmStatus.Evaluating
-        update_algorithm_result(algorithm)
+        # algorithm.status = AlgorithmStatus.Evaluating
+        # update_algorithm_result(algorithm)
 
         # for code_id in code_id_list:
         #     logger.debug(f"Starting evaluation for code_id={code_id}")
         #     self.run_single_solver(code_id)
-    
+    def fix_algorithm_code_mapping(self, algorithm: AlgorithmResult, all_code_id_list: List[str]) -> None:
+        # fix the algorithm code mapping
+        if algorithm.code_id_list[0].strip('"') == "NOT_INITIALIZED":
+            return
+        logger.info(f"Fixing algorithm {algorithm.id} code mapping to {algorithm.code_id_list} code ids")
+        code_registered = algorithm.code_id_list 
+        for code_id in code_registered:
+            if code_id in all_code_id_list:
+                print(code_id)
+                exit()
+
     def generate_or_read_code(self, algorithm: AlgorithmResult) -> List[str]:
         # Return list of code ids to evaluate
         ids = algorithm.code_id_list or []
         logger.debug(f"generate_or_read_code returning {len(ids)} code ids")
         return ids
         
+def find_codes(code_ids: List[str]) -> Dict[str, str]:
+    """
+    Locally find where the code directories are when algorithm IDs are missing.
+    Searches through all algorithm directories to find matching code directories.
+    
+    Args:
+        code_ids: List of code IDs to search for
+    
+    Returns:
+        Dictionary mapping code_id -> directory path for found code directories
+    """
+    directories = {}
+    solvers_base = "solvers"
+    
+    if not os.path.exists(solvers_base):
+        logger.warning(f"Solvers base directory does not exist: {solvers_base}")
+        return directories
+    
+    # Iterate through all algorithm directories
+    for algo_dir in os.listdir(solvers_base):
+        algo_path = os.path.join(solvers_base, algo_dir)
+        
+        # Skip if not a directory or doesn't match algorithm directory pattern
+        if not os.path.isdir(algo_path) or not algo_dir.startswith("algorithm_"):
+            continue
+        
+        # Check each code_id in this algorithm directory
+        for code_id in code_ids:
+            code_dir_name = f"code_{code_id}"
+            code_path = os.path.join(algo_path, code_dir_name)
+            
+            # If the code directory exists, add it to results
+            if os.path.isdir(code_path):
+                directories[code_id] = code_path
+                logger.debug(f"Found code directory: {code_path} for code_id: {code_id}")
+    
+    logger.info(f"Found {len(directories)} code directories for {len(code_ids)} code IDs")
+    return directories
+def restore_codes(algorithm_ids: List[str]) -> None:
+    # restore the codes
+    for algorithm_id in algorithm_ids:
+        algorithm = get_algorithm_result(algorithm_id)
+        code_ids = algorithm.code_id_list
+        for code_id in code_ids:
+            code = get_code_result(code_id)
+            if code is None:
+                logger.error(f"Code result not found for code_id={code_id}")
+                continue
+            code.algorithm_id = algorithm_id
+            update_code_result(code)
+            logger.info(f"Restored code {code_id} for algorithm {algorithm_id}")
+
+def restore_algorithms(algorithm_ids: List[str]) -> List[AlgorithmResult]:
+    # restore the algorithms
+    for algorithm_id in algorithm_ids:
+        # algorithm = get_algorithm_result(algorithm_id)
+        algorithm = AlgorithmResult(
+            id=algorithm_id,
+            code_id_list=NOT_INITIALIZED,
+            status=AlgorithmStatus.Evaluating,
+            last_updated=datetime.now(),
+            prompt="",
+            par2=NOT_INITIALIZED,
+            error_rate=NOT_INITIALIZED,
+            algorithm=RECOVERED_ALGORITHM,
+            other_metrics=NOT_INITIALIZED,
+        )
+        # find code ids in the algorithm directory
+        algorithm_dir = get_algorithm_dir(algorithm_id)
+        code_ids = []
+        # find directories in the algorithm directory to restore the code ids
+        for code_dir in os.listdir(algorithm_dir):
+            if code_dir.startswith("code_") and os.path.isdir(os.path.join(algorithm_dir, code_dir)):
+                code_ids.append(code_dir.split("code_")[1])
+        algorithm.code_id_list = code_ids
+        update_algorithm_result(algorithm)
+        for code_id in code_ids:
+            code = get_code_result(code_id)
+            if code is None:
+                logger.error(f"Code result not found for code_id={code_id}")
+                continue
+            code.algorithm_id = algorithm_id
+            update_code_result(code)
+            logger.info(f"Restored code {code_id} for algorithm {algorithm_id}")
+        logger.info(f"Restored algorithm {algorithm_id} code mapping to {len(code_ids)} code ids")
+
+def rescue_data():
+    code_results = get_code_result_of_status(CodeStatus.Evaluated)
+    code_ids = []
+    for code_result in code_results:
+        if code_result.algorithm_id is None:
+            code_ids.append(code_result.id)
+    code_ids = [code_result.id for code_result in code_results]
+    code_dirs = find_codes(code_ids)
+    algorithm_ids = set()
+    for code_id, code_dir in code_dirs.items():
+        algorithm_id = code_dir.split("/")[-2].split("algorithm_")[1]
+        algorithm_ids.add(algorithm_id)
+        # algorithm = get_algorithm_result(algorithm_id)
+        # algorithm.code_id_list = NOT_INITIALIZED
+        # update_algorithm_result(algorithm)
+    logger.info(f"algorithm ids: {algorithm_ids}")
+    restore_algorithms(list(algorithm_ids))
 
 def main():
     setup_logging()
@@ -436,6 +565,7 @@ def main():
     parser.add_argument("--first_n", type=int, default=None)
     parser.add_argument("--run_all", action="store_true", default=False)
     parser.add_argument("--collect_result", action="store_true", default=False)
+    parser.add_argument("--collect_all_results", action="store_true", default=False)
     parser.add_argument("--test", action="store_true", default=False)
     args = parser.parse_args()
     evaluation_pipeline = EvaluationPipeline()
@@ -443,7 +573,8 @@ def main():
 
     if args.run_all:
         assert args.algorithm_id is None, "Cannot specify both --algorithm_id and --run_all"
-        algorithms = get_algorithm_result_of_status(AlgorithmStatus.CodeGenerated)
+        algorithms = get_algorithm_result_of_status(AlgorithmStatus.Generated)
+        # algorithms = get_algorithm_result_of_status(AlgorithmStatus.CodeGenerated)
         logger.info(f"Found {len(algorithms)} algorithms to evaluate")
         if args.first_n is not None:
             algorithms = algorithms[:args.first_n]
@@ -451,13 +582,37 @@ def main():
         assert args.first_n is None, "Cannot specify both --algorithm_id and --first_n"
         algorithms = [get_algorithm_result(args.algorithm_id)]
         if args.collect_result:
-            evaluation_pipeline.collect_results(args.algorithm_id, args.code_id)
+            evaluation_pipeline.collect_results(args.algorithm_id, args.code_id, force_recollect=True)
             return
+    elif args.collect_all_results:
+        assert args.algorithm_id is None, "Cannot specify both --algorithm_id and --collect_all_results"
+        code_results = get_code_result_of_status(CodeStatus.Evaluated)
+        code_ids = [code_result.id for code_result in code_results]
+        code_dirs = find_codes(code_ids)
+        algorithm_id_of_code_id = {}
+        for code_id, code_dir in code_dirs.items():
+            algorithm_id = code_dir.split("/")[-2].split("algorithm_")[1]
+            algorithm_id_of_code_id[code_id] = algorithm_id
+        for code_id in code_ids:
+            algorithm_id = algorithm_id_of_code_id[code_id]
+            evaluation_pipeline.collect_results(algorithm_id, code_id, force_recollect=True)
+            # return
+
+        # restore_codes(list(algorithm_ids))
+        # exit()
+        # logger.info(f"code dirs: {code_dirs}")
+        # logger.info(f"all code ids: {code_ids}")
+        # algorithms = get_all_algorithm_results()
+        # logger.info(f"all algorithms: {len(algorithms)}")
+        # for algorithm in algorithms:
+        #     evaluation_pipeline.fix_algorithm_code_mapping(algorithm, code_ids)
+        return
     elif args.test:
         evaluation_pipeline.test()
         return
     else:
         assert False, "Must specify either --run_all or --algorithm_id"
+    logger.info(f"Running evaluation for {len(algorithms)} algorithms")
     for algorithm in algorithms:
         # print(algorithm.algorithm)
         logger.info(algorithm.id)
@@ -471,6 +626,8 @@ def test():
     logger.info(f"Found {len(algorithms)} algorithms to evaluate")
     for algorithm in algorithms:
         logger.info(f"{algorithm.id}, {algorithm.status}")
+
+
 if __name__ == "__main__":
     # test()
     main()

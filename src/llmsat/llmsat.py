@@ -4,6 +4,7 @@ from typing import List, Dict
 import hashlib
 NOT_INITIALIZED = "NOT_INITIALIZED"
 BASE_SOLVER_PATH = "solvers/base"
+RECOVERED_ALGORITHM = "recovered_algorithm"
 SAT2025_BENCHMARK_PATH = "data/benchmarks/satcomp2025"
 PYENV_PATH = "../../general/bin/activate"
 
