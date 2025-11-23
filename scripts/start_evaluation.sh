@@ -18,9 +18,13 @@ source ~/general/bin/activate
 
 export PYTHONPATH="./src:${PYTHONPATH:-}"
 
-# Pass --first_n if argument provided, otherwise run all
-if [ -n "$1" ]; then
-    python src/llmsat/pipelines/evaluation.py --run_all --first_n "$1"
-else
+# Usage:
+#   sbatch start_evaluation.sh                     # run all
+#   sbatch start_evaluation.sh --first_n 2         # run first 2 algorithms
+#   sbatch start_evaluation.sh --algorithm_id XYZ  # run specific algorithm
+
+if [ $# -eq 0 ]; then
     python src/llmsat/pipelines/evaluation.py --run_all
+else
+    python src/llmsat/pipelines/evaluation.py "$@"
 fi
