@@ -313,7 +313,7 @@ def _row_to_code_result(row: Mapping[str, Any]) -> CodeResult:
     return CodeResult(
         id=row.get("id"),
         code=row.get("code"),
-        algorithm_id=row.get("algorithm_id"),
+        algorithm_id=row.get("algorithm"),  # DB column is 'algorithm', not 'algorithm_id'
         status=row.get("status"),
         last_updated=row.get("last_updated"),
         build_success=_to_bool(row.get("build_success")),
