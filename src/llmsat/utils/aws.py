@@ -82,24 +82,24 @@ def get_all_tasks():
 
 def get_code_result(code_result_id: str):
     conn = connect_to_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM code_results WHERE id = %s;", (code_result_id,))
     assert cur.rowcount <= 1, "hash collision"
     if cur.rowcount == 1:
-        result = ToCodeResult(cur.fetchone())
+        result = _row_to_code_result(cur.fetchone())
         return result
     else:
         return None
 
 def get_algorithm_result(algorithm_result_id: str):
     conn = connect_to_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM algorithm_results WHERE id = %s;", (algorithm_result_id,))
     assert cur.rowcount <= 1, "hash collision"
     if cur.rowcount == 1:
         row = cur.fetchone()
         logger.info(f"Retrieved algorithm result {row}")
-        return ToAlgorithmResult(row)
+        return _row_to_algorithm_result(row)
     else:
         return None
 

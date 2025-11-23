@@ -3,3 +3,5 @@ models/
 solvers/algorithm_*/
 data/benchmarks/*
 !data/benchmarks/**/*.uri
+.env
+*.md
