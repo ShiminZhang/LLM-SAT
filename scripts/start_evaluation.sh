@@ -18,4 +18,9 @@ source ~/general/bin/activate
 
 export PYTHONPATH="./src:${PYTHONPATH:-}"
 
-python src/llmsat/pipelines/evaluation.py --run_all
+# Pass --first_n if argument provided, otherwise run all
+if [ -n "$1" ]; then
+    python src/llmsat/pipelines/evaluation.py --run_all --first_n "$1"
+else
+    python src/llmsat/pipelines/evaluation.py --run_all
+fi
