@@ -260,28 +260,33 @@ class EvaluationPipeline:
         # First read the file to find where to insert the code
         with open(restart_file, "r") as f:
             lines = f.readlines()
-        
-        # Find the insertion point (after "//LLMSAT start")
-        insert_idx = None
+
+        # Find the start and end markers to replace content between them
+        start_idx = None
+        end_idx = None
         for i, line in enumerate(lines):
             # Support both markers: "//LLMSAT start" and "// LLMSAT: start"
             if line.startswith("//LLMSAT start") or line.strip().startswith("// LLMSAT: start"):
-                insert_idx = i + 1  # Insert after this line
+                start_idx = i + 1  # Insert after this line
+            elif line.startswith("//LLMSAT end") or line.strip().startswith("// LLMSAT: end"):
+                end_idx = i  # End before this line
                 break
-        
-        if insert_idx is None:
+
+        if start_idx is None:
             raise ValueError("Could not find '//LLMSAT start' marker in restart.c")
-        logger.debug(f"Found insertion index at line {insert_idx} in restart.c")
-        
-        # Write the modified content
+        if end_idx is None:
+            raise ValueError("Could not find '//LLMSAT end' marker in restart.c")
+        logger.debug(f"Found markers: start at line {start_idx}, end at line {end_idx} in restart.c")
+
+        # Write the modified content: before start, new code, from end marker onwards
         with open(restart_file, "w") as f:
-            # Write lines before insertion point
-            f.writelines(lines[:insert_idx])
+            # Write lines before insertion point (including start marker)
+            f.writelines(lines[:start_idx])
             # Write the new code
             f.write(code)
             f.write("\n")
-            # Write the remaining lines
-            f.writelines(lines[insert_idx:])
+            # Write the remaining lines (from end marker onwards)
+            f.writelines(lines[end_idx:])
         logger.debug(f"Injected code into {restart_file}")
 
         # try compile the solver
