@@ -6,3 +6,6 @@ data/benchmarks/*
 .env
 *.md
 *.log
+data/results/
+logs/
+*.pyc
