@@ -596,14 +596,23 @@ def main():
     parser.add_argument("--collect_result", action="store_true", default=False)
     parser.add_argument("--collect_all_results", action="store_true", default=False)
     parser.add_argument("--test", action="store_true", default=False)
+    parser.add_argument("--generation_tag", type=str, default=None, help="Generation tag to evaluate (required with --run_all or --collect_all_results)")
     args = parser.parse_args()
     evaluation_pipeline = EvaluationPipeline()
     # evaluation_pipeline.run_all_solvers("1")
 
     if args.run_all:
         assert args.algorithm_id is None, "Cannot specify both --algorithm_id and --run_all"
-        # algorithms = get_algorithm_result_of_status(AlgorithmStatus.Generated)
-        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, "chatgpt_data_generation_gpt5_2")
+        # Determine which generation tag to use
+        if args.generation_tag:
+            generation_tag = args.generation_tag
+        else:
+            # Fall back to hardcoded default for backward compatibility
+            generation_tag = "chatgpt_data_generation_gpt5_2"
+            logger.warning(f"No --generation_tag specified, using default: {generation_tag}")
+
+        logger.info(f"Evaluating algorithms from generation tag: {generation_tag}")
+        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
         algorithms = [get_algorithm_result(algorithm_id) for algorithm_id in algorithm_ids]
         # algorithms = get_algorithm_result_of_status(AlgorithmStatus.CodeGenerated)
         logger.info(f"Found {len(algorithms)} algorithms to evaluate")
@@ -617,32 +626,22 @@ def main():
             return
     elif args.collect_all_results:
         assert args.algorithm_id is None, "Cannot specify both --algorithm_id and --collect_all_results"
-        # code_results = get_code_result_of_status(CodeStatus.Evaluated)
-        # code_ids = [code_result.id for code_result in code_results]
-        # code_dirs = find_codes(code_ids)
-        # algorithm_id_of_code_id = {}
-        # for code_id, code_dir in code_dirs.items():
-        #     algorithm_id = code_dir.split("/")[-2].split("algorithm_")[1]
-        #     algorithm_id_of_code_id[code_id] = algorithm_id
-        # for code_id in code_ids:
-        #     algorithm_id = algorithm_id_of_code_id[code_id]
-        #     evaluation_pipeline.collect_results(algorithm_id, code_id, force_recollect=True)
-        #     # return
-        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, ALGORITHM)
+        # Determine which generation tag to use
+        if args.generation_tag:
+            generation_tag = args.generation_tag
+        else:
+            # Fall back to ALGORITHM constant for backward compatibility
+            generation_tag = ALGORITHM
+            logger.warning(f"No --generation_tag specified, using default: {generation_tag}")
+
+        logger.info(f"Collecting results for generation tag: {generation_tag}")
+        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
+        logger.info(f"Found {len(algorithm_ids)} algorithms to collect results for")
         for algorithm_id in algorithm_ids:
             algorithm_result = get_algorithm_result(algorithm_id)
             code_ids = algorithm_result.code_id_list
             for code_id in code_ids:
                 evaluation_pipeline.collect_results(algorithm_id, code_id, force_recollect=True)
-                # return
-        # restore_codes(list(algorithm_ids))
-        # exit()
-        # logger.info(f"code dirs: {code_dirs}")
-        # logger.info(f"all code ids: {code_ids}")
-        # algorithms = get_all_algorithm_results()
-        # logger.info(f"all algorithms: {len(algorithms)}")
-        # for algorithm in algorithms:
-        #     evaluation_pipeline.fix_algorithm_code_mapping(algorithm, code_ids)
         return
     elif args.test:
         evaluation_pipeline.test()

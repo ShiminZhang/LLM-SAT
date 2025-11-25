@@ -1,9 +1,31 @@
 #!/bin/bash
-#SBATCH --time=0-10:0:00
-#SBATCH --account=def-vganesh
+#SBATCH --job-name=evaluation
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=12
 #SBATCH --mem=16G
-#SBATCH -o logs/evaluation_%j.log
+#SBATCH --time=0-10:00:00
+#SBATCH --qos=coc-ice
+#SBATCH --output=logs/evaluation_%j.log
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=mgopalan6@gatech.edu
 
-source ../../general/bin/activate
-PYTHONPATH=./src:$PYTHONPATH
-python src/llmsat/pipelines/evaluation.py --run_all
+set -euo pipefail
+cd "$SLURM_SUBMIT_DIR"
+
+# activate your existing venv (path relative to submit dir)
+source ~/general/bin/activate
+
+export PYTHONPATH="./src:${PYTHONPATH:-}"
+
+# Usage:
+#   sbatch start_evaluation.sh                     # run all (uses default tag)
+#   sbatch start_evaluation.sh --first_n 2         # run first 2 algorithms
+#   sbatch start_evaluation.sh --algorithm_id XYZ  # run specific algorithm
+#   sbatch start_evaluation.sh --generation_tag TAG --run_all  # specify tag
+
+if [ $# -eq 0 ]; then
+    python src/llmsat/pipelines/evaluation.py --run_all
+else
+    python src/llmsat/pipelines/evaluation.py "$@"
+fi
