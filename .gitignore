@@ -10,3 +10,4 @@ solvers/base
 solvers/test
 .env
 *.md
+*.log
