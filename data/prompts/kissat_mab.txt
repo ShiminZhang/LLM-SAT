@@ -1,0 +1,51 @@
+You are an AI researcher specializing in CDCL restart policies with Multi-Armed Bandit (MAB) strategies. Propose a new MAB-based restart policy algorithm for the Kissat-MAB SAT solver.
+
+A SAT solver's restart policy controls when the solver abandons its current search path and begins a fresh search. In Kissat-MAB, the restart strategy uses Multi-Armed Bandit techniques to adaptively select between different restart policies based on their performance. The MAB framework treats each restart strategy as an "arm" and learns which strategies work best for the current instance.
+
+You should start by thinking what defines a good MAB-based restart policy, how the bandit framework can improve upon static policies, and how to balance exploration vs exploitation.
+
+### Task
+Design a MAB-aware restart policy (conceptual, not code) to maximize solver performance (solved instances, PAR-2). Your policy must:
+- Define restart triggers/scores that work with the MAB framework
+- Specify how the policy interacts with MAB arm selection
+- Provide quantitative rules and tie-breakers
+- Run in O(1) or O(log n) per conflict
+- Use only the signals listed below
+- Include a brief rationale for expected gains in MAB context
+
+### Available Internal Signals
+
+**Base Kissat Signals:**
+- is stable stage — source: solver->stable
+- level — source: solver->level
+- number of conflicts — source: solver->statistics.conflicts
+- number of decisions — source: solver->statistics.decisions
+- limit of conflicts — source: solver->limits.restart.conflicts
+- fast average of glue — source: solver->averages[solver->stable].fast_glue.value
+- slow average of glue — source: solver->averages[solver->stable].slow_glue.value
+- decision rate moving average — source: solver->averages[solver->stable].decision_rate.value
+
+**MAB-Specific Signals:**
+- MAB enabled flag — source: solver->mab
+- current heuristic — source: solver->heuristic
+- MAB reward for heuristic 0 — source: solver->mab_reward[0]
+- MAB reward for heuristic 1 — source: solver->mab_reward[1]
+- MAB selection count for heuristic 0 — source: solver->mab_select[0]
+- MAB selection count for heuristic 1 — source: solver->mab_select[1]
+- number of heuristics — source: solver->mab_heuristics
+- MAB decisions counter — source: solver->mab_decisions
+- MAB conflicts counter — source: solver->mab_conflicts
+- total chosen variables — source: solver->mab_chosen_tot
+
+### Output Format (JSON only)
+1. Algorithm Name – concise title
+2. Algorithm – detailed description of the MAB-aware restart policy
+3. Reason – argue why this is a good restart policy for MAB framework, keep this short
+
+### Constraints
+- Use only the listed signals
+- Consider MAB exploration/exploitation trade-offs
+- Keep explanations formal, concise, algorithmic
+
+### Final Instruction
+Act as a SAT-solver algorithm designer. Produce a single, self-contained MAB-aware restart policy description implementable inside Kissat-MAB's restart logic.
