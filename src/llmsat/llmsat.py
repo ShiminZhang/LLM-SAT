@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import List, Dict
+from typing import List, Dict, Optional
 import hashlib
 NOT_INITIALIZED = "NOT_INITIALIZED"
 BASE_SOLVER_PATH = "solvers/base"
@@ -66,7 +66,7 @@ ALGORITHMS_CODE_MAP_PATH = "data/algorithms_code_map.json"
 CODE_GENERATION_PROGRESS_PATH = "data/code_generation_progress.json"
 
 
-def setup_logging(level: int = logging.INFO, format_string: str | None = None) -> None:
+def setup_logging(level: int = logging.INFO, format_string: Optional[str] = None) -> None:
     """
     Configure logging for the entire package.
     
