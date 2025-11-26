@@ -1,0 +1,727 @@
+---------------------------------------
+Begin Slurm Prolog: Nov-25-2025 20:06:58
+Job ID:    3654128
+User ID:   mgopalan6
+Account:   coc
+Job name:  evaluation
+Partition: coc-cpu
+QOS:       coc-ice
+---------------------------------------
+2025-11-25 20:06:59 INFO     Evaluating algorithms from        evaluation.py:614
+                             generation tag:                                    
+                             chatgpt_data_generation_gpt4o_3                    
+2025-11-25 20:07:13 INFO     Found 50 algorithms to evaluate   evaluation.py:618
+                    INFO     Running evaluation for 50         evaluation.py:651
+                             algorithms                                         
+                    INFO     c14dca778d62ad0dd57cb5978a0f4f965 evaluation.py:654
+                             243c4619ccd2695e6a4065149908790                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             c14dca778d62ad0dd57cb5978a0f4f965                  
+                             243c4619ccd2695e6a4065149908790                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             c14dca778d62ad0dd57cb5978a0f4f965                  
+                             243c4619ccd2695e6a4065149908790                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             c14dca778d62ad0dd57cb5978a0f4f965                  
+                             243c4619ccd2695e6a4065149908790                    
+Updated algorithm result c14dca778d62ad0dd57cb5978a0f4f965243c4619ccd2695e6a4065149908790
+                    INFO     88529570b3942061097744bc11264c759 evaluation.py:654
+                             8834272b3fdd3c3ca4abf2491626d8b                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             88529570b3942061097744bc11264c759                  
+                             8834272b3fdd3c3ca4abf2491626d8b                    
+2025-11-25 20:07:14 INFO     Read algorithm                    evaluation.py:449
+                             88529570b3942061097744bc11264c759                  
+                             8834272b3fdd3c3ca4abf2491626d8b                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             88529570b3942061097744bc11264c759                  
+                             8834272b3fdd3c3ca4abf2491626d8b                    
+Updated algorithm result 88529570b3942061097744bc11264c7598834272b3fdd3c3ca4abf2491626d8b
+                    INFO     352c5ef7bcf0c41bc3fbb8b4e4c9783cf evaluation.py:654
+                             e5c94fcf5320571e9af454497cc6f83                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             352c5ef7bcf0c41bc3fbb8b4e4c9783cf                  
+                             e5c94fcf5320571e9af454497cc6f83                    
+2025-11-25 20:07:15 INFO     Read algorithm                    evaluation.py:449
+                             352c5ef7bcf0c41bc3fbb8b4e4c9783cf                  
+                             e5c94fcf5320571e9af454497cc6f83                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             352c5ef7bcf0c41bc3fbb8b4e4c9783cf                  
+                             e5c94fcf5320571e9af454497cc6f83                    
+Updated algorithm result 352c5ef7bcf0c41bc3fbb8b4e4c9783cfe5c94fcf5320571e9af454497cc6f83
+                    INFO     2299d96b802f1d666b8bbc3a64f4aa852 evaluation.py:654
+                             1b9d9f5a5b0bc8a75a22100af6cbd99                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             2299d96b802f1d666b8bbc3a64f4aa852                  
+                             1b9d9f5a5b0bc8a75a22100af6cbd99                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             2299d96b802f1d666b8bbc3a64f4aa852                  
+                             1b9d9f5a5b0bc8a75a22100af6cbd99                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             2299d96b802f1d666b8bbc3a64f4aa852                  
+                             1b9d9f5a5b0bc8a75a22100af6cbd99                    
+Updated algorithm result 2299d96b802f1d666b8bbc3a64f4aa8521b9d9f5a5b0bc8a75a22100af6cbd99
+2025-11-25 20:07:16 INFO     57053fc87168d86724f78b8fc8810347e evaluation.py:654
+                             d2323301a155c891801d890a4442188                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             57053fc87168d86724f78b8fc8810347e                  
+                             d2323301a155c891801d890a4442188                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             57053fc87168d86724f78b8fc8810347e                  
+                             d2323301a155c891801d890a4442188                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             57053fc87168d86724f78b8fc8810347e                  
+                             d2323301a155c891801d890a4442188                    
+Updated algorithm result 57053fc87168d86724f78b8fc8810347ed2323301a155c891801d890a4442188
+2025-11-25 20:07:17 INFO     cf9e6583bbd56ea9b7b7c0225e65b1c55 evaluation.py:654
+                             ab9436dab5d656f2d43d2364b3ea1ff                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             cf9e6583bbd56ea9b7b7c0225e65b1c55                  
+                             ab9436dab5d656f2d43d2364b3ea1ff                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             cf9e6583bbd56ea9b7b7c0225e65b1c55                  
+                             ab9436dab5d656f2d43d2364b3ea1ff                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             cf9e6583bbd56ea9b7b7c0225e65b1c55                  
+                             ab9436dab5d656f2d43d2364b3ea1ff                    
+Updated algorithm result cf9e6583bbd56ea9b7b7c0225e65b1c55ab9436dab5d656f2d43d2364b3ea1ff
+2025-11-25 20:07:18 INFO     411f7d4411d1378e2f3f225603f9c6b85 evaluation.py:654
+                             b99acd3c3a695f4f39a094daa6f44be                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             411f7d4411d1378e2f3f225603f9c6b85                  
+                             b99acd3c3a695f4f39a094daa6f44be                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             411f7d4411d1378e2f3f225603f9c6b85                  
+                             b99acd3c3a695f4f39a094daa6f44be                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             411f7d4411d1378e2f3f225603f9c6b85                  
+                             b99acd3c3a695f4f39a094daa6f44be                    
+Updated algorithm result 411f7d4411d1378e2f3f225603f9c6b85b99acd3c3a695f4f39a094daa6f44be
+                    INFO     737d65b6b7beddd9476f1f550a59c080d evaluation.py:654
+                             96b18a7cf868fd178ba6705898f95c6                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             737d65b6b7beddd9476f1f550a59c080d                  
+                             96b18a7cf868fd178ba6705898f95c6                    
+2025-11-25 20:07:19 INFO     Read algorithm                    evaluation.py:449
+                             737d65b6b7beddd9476f1f550a59c080d                  
+                             96b18a7cf868fd178ba6705898f95c6                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             737d65b6b7beddd9476f1f550a59c080d                  
+                             96b18a7cf868fd178ba6705898f95c6                    
+Updated algorithm result 737d65b6b7beddd9476f1f550a59c080d96b18a7cf868fd178ba6705898f95c6
+                    INFO     f412504f2835345f9e73263f778f5b433 evaluation.py:654
+                             a1a1c446164c407a76e93863346369b                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             f412504f2835345f9e73263f778f5b433                  
+                             a1a1c446164c407a76e93863346369b                    
+2025-11-25 20:07:20 INFO     Read algorithm                    evaluation.py:449
+                             f412504f2835345f9e73263f778f5b433                  
+                             a1a1c446164c407a76e93863346369b                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             f412504f2835345f9e73263f778f5b433                  
+                             a1a1c446164c407a76e93863346369b                    
+Updated algorithm result f412504f2835345f9e73263f778f5b433a1a1c446164c407a76e93863346369b
+                    INFO     b476785c453432b64ec11f8204265f61e evaluation.py:654
+                             e7ecb8720a7d0ce120214184c278ffa                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             b476785c453432b64ec11f8204265f61e                  
+                             e7ecb8720a7d0ce120214184c278ffa                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             b476785c453432b64ec11f8204265f61e                  
+                             e7ecb8720a7d0ce120214184c278ffa                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             b476785c453432b64ec11f8204265f61e                  
+                             e7ecb8720a7d0ce120214184c278ffa                    
+Updated algorithm result b476785c453432b64ec11f8204265f61ee7ecb8720a7d0ce120214184c278ffa
+2025-11-25 20:07:21 INFO     323f5a535bdd5a03d78828ee295d7a6fe evaluation.py:654
+                             5eb384ceff9699e682f9bd3d19bce32                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             323f5a535bdd5a03d78828ee295d7a6fe                  
+                             5eb384ceff9699e682f9bd3d19bce32                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             323f5a535bdd5a03d78828ee295d7a6fe                  
+                             5eb384ceff9699e682f9bd3d19bce32                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             323f5a535bdd5a03d78828ee295d7a6fe                  
+                             5eb384ceff9699e682f9bd3d19bce32                    
+Updated algorithm result 323f5a535bdd5a03d78828ee295d7a6fe5eb384ceff9699e682f9bd3d19bce32
+2025-11-25 20:07:22 INFO     0c0ff35608bed13997231c13684c45b55 evaluation.py:654
+                             4898e3d2a0c6b9db4186ddc4f2f3874                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             0c0ff35608bed13997231c13684c45b55                  
+                             4898e3d2a0c6b9db4186ddc4f2f3874                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             0c0ff35608bed13997231c13684c45b55                  
+                             4898e3d2a0c6b9db4186ddc4f2f3874                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             0c0ff35608bed13997231c13684c45b55                  
+                             4898e3d2a0c6b9db4186ddc4f2f3874                    
+Updated algorithm result 0c0ff35608bed13997231c13684c45b554898e3d2a0c6b9db4186ddc4f2f3874
+2025-11-25 20:07:23 INFO     5d1401d62b06e4cb72b8c2561aab43e0c evaluation.py:654
+                             b150db9b42af77a9f5fec1b3f10f883                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             5d1401d62b06e4cb72b8c2561aab43e0c                  
+                             b150db9b42af77a9f5fec1b3f10f883                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             5d1401d62b06e4cb72b8c2561aab43e0c                  
+                             b150db9b42af77a9f5fec1b3f10f883                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             5d1401d62b06e4cb72b8c2561aab43e0c                  
+                             b150db9b42af77a9f5fec1b3f10f883                    
+Updated algorithm result 5d1401d62b06e4cb72b8c2561aab43e0cb150db9b42af77a9f5fec1b3f10f883
+2025-11-25 20:07:24 INFO     6a1767e2cad92cc9836754aec96da4803 evaluation.py:654
+                             5567c2ebd6cb59710e90bceef2e4e5c                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             6a1767e2cad92cc9836754aec96da4803                  
+                             5567c2ebd6cb59710e90bceef2e4e5c                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             6a1767e2cad92cc9836754aec96da4803                  
+                             5567c2ebd6cb59710e90bceef2e4e5c                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             6a1767e2cad92cc9836754aec96da4803                  
+                             5567c2ebd6cb59710e90bceef2e4e5c                    
+Updated algorithm result 6a1767e2cad92cc9836754aec96da48035567c2ebd6cb59710e90bceef2e4e5c
+                    INFO     6115633ad40d6d2e42df3eeb8e565d769 evaluation.py:654
+                             24d37e9a4f9fae8482d5338f8a6423d                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             6115633ad40d6d2e42df3eeb8e565d769                  
+                             24d37e9a4f9fae8482d5338f8a6423d                    
+2025-11-25 20:07:25 INFO     Read algorithm                    evaluation.py:449
+                             6115633ad40d6d2e42df3eeb8e565d769                  
+                             24d37e9a4f9fae8482d5338f8a6423d                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             6115633ad40d6d2e42df3eeb8e565d769                  
+                             24d37e9a4f9fae8482d5338f8a6423d                    
+Updated algorithm result 6115633ad40d6d2e42df3eeb8e565d76924d37e9a4f9fae8482d5338f8a6423d
+                    INFO     f356a3d06dd947a563290ef5bf9cb9070 evaluation.py:654
+                             e596f18870fe7a0d2078037d5f9d81d                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             f356a3d06dd947a563290ef5bf9cb9070                  
+                             e596f18870fe7a0d2078037d5f9d81d                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             f356a3d06dd947a563290ef5bf9cb9070                  
+                             e596f18870fe7a0d2078037d5f9d81d                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             f356a3d06dd947a563290ef5bf9cb9070                  
+                             e596f18870fe7a0d2078037d5f9d81d                    
+Updated algorithm result f356a3d06dd947a563290ef5bf9cb9070e596f18870fe7a0d2078037d5f9d81d
+2025-11-25 20:07:26 INFO     8f69b67165537748d831801daf3d3cb42 evaluation.py:654
+                             c68c33ca548faf17ff3c7e1dded1790                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             8f69b67165537748d831801daf3d3cb42                  
+                             c68c33ca548faf17ff3c7e1dded1790                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             8f69b67165537748d831801daf3d3cb42                  
+                             c68c33ca548faf17ff3c7e1dded1790                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             8f69b67165537748d831801daf3d3cb42                  
+                             c68c33ca548faf17ff3c7e1dded1790                    
+Updated algorithm result 8f69b67165537748d831801daf3d3cb42c68c33ca548faf17ff3c7e1dded1790
+2025-11-25 20:07:27 INFO     4cc7cbda8b4e4d4aeb33941dd99b30a9a evaluation.py:654
+                             2451f7cd29dc5882a6332a12178c639                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             4cc7cbda8b4e4d4aeb33941dd99b30a9a                  
+                             2451f7cd29dc5882a6332a12178c639                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             4cc7cbda8b4e4d4aeb33941dd99b30a9a                  
+                             2451f7cd29dc5882a6332a12178c639                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             4cc7cbda8b4e4d4aeb33941dd99b30a9a                  
+                             2451f7cd29dc5882a6332a12178c639                    
+Updated algorithm result 4cc7cbda8b4e4d4aeb33941dd99b30a9a2451f7cd29dc5882a6332a12178c639
+2025-11-25 20:07:28 INFO     002d3fccd9ea957e733397b28c9441feb evaluation.py:654
+                             623733e8cc16a7c85c89e190db209b2                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             002d3fccd9ea957e733397b28c9441feb                  
+                             623733e8cc16a7c85c89e190db209b2                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             002d3fccd9ea957e733397b28c9441feb                  
+                             623733e8cc16a7c85c89e190db209b2                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             002d3fccd9ea957e733397b28c9441feb                  
+                             623733e8cc16a7c85c89e190db209b2                    
+Updated algorithm result 002d3fccd9ea957e733397b28c9441feb623733e8cc16a7c85c89e190db209b2
+                    INFO     80a161dbf8eb0e91d4ad335e7849e32f0 evaluation.py:654
+                             97031730150945a30f7f93932b33357                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             80a161dbf8eb0e91d4ad335e7849e32f0                  
+                             97031730150945a30f7f93932b33357                    
+2025-11-25 20:07:29 INFO     Read algorithm                    evaluation.py:449
+                             80a161dbf8eb0e91d4ad335e7849e32f0                  
+                             97031730150945a30f7f93932b33357                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             80a161dbf8eb0e91d4ad335e7849e32f0                  
+                             97031730150945a30f7f93932b33357                    
+Updated algorithm result 80a161dbf8eb0e91d4ad335e7849e32f097031730150945a30f7f93932b33357
+                    INFO     6291b24aa2dc75de933d9504adb171e7b evaluation.py:654
+                             f76ae2795b32b0d50c0514f51bc559d                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             6291b24aa2dc75de933d9504adb171e7b                  
+                             f76ae2795b32b0d50c0514f51bc559d                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             6291b24aa2dc75de933d9504adb171e7b                  
+                             f76ae2795b32b0d50c0514f51bc559d                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             6291b24aa2dc75de933d9504adb171e7b                  
+                             f76ae2795b32b0d50c0514f51bc559d                    
+Updated algorithm result 6291b24aa2dc75de933d9504adb171e7bf76ae2795b32b0d50c0514f51bc559d
+2025-11-25 20:07:30 INFO     1c1810c933d3c8a18baae4de98bcd63c0 evaluation.py:654
+                             8fc6ada45ddec41c1ce89176c39b7cc                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             1c1810c933d3c8a18baae4de98bcd63c0                  
+                             8fc6ada45ddec41c1ce89176c39b7cc                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             1c1810c933d3c8a18baae4de98bcd63c0                  
+                             8fc6ada45ddec41c1ce89176c39b7cc                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             1c1810c933d3c8a18baae4de98bcd63c0                  
+                             8fc6ada45ddec41c1ce89176c39b7cc                    
+Updated algorithm result 1c1810c933d3c8a18baae4de98bcd63c08fc6ada45ddec41c1ce89176c39b7cc
+2025-11-25 20:07:31 INFO     27d1a0ad2715a7be494474008d2a7ae4f evaluation.py:654
+                             537fee2a132162f43076e621ea4c141                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             27d1a0ad2715a7be494474008d2a7ae4f                  
+                             537fee2a132162f43076e621ea4c141                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             27d1a0ad2715a7be494474008d2a7ae4f                  
+                             537fee2a132162f43076e621ea4c141                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             27d1a0ad2715a7be494474008d2a7ae4f                  
+                             537fee2a132162f43076e621ea4c141                    
+Updated algorithm result 27d1a0ad2715a7be494474008d2a7ae4f537fee2a132162f43076e621ea4c141
+2025-11-25 20:07:32 INFO     e79d3b2463bedfbc0f30d54c816cee8ae evaluation.py:654
+                             a0dc59970192d0acfe45790c335ea65                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             e79d3b2463bedfbc0f30d54c816cee8ae                  
+                             a0dc59970192d0acfe45790c335ea65                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             e79d3b2463bedfbc0f30d54c816cee8ae                  
+                             a0dc59970192d0acfe45790c335ea65                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             e79d3b2463bedfbc0f30d54c816cee8ae                  
+                             a0dc59970192d0acfe45790c335ea65                    
+Updated algorithm result e79d3b2463bedfbc0f30d54c816cee8aea0dc59970192d0acfe45790c335ea65
+                    INFO     5fb97c29fef156a3a6b9e1f5b15c10f18 evaluation.py:654
+                             7607588afd42b41b49fed6d3b1fb817                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             5fb97c29fef156a3a6b9e1f5b15c10f18                  
+                             7607588afd42b41b49fed6d3b1fb817                    
+2025-11-25 20:07:33 INFO     Read algorithm                    evaluation.py:449
+                             5fb97c29fef156a3a6b9e1f5b15c10f18                  
+                             7607588afd42b41b49fed6d3b1fb817                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             5fb97c29fef156a3a6b9e1f5b15c10f18                  
+                             7607588afd42b41b49fed6d3b1fb817                    
+Updated algorithm result 5fb97c29fef156a3a6b9e1f5b15c10f187607588afd42b41b49fed6d3b1fb817
+                    INFO     eb3fc70102d9e61d40b262234b14d7dc7 evaluation.py:654
+                             a5381c4261f7495f2ee54678835d60d                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             eb3fc70102d9e61d40b262234b14d7dc7                  
+                             a5381c4261f7495f2ee54678835d60d                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             eb3fc70102d9e61d40b262234b14d7dc7                  
+                             a5381c4261f7495f2ee54678835d60d                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             eb3fc70102d9e61d40b262234b14d7dc7                  
+                             a5381c4261f7495f2ee54678835d60d                    
+Updated algorithm result eb3fc70102d9e61d40b262234b14d7dc7a5381c4261f7495f2ee54678835d60d
+2025-11-25 20:07:34 INFO     efa6d9cddf04b671a9ed60b3e26078c06 evaluation.py:654
+                             1bf7c606e31a92cb97973899820231f                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             efa6d9cddf04b671a9ed60b3e26078c06                  
+                             1bf7c606e31a92cb97973899820231f                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             efa6d9cddf04b671a9ed60b3e26078c06                  
+                             1bf7c606e31a92cb97973899820231f                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             efa6d9cddf04b671a9ed60b3e26078c06                  
+                             1bf7c606e31a92cb97973899820231f                    
+Updated algorithm result efa6d9cddf04b671a9ed60b3e26078c061bf7c606e31a92cb97973899820231f
+2025-11-25 20:07:35 INFO     224f3843edbe1dddb1c58f576e1fc2305 evaluation.py:654
+                             4aed12212407f9f8fd43368842bb4f1                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             224f3843edbe1dddb1c58f576e1fc2305                  
+                             4aed12212407f9f8fd43368842bb4f1                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             224f3843edbe1dddb1c58f576e1fc2305                  
+                             4aed12212407f9f8fd43368842bb4f1                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             224f3843edbe1dddb1c58f576e1fc2305                  
+                             4aed12212407f9f8fd43368842bb4f1                    
+Updated algorithm result 224f3843edbe1dddb1c58f576e1fc23054aed12212407f9f8fd43368842bb4f1
+2025-11-25 20:07:36 INFO     7221cd866d868d183d48d1b4d62927367 evaluation.py:654
+                             7754bb021f6a28f5cb9c96cc9f8891d                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             7221cd866d868d183d48d1b4d62927367                  
+                             7754bb021f6a28f5cb9c96cc9f8891d                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             7221cd866d868d183d48d1b4d62927367                  
+                             7754bb021f6a28f5cb9c96cc9f8891d                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             7221cd866d868d183d48d1b4d62927367                  
+                             7754bb021f6a28f5cb9c96cc9f8891d                    
+Updated algorithm result 7221cd866d868d183d48d1b4d629273677754bb021f6a28f5cb9c96cc9f8891d
+2025-11-25 20:07:37 INFO     6cc7210a073396f98e3b8e30bbd8b3afb evaluation.py:654
+                             2a872457fde7287f1b75be9dda93263                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             6cc7210a073396f98e3b8e30bbd8b3afb                  
+                             2a872457fde7287f1b75be9dda93263                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             6cc7210a073396f98e3b8e30bbd8b3afb                  
+                             2a872457fde7287f1b75be9dda93263                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             6cc7210a073396f98e3b8e30bbd8b3afb                  
+                             2a872457fde7287f1b75be9dda93263                    
+Updated algorithm result 6cc7210a073396f98e3b8e30bbd8b3afb2a872457fde7287f1b75be9dda93263
+                    INFO     0d153753158bc15840191b1835efae41d evaluation.py:654
+                             c23ef9e3228c39c41cf8a43959d790e                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             0d153753158bc15840191b1835efae41d                  
+                             c23ef9e3228c39c41cf8a43959d790e                    
+2025-11-25 20:07:38 INFO     Read algorithm                    evaluation.py:449
+                             0d153753158bc15840191b1835efae41d                  
+                             c23ef9e3228c39c41cf8a43959d790e                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             0d153753158bc15840191b1835efae41d                  
+                             c23ef9e3228c39c41cf8a43959d790e                    
+Updated algorithm result 0d153753158bc15840191b1835efae41dc23ef9e3228c39c41cf8a43959d790e
+                    INFO     549f618567ffb266d23ba35765ef246e8 evaluation.py:654
+                             2805564a4de4e7c26914711db7851f2                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             549f618567ffb266d23ba35765ef246e8                  
+                             2805564a4de4e7c26914711db7851f2                    
+2025-11-25 20:07:39 INFO     Read algorithm                    evaluation.py:449
+                             549f618567ffb266d23ba35765ef246e8                  
+                             2805564a4de4e7c26914711db7851f2                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             549f618567ffb266d23ba35765ef246e8                  
+                             2805564a4de4e7c26914711db7851f2                    
+Updated algorithm result 549f618567ffb266d23ba35765ef246e82805564a4de4e7c26914711db7851f2
+                    INFO     040c750fcaadb4366486809d778e9ff63 evaluation.py:654
+                             4f3668bcf688fd816dc42544ed19757                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             040c750fcaadb4366486809d778e9ff63                  
+                             4f3668bcf688fd816dc42544ed19757                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             040c750fcaadb4366486809d778e9ff63                  
+                             4f3668bcf688fd816dc42544ed19757                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             040c750fcaadb4366486809d778e9ff63                  
+                             4f3668bcf688fd816dc42544ed19757                    
+Updated algorithm result 040c750fcaadb4366486809d778e9ff634f3668bcf688fd816dc42544ed19757
+2025-11-25 20:07:40 INFO     267ff5b2c927d5a7c841adabd5f9be1c0 evaluation.py:654
+                             21ead3f6c2b7c164d5bff9ad859f4cd                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             267ff5b2c927d5a7c841adabd5f9be1c0                  
+                             21ead3f6c2b7c164d5bff9ad859f4cd                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             267ff5b2c927d5a7c841adabd5f9be1c0                  
+                             21ead3f6c2b7c164d5bff9ad859f4cd                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             267ff5b2c927d5a7c841adabd5f9be1c0                  
+                             21ead3f6c2b7c164d5bff9ad859f4cd                    
+Updated algorithm result 267ff5b2c927d5a7c841adabd5f9be1c021ead3f6c2b7c164d5bff9ad859f4cd
+2025-11-25 20:07:41 INFO     c658cc2226ecca17516f4ac3ccc463f1b evaluation.py:654
+                             944905941989669fe0be5ca9a783063                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             c658cc2226ecca17516f4ac3ccc463f1b                  
+                             944905941989669fe0be5ca9a783063                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             c658cc2226ecca17516f4ac3ccc463f1b                  
+                             944905941989669fe0be5ca9a783063                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             c658cc2226ecca17516f4ac3ccc463f1b                  
+                             944905941989669fe0be5ca9a783063                    
+Updated algorithm result c658cc2226ecca17516f4ac3ccc463f1b944905941989669fe0be5ca9a783063
+2025-11-25 20:07:42 INFO     656a1bcedae2b9137e9f050858677408b evaluation.py:654
+                             972bf99695b59fd5ea6936cbac50b7c                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             656a1bcedae2b9137e9f050858677408b                  
+                             972bf99695b59fd5ea6936cbac50b7c                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             656a1bcedae2b9137e9f050858677408b                  
+                             972bf99695b59fd5ea6936cbac50b7c                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             656a1bcedae2b9137e9f050858677408b                  
+                             972bf99695b59fd5ea6936cbac50b7c                    
+Updated algorithm result 656a1bcedae2b9137e9f050858677408b972bf99695b59fd5ea6936cbac50b7c
+2025-11-25 20:07:43 INFO     5d5366d5ade26e5fcad0651662956cff1 evaluation.py:654
+                             6346414fd4a7a65b5250ac92afd8280                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             5d5366d5ade26e5fcad0651662956cff1                  
+                             6346414fd4a7a65b5250ac92afd8280                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             5d5366d5ade26e5fcad0651662956cff1                  
+                             6346414fd4a7a65b5250ac92afd8280                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             5d5366d5ade26e5fcad0651662956cff1                  
+                             6346414fd4a7a65b5250ac92afd8280                    
+Updated algorithm result 5d5366d5ade26e5fcad0651662956cff16346414fd4a7a65b5250ac92afd8280
+                    INFO     f763ae22ec4e69fab3b1278c0a962b091 evaluation.py:654
+                             d9288b9e4988ea8342b2c17ffce3229                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             f763ae22ec4e69fab3b1278c0a962b091                  
+                             d9288b9e4988ea8342b2c17ffce3229                    
+2025-11-25 20:07:44 INFO     Read algorithm                    evaluation.py:449
+                             f763ae22ec4e69fab3b1278c0a962b091                  
+                             d9288b9e4988ea8342b2c17ffce3229                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             f763ae22ec4e69fab3b1278c0a962b091                  
+                             d9288b9e4988ea8342b2c17ffce3229                    
+Updated algorithm result f763ae22ec4e69fab3b1278c0a962b091d9288b9e4988ea8342b2c17ffce3229
+                    INFO     a7dd908a34883def9bbc066b0d261d764 evaluation.py:654
+                             350a0ba4f5b34a98b27f236fd290619                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             a7dd908a34883def9bbc066b0d261d764                  
+                             350a0ba4f5b34a98b27f236fd290619                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             a7dd908a34883def9bbc066b0d261d764                  
+                             350a0ba4f5b34a98b27f236fd290619                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             a7dd908a34883def9bbc066b0d261d764                  
+                             350a0ba4f5b34a98b27f236fd290619                    
+Updated algorithm result a7dd908a34883def9bbc066b0d261d764350a0ba4f5b34a98b27f236fd290619
+2025-11-25 20:07:45 INFO     da456ce0bfad6f9aa987ecd218b6ee885 evaluation.py:654
+                             9c061ad91d2cabf06faeef2fc284382                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             da456ce0bfad6f9aa987ecd218b6ee885                  
+                             9c061ad91d2cabf06faeef2fc284382                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             da456ce0bfad6f9aa987ecd218b6ee885                  
+                             9c061ad91d2cabf06faeef2fc284382                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             da456ce0bfad6f9aa987ecd218b6ee885                  
+                             9c061ad91d2cabf06faeef2fc284382                    
+Updated algorithm result da456ce0bfad6f9aa987ecd218b6ee8859c061ad91d2cabf06faeef2fc284382
+2025-11-25 20:07:46 INFO     1a1412a806c887e2a2589db932509c141 evaluation.py:654
+                             144cb040912a1deb4e9e9a9b1f008cc                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             1a1412a806c887e2a2589db932509c141                  
+                             144cb040912a1deb4e9e9a9b1f008cc                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             1a1412a806c887e2a2589db932509c141                  
+                             144cb040912a1deb4e9e9a9b1f008cc                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             1a1412a806c887e2a2589db932509c141                  
+                             144cb040912a1deb4e9e9a9b1f008cc                    
+Updated algorithm result 1a1412a806c887e2a2589db932509c141144cb040912a1deb4e9e9a9b1f008cc
+2025-11-25 20:07:47 INFO     72342eeeb936287face0c1eacddb1fb02 evaluation.py:654
+                             f8be1a854a54a6617c0d1f0d528fba5                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             72342eeeb936287face0c1eacddb1fb02                  
+                             f8be1a854a54a6617c0d1f0d528fba5                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             72342eeeb936287face0c1eacddb1fb02                  
+                             f8be1a854a54a6617c0d1f0d528fba5                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             72342eeeb936287face0c1eacddb1fb02                  
+                             f8be1a854a54a6617c0d1f0d528fba5                    
+Updated algorithm result 72342eeeb936287face0c1eacddb1fb02f8be1a854a54a6617c0d1f0d528fba5
+                    INFO     a2bd4937295155bbe696838adaa1d1fba evaluation.py:654
+                             c3fa6ac2f11b8c9bd93aa7e461a06eb                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             a2bd4937295155bbe696838adaa1d1fba                  
+                             c3fa6ac2f11b8c9bd93aa7e461a06eb                    
+2025-11-25 20:07:48 INFO     Read algorithm                    evaluation.py:449
+                             a2bd4937295155bbe696838adaa1d1fba                  
+                             c3fa6ac2f11b8c9bd93aa7e461a06eb                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             a2bd4937295155bbe696838adaa1d1fba                  
+                             c3fa6ac2f11b8c9bd93aa7e461a06eb                    
+Updated algorithm result a2bd4937295155bbe696838adaa1d1fbac3fa6ac2f11b8c9bd93aa7e461a06eb
+                    INFO     a5457860dac6a29c3d39d1ffb1e37a35e evaluation.py:654
+                             ad8ac83e7a13a5bbbe3337a834eb504                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             a5457860dac6a29c3d39d1ffb1e37a35e                  
+                             ad8ac83e7a13a5bbbe3337a834eb504                    
+2025-11-25 20:07:49 INFO     Read algorithm                    evaluation.py:449
+                             a5457860dac6a29c3d39d1ffb1e37a35e                  
+                             ad8ac83e7a13a5bbbe3337a834eb504                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             a5457860dac6a29c3d39d1ffb1e37a35e                  
+                             ad8ac83e7a13a5bbbe3337a834eb504                    
+Updated algorithm result a5457860dac6a29c3d39d1ffb1e37a35ead8ac83e7a13a5bbbe3337a834eb504
+                    INFO     c2b1322dc7d2f83d4daed139e71cd481e evaluation.py:654
+                             44518896f025e61f1b6d3aacacf2104                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             c2b1322dc7d2f83d4daed139e71cd481e                  
+                             44518896f025e61f1b6d3aacacf2104                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             c2b1322dc7d2f83d4daed139e71cd481e                  
+                             44518896f025e61f1b6d3aacacf2104                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             c2b1322dc7d2f83d4daed139e71cd481e                  
+                             44518896f025e61f1b6d3aacacf2104                    
+Updated algorithm result c2b1322dc7d2f83d4daed139e71cd481e44518896f025e61f1b6d3aacacf2104
+2025-11-25 20:07:50 INFO     7367e2f730d27960740c8f6e429a39935 evaluation.py:654
+                             5e4c702bc32bf9b97080396a259cc3f                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             7367e2f730d27960740c8f6e429a39935                  
+                             5e4c702bc32bf9b97080396a259cc3f                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             7367e2f730d27960740c8f6e429a39935                  
+                             5e4c702bc32bf9b97080396a259cc3f                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             7367e2f730d27960740c8f6e429a39935                  
+                             5e4c702bc32bf9b97080396a259cc3f                    
+Updated algorithm result 7367e2f730d27960740c8f6e429a399355e4c702bc32bf9b97080396a259cc3f
+2025-11-25 20:07:51 INFO     b99740f7845da03bb46562217021bb94e evaluation.py:654
+                             c734df1c0e42cf0117d11c8cde27b63                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             b99740f7845da03bb46562217021bb94e                  
+                             c734df1c0e42cf0117d11c8cde27b63                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             b99740f7845da03bb46562217021bb94e                  
+                             c734df1c0e42cf0117d11c8cde27b63                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             b99740f7845da03bb46562217021bb94e                  
+                             c734df1c0e42cf0117d11c8cde27b63                    
+Updated algorithm result b99740f7845da03bb46562217021bb94ec734df1c0e42cf0117d11c8cde27b63
+2025-11-25 20:07:52 INFO     6446db460bf80a617f8664990628453c6 evaluation.py:654
+                             e068af12c1942e926cb44cefcd78935                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             6446db460bf80a617f8664990628453c6                  
+                             e068af12c1942e926cb44cefcd78935                    
+                    INFO     Read algorithm                    evaluation.py:449
+                             6446db460bf80a617f8664990628453c6                  
+                             e068af12c1942e926cb44cefcd78935                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             6446db460bf80a617f8664990628453c6                  
+                             e068af12c1942e926cb44cefcd78935                    
+Updated algorithm result 6446db460bf80a617f8664990628453c6e068af12c1942e926cb44cefcd78935
+                    INFO     6ca4874c6d20b6a7254907a188bf9796b evaluation.py:654
+                             8d9e939d22db05688ddb79ef6dd7021                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             6ca4874c6d20b6a7254907a188bf9796b                  
+                             8d9e939d22db05688ddb79ef6dd7021                    
+2025-11-25 20:07:53 INFO     Read algorithm                    evaluation.py:449
+                             6ca4874c6d20b6a7254907a188bf9796b                  
+                             8d9e939d22db05688ddb79ef6dd7021                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             6ca4874c6d20b6a7254907a188bf9796b                  
+                             8d9e939d22db05688ddb79ef6dd7021                    
+Updated algorithm result 6ca4874c6d20b6a7254907a188bf9796b8d9e939d22db05688ddb79ef6dd7021
+                    INFO     410ebf733d2ae997870d7ea19ceb48205 evaluation.py:654
+                             d1f2cc4bbba0c69eeced37083e31773                    
+                    INFO     Running evaluation for algorithm  evaluation.py:454
+                             410ebf733d2ae997870d7ea19ceb48205                  
+                             d1f2cc4bbba0c69eeced37083e31773                    
+2025-11-25 20:07:54 INFO     Read algorithm                    evaluation.py:449
+                             410ebf733d2ae997870d7ea19ceb48205                  
+                             d1f2cc4bbba0c69eeced37083e31773                    
+                             with 0 code ids                                    
+                    INFO     Found 0 code ids to evaluate for  evaluation.py:458
+                             algorithm                                          
+                             410ebf733d2ae997870d7ea19ceb48205                  
+                             d1f2cc4bbba0c69eeced37083e31773                    
+Updated algorithm result 410ebf733d2ae997870d7ea19ceb48205d1f2cc4bbba0c69eeced37083e31773
+---------------------------------------
+Begin Slurm Epilog: Nov-25-2025 20:07:54
+Job ID:        3654128
+User ID:       mgopalan6
+Account:       coc
+Job name:      evaluation
+Resources:     cpu=12,mem=16G,node=1
+Rsrc Used:     cput=00:11:12,vmem=0,walltime=00:00:56,mem=32244K,energy_used=0
+Partition:     coc-cpu
+QOS:           coc-ice
+Nodes:         atl1-1-02-012-8-2
+---------------------------------------
