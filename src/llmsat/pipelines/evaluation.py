@@ -120,19 +120,31 @@ class EvaluationPipeline:
         logger.debug(f"Removed solver directory {solver_dir} (ignore_errors=True)")
 
     def parse_solving_time(self, file_path: str) -> Optional[float]:
-        lines = open(file_path, "r").readlines()
-        for line in reversed(lines): 
+        try:
+            lines = open(file_path, "r").readlines()
+        except Exception as e:
+            logger.warning(f"Failed to read log file {file_path}: {e}")
+            return 5000
+
+        if not lines:
+            logger.warning(f"Empty log file (likely timeout or crash): {file_path}")
+            return 5000
+
+        for line in reversed(lines):
             if "process-time" in line:
                 match = re.search(r'(\d+\.?\d*)\s+seconds', line)
                 if match:
                     time = float(match.group(1))
                     return time
-            if "error" in line:
-                logger.warning(f"Error in solving time file {file_path}")
-                print(file_path)
-        
-        # logger.warning(f"Failed to parse solving time from")
-        # print(file_path)
+            if "error" in line.lower():
+                logger.warning(f"Error found in solving log: {file_path}")
+                return 5000
+            # Check for common SLURM timeout/cancellation messages
+            if "CANCELLED" in line or "TIMEOUT" in line or "TIME LIMIT" in line:
+                logger.warning(f"SLURM timeout/cancellation detected: {file_path}")
+                return 5000
+
+        logger.warning(f"No process-time found in log (incomplete run): {file_path}")
         return 5000
 
     def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> None:
@@ -144,6 +156,9 @@ class EvaluationPipeline:
             return
         print(f"Collecting results from {solver_dir}")
         solving_times: Dict[str, float] = {}
+        timeouts_or_errors: List[str] = []  # Track instances that timed out or had errors
+        missing_logs: List[str] = []  # Track instances with no log files
+
         if os.path.isdir(solver_dir):
             for file in os.listdir(solver_dir):
                 if file.endswith(".solving.log"):
@@ -151,16 +166,32 @@ class EvaluationPipeline:
                     instance_time = self.parse_solving_time(f"{solver_dir}/{file}")
                     if instance_time is not None:
                         solving_times[instance_name] = instance_time
+                        # Track instances that got the timeout penalty
+                        if instance_time >= 5000:
+                            timeouts_or_errors.append(instance_name)
                         logger.debug(f"Parsed {file} -> {instance_time}")
         else:
             logger.warning(f"Solver directory missing: {solver_dir}")
+
+        # Check for missing benchmark instances (expected 400 total)
+        expected_benchmark_count = 400
+        if len(solving_times) < expected_benchmark_count:
+            missing_count = expected_benchmark_count - len(solving_times)
+            logger.warning(f"Missing results for {missing_count} instances out of {expected_benchmark_count}")
+
         par2 = _compute_average(list(solving_times.values()))
         logger.info(f"Computed PAR2 for algorithm {algorithm_id}, code {code_id}: {par2}")
+
+        # Log problematic instances summary
+        if timeouts_or_errors:
+            logger.warning(f"Found {len(timeouts_or_errors)} instances that timed out or had errors (5000s penalty)")
+            logger.info(f"Problematic instances: {', '.join(timeouts_or_errors[:10])}" +
+                       (f" ... and {len(timeouts_or_errors) - 10} more" if len(timeouts_or_errors) > 10 else ""))
 
         # update the code result and algorithm result
         code_result = get_code_result(code_id)
         if code_result is not None:
-            code_result.par2 = str(par2)
+            code_result.par2 = par2
             code_result.build_success = True
             code_result.status = CodeStatus.Evaluated
             update_code_result(code_result)
@@ -168,8 +199,9 @@ class EvaluationPipeline:
         with open(result_path, "w") as f:
             json.dump(solving_times, f)
         print(f"Wrote solving times to {result_path}")
-        if len(solving_times) != 400:
-            logger.warning(f"Expected 400 instances, but got {len(solving_times)}")
+        print(f"Completed: {len(solving_times)}/{expected_benchmark_count} instances")
+        if timeouts_or_errors:
+            print(f"Timeouts/Errors: {len(timeouts_or_errors)} instances")
 
         # remove all the solvers
         return par2
@@ -183,7 +215,13 @@ class EvaluationPipeline:
         result_dir = get_solver_result_dir(algorithm_id, code_id)
         cmd = f"{activate_python_path} && python src/llmsat/pipelines/evaluation.py --algorithm_id {algorithm_id} --code_id {code_id} --collect_result"
         output_file = f"{result_dir}/00000000_collect_result.log"
-        slurm_cmd = wrap_command_to_slurm(cmd, output_file=output_file, job_name=f"collect_result_{code_id}", dependencies=[str(slurm_id) for slurm_id in slurm_ids])
+        slurm_cmd = wrap_command_to_slurm(
+            cmd,
+            output_file=output_file,
+            job_name=f"collect_result_{code_id}",
+            dependencies=[str(slurm_id) for slurm_id in slurm_ids],
+            dependency_type="afterany"  # Collect results even if some jobs fail/timeout
+        )
         slurm_id = os.popen(slurm_cmd).read()
         slurm_id = int(slurm_id.split()[-1])
         logger.info(f"Submitted collect result job {slurm_id}, dependencies: {','.join([str(slurm_id) for slurm_id in slurm_ids])}")
@@ -397,7 +435,12 @@ class EvaluationPipeline:
                 slurm_log = f"{result_dir}/{benchmark_file}.slurm.log"
                 if os.path.exists(f"{result_dir}/{benchmark_file}.solving.log"):
                     continue
-                slurm_cmd = wrap_command_to_slurm(command, output_file=slurm_log, job_name=f"solve_{benchmark_file}")
+                slurm_cmd = wrap_command_to_slurm(
+                    command,
+                    output_file=slurm_log,
+                    job_name=f"solve_{benchmark_file}",
+                    time="00:30:00"  # 30 minutes timeout for solver jobs
+                )
                 logger.info(f"Submitting job with command: {slurm_cmd}")
                 slurm_id = os.popen(slurm_cmd).read()
                 slurm_id = int(slurm_id.split()[-1])

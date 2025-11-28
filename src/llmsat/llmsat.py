@@ -52,7 +52,7 @@ class CodeResult:
     algorithm_id: str
     code: str
     status: str
-    par2: float
+    par2: Optional[float]
     # tag: str
     # coder: str
     last_updated: str
