@@ -51,7 +51,7 @@ def parse_solving_time(log_file: str) -> Optional[float]:
     return None
 
 
-def submit_evaluation_jobs(solver_binary: str, benchmark_path: str, result_dir: str, dry_run: bool = False):
+def submit_evaluation_jobs(solver_binary: str, benchmark_path: str, result_dir: str, dry_run: bool = False, max_jobs: int = 200):
     """Submit SLURM jobs to evaluate the solver on all benchmarks."""
 
     os.makedirs(result_dir, exist_ok=True)
@@ -74,9 +74,12 @@ def submit_evaluation_jobs(solver_binary: str, benchmark_path: str, result_dir: 
     logger.info(f"Found {len(benchmark_files)} benchmark instances")
     logger.info(f"Solver: {solver_binary}")
     logger.info(f"Results will be saved to: {result_dir}")
+    logger.info(f"Max jobs per run: {max_jobs}")
 
     slurm_ids = []
     skipped = 0
+    jobs_submitted = 0
+    jobs_failed = 0
 
     for benchmark_file in benchmark_files:
         log_file = f"{result_dir}/{benchmark_file}.solving.log"
@@ -85,6 +88,12 @@ def submit_evaluation_jobs(solver_binary: str, benchmark_path: str, result_dir: 
         if os.path.exists(log_file):
             skipped += 1
             continue
+
+        # Check if we've hit the job limit
+        if jobs_submitted >= max_jobs:
+            logger.warning(f"Reached maximum job limit ({max_jobs}), stopping submission")
+            logger.warning(f"Re-run this command to submit remaining {len(benchmark_files) - skipped - jobs_submitted} jobs")
+            break
 
         command = f"{solver_binary} {benchmark_path}/{benchmark_file} > {log_file}"
         slurm_log = f"{result_dir}/{benchmark_file}.slurm.log"
@@ -98,24 +107,45 @@ def submit_evaluation_jobs(solver_binary: str, benchmark_path: str, result_dir: 
 
         if dry_run:
             print(f"Would submit: {slurm_cmd}")
+            jobs_submitted += 1
         else:
             logger.info(f"Submitting job for {benchmark_file}")
-            slurm_id = os.popen(slurm_cmd).read()
             try:
-                slurm_id = int(slurm_id.split()[-1])
+                slurm_output = os.popen(slurm_cmd).read().strip()
+
+                # Check if sbatch failed
+                if not slurm_output or "error" in slurm_output.lower():
+                    logger.error(f"Failed to submit job for {benchmark_file}: {slurm_output}")
+                    jobs_failed += 1
+                    # If we hit a job limit error, stop trying
+                    if "QOSMaxSubmitJobPerUserLimit" in slurm_output or "job submit limit" in slurm_output.lower():
+                        logger.error("Hit SLURM job submission limit. Stopping further submissions.")
+                        logger.info(f"Successfully submitted {jobs_submitted} jobs before hitting limit")
+                        break
+                    continue
+
+                # Parse job ID
+                slurm_id = int(slurm_output.split()[-1])
                 slurm_ids.append(slurm_id)
+                jobs_submitted += 1
                 logger.info(f"  Job ID: {slurm_id}")
-            except (ValueError, IndexError):
-                logger.warning(f"  Failed to parse SLURM job ID from: {slurm_id}")
+
+            except (ValueError, IndexError) as e:
+                logger.error(f"Failed to parse SLURM job ID from output: '{slurm_output}' - {e}")
+                jobs_failed += 1
+                continue
 
     if skipped > 0:
         logger.info(f"Skipped {skipped} already-evaluated instances")
 
     if dry_run:
-        print(f"\nDry run complete. Would submit {len(benchmark_files) - skipped} jobs.")
+        print(f"\nDry run complete. Would submit {jobs_submitted} jobs.")
     else:
-        logger.info(f"Submitted {len(slurm_ids)} SLURM jobs")
+        logger.info(f"Job submission summary: {jobs_submitted} submitted, {skipped} skipped, {jobs_failed} failed")
         logger.info(f"Monitor with: squeue -u $USER")
+        if jobs_submitted < len(benchmark_files) - skipped:
+            remaining = len(benchmark_files) - skipped - jobs_submitted
+            logger.warning(f"Still have {remaining} benchmarks to evaluate. Re-run to submit more.")
 
     return slurm_ids
 
@@ -213,6 +243,8 @@ Examples:
                        help="Directory to store results (default: data/results/baseline)")
     parser.add_argument("--output", type=str, default=None,
                        help="Output JSON file for solving times (default: <result-dir>/baseline_solving_times.json)")
+    parser.add_argument("--max-jobs", type=int, default=200,
+                       help="Maximum number of jobs to submit in one run (default: 200)")
     parser.add_argument("--dry-run", action="store_true", help="Dry run - show what would be done")
 
     args = parser.parse_args()
@@ -228,7 +260,8 @@ Examples:
             solver_binary=solver_binary,
             benchmark_path=args.benchmarks,
             result_dir=args.result_dir,
-            dry_run=args.dry_run
+            dry_run=args.dry_run,
+            max_jobs=args.max_jobs
         )
     elif args.collect:
         collect_results(

@@ -424,28 +424,63 @@ class EvaluationPipeline:
             return None
         return 
 
-    def slurm_run_evaluate(self, solver_path: str, benchmark_path: str, result_dir: str) -> List[int]:
+    def slurm_run_evaluate(self, solver_path: str, benchmark_path: str, result_dir: str, max_jobs: int = 200) -> List[int]:
         # run the solver on the benchmark
         # activate_python_path = _get_activation_cmd()
         logger.info(f"Submitting SLURM jobs for solver {solver_path} on benchmarks {benchmark_path}")
         slurm_ids = []
+        jobs_submitted = 0
+        jobs_skipped = 0
+        jobs_failed = 0
+
         for benchmark_file in os.listdir(benchmark_path):
             if benchmark_file.endswith(".cnf"):
                 command = f"{solver_path}/build/kissat {benchmark_path}/{benchmark_file} > {result_dir}/{benchmark_file}.solving.log"
                 slurm_log = f"{result_dir}/{benchmark_file}.slurm.log"
                 if os.path.exists(f"{result_dir}/{benchmark_file}.solving.log"):
+                    jobs_skipped += 1
                     continue
+
+                # Check if we've hit the job limit
+                if jobs_submitted >= max_jobs:
+                    logger.warning(f"Reached maximum job limit ({max_jobs}), stopping submission")
+                    logger.warning(f"You can collect results and re-run to submit remaining jobs")
+                    break
+
                 slurm_cmd = wrap_command_to_slurm(
                     command,
                     output_file=slurm_log,
                     job_name=f"solve_{benchmark_file}",
                     time="00:30:00"  # 30 minutes timeout for solver jobs
                 )
-                logger.info(f"Submitting job with command: {slurm_cmd}")
-                slurm_id = os.popen(slurm_cmd).read()
-                slurm_id = int(slurm_id.split()[-1])
-                logger.info(f"Submitted job {slurm_id} for {benchmark_file}")
-                slurm_ids.append(slurm_id)
+                logger.debug(f"Submitting job with command: {slurm_cmd}")
+
+                try:
+                    slurm_output = os.popen(slurm_cmd).read().strip()
+
+                    # Check if sbatch failed
+                    if not slurm_output or "error" in slurm_output.lower():
+                        logger.error(f"Failed to submit job for {benchmark_file}: {slurm_output}")
+                        jobs_failed += 1
+                        # If we hit a job limit error, stop trying
+                        if "QOSMaxSubmitJobPerUserLimit" in slurm_output or "job submit limit" in slurm_output.lower():
+                            logger.error("Hit SLURM job submission limit. Stopping further submissions.")
+                            logger.info(f"Successfully submitted {jobs_submitted} jobs before hitting limit")
+                            break
+                        continue
+
+                    # Parse job ID
+                    slurm_id = int(slurm_output.split()[-1])
+                    logger.info(f"Submitted job {slurm_id} for {benchmark_file}")
+                    slurm_ids.append(slurm_id)
+                    jobs_submitted += 1
+
+                except (ValueError, IndexError) as e:
+                    logger.error(f"Failed to parse SLURM job ID from output: '{slurm_output}' - {e}")
+                    jobs_failed += 1
+                    continue
+
+        logger.info(f"Job submission summary: {jobs_submitted} submitted, {jobs_skipped} skipped (already done), {jobs_failed} failed")
         return slurm_ids
 
     def run_single_solver(self, code_id: str) -> None:  # process single code
