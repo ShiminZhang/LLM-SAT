@@ -206,7 +206,7 @@ Examples:
     parser.add_argument("--submit", action="store_true", help="Submit SLURM jobs for evaluation")
     parser.add_argument("--collect", action="store_true", help="Collect results and compute PAR2")
     parser.add_argument("--solver", type=str, default=None,
-                       help=f"Path to solver binary (default: {BASE_SOLVER_PATH}/build/kissat)")
+                       help=f"Path to solver binary (default: {BASE_SOLVER_PATH}/kissat)")
     parser.add_argument("--benchmarks", type=str, default=SAT2025_BENCHMARK_PATH,
                        help=f"Path to benchmark directory (default: {SAT2025_BENCHMARK_PATH})")
     parser.add_argument("--result-dir", type=str, default="data/results/baseline",
@@ -219,7 +219,7 @@ Examples:
 
     # Set solver binary path
     if args.solver is None:
-        solver_binary = f"{BASE_SOLVER_PATH}/build/kissat"
+        solver_binary = f"{BASE_SOLVER_PATH}/kissat"
     else:
         solver_binary = args.solver
 
