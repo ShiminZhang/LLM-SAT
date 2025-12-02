@@ -2,13 +2,18 @@
 """
 Evaluate the baseline Kissat solver (solvers/base) on benchmarks.
 This gives you a PAR2 score to compare against LLM-generated variants.
+
+Uses the same settings as LLM evaluation:
+- 30 minute timeout per instance
+- 5000s penalty for timeouts/errors
+- Job array submission to avoid hitting SLURM QOS limits
 """
 
 import os
 import sys
 import json
 import argparse
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -19,10 +24,14 @@ from llmsat.llmsat import (
     setup_logging,
     get_logger
 )
-from llmsat.utils.utils import wrap_command_to_slurm
+from llmsat.utils.utils import wrap_command_to_slurm, wrap_command_to_slurm_array
 
 setup_logging()
 logger = get_logger(__name__)
+
+# Match LLM evaluation settings
+TIMEOUT_SECONDS = 1800  # 30 minutes
+PENALTY_SECONDS = 5000  # Penalty for timeout/error (matches LLM evaluation)
 
 
 def parse_solving_time(log_file: str) -> Optional[float]:
@@ -54,9 +63,13 @@ def parse_solving_time(log_file: str) -> Optional[float]:
     return None
 
 
-def submit_evaluation_jobs(solver_binary: str, benchmark_path: str, result_dir: str, dry_run: bool = False, max_jobs: int = 200):
-    """Submit SLURM jobs to evaluate the solver on all benchmarks."""
-
+def submit_evaluation_jobs(solver_binary: str, benchmark_path: str, result_dir: str, dry_run: bool = False, max_jobs: int = 200) -> List[int]:
+    """
+    Submit solver evaluation using a SLURM job array (counts as 1 job toward QOS limit).
+    
+    Creates a CNF file list and a wrapper script, then submits a single job array
+    that runs the solver on all benchmarks. Matches the approach used for LLM evaluation.
+    """
     os.makedirs(result_dir, exist_ok=True)
 
     if not os.path.exists(solver_binary):
@@ -68,94 +81,118 @@ def submit_evaluation_jobs(solver_binary: str, benchmark_path: str, result_dir: 
         logger.error(f"Benchmark directory not found: {benchmark_path}")
         return []
 
-    benchmark_files = [f for f in os.listdir(benchmark_path) if f.endswith('.cnf')]
+    # Collect CNF files to evaluate (skip already completed ones)
+    cnf_files = []
+    jobs_skipped = 0
+    for benchmark_file in sorted(os.listdir(benchmark_path)):
+        if benchmark_file.endswith(".cnf"):
+            if os.path.exists(f"{result_dir}/{benchmark_file}.solving.log"):
+                jobs_skipped += 1
+                continue
+            cnf_files.append(benchmark_file)
 
-    if not benchmark_files:
-        logger.error(f"No .cnf files found in {benchmark_path}")
+    if not cnf_files:
+        logger.info(f"All {jobs_skipped} benchmarks already evaluated, nothing to submit")
         return []
 
-    logger.info(f"Found {len(benchmark_files)} benchmark instances")
+    logger.info(f"Found {len(cnf_files)} benchmarks to evaluate ({jobs_skipped} already done)")
     logger.info(f"Solver: {solver_binary}")
     logger.info(f"Results will be saved to: {result_dir}")
-    logger.info(f"Max jobs per run: {max_jobs}")
 
-    slurm_ids = []
-    skipped = 0
-    jobs_submitted = 0
-    jobs_failed = 0
+    # Limit to max_jobs if needed
+    if len(cnf_files) > max_jobs:
+        logger.warning(f"Limiting evaluation to {max_jobs} benchmarks (out of {len(cnf_files)} remaining)")
+        cnf_files = cnf_files[:max_jobs]
 
-    for benchmark_file in benchmark_files:
-        log_file = f"{result_dir}/{benchmark_file}.solving.log"
+    # Write CNF file list for the job array
+    cnf_list_path = f"{result_dir}/cnf_file_list.txt"
+    with open(cnf_list_path, "w") as f:
+        for cnf_file in cnf_files:
+            f.write(f"{cnf_file}\n")
+    logger.info(f"Wrote {len(cnf_files)} CNF files to {cnf_list_path}")
 
-        # Skip if already evaluated
-        if os.path.exists(log_file):
-            skipped += 1
-            continue
+    # Create wrapper script for job array
+    script_path = f"{result_dir}/run_baseline_array.sh"
+    # Use absolute paths
+    abs_solver = os.path.abspath(solver_binary)
+    abs_benchmark = os.path.abspath(benchmark_path)
+    abs_result = os.path.abspath(result_dir)
+    abs_cnf_list = os.path.abspath(cnf_list_path)
+    
+    script_content = f"""#!/bin/bash
+# SLURM job array script for baseline solver evaluation
+# Each array task reads its assigned CNF file from the list
 
-        # Check if we've hit the job limit
-        if jobs_submitted >= max_jobs:
-            logger.warning(f"Reached maximum job limit ({max_jobs}), stopping submission")
-            logger.warning(f"Re-run this command to submit remaining {len(benchmark_files) - skipped - jobs_submitted} jobs")
-            break
+CNF_LIST="{abs_cnf_list}"
+SOLVER="{abs_solver}"
+BENCHMARK_PATH="{abs_benchmark}"
+RESULT_DIR="{abs_result}"
 
-        command = f"{solver_binary} {benchmark_path}/{benchmark_file} > {log_file}"
-        slurm_log = f"{result_dir}/{benchmark_file}.slurm.log"
+# Get the CNF file for this array task (0-indexed)
+CNF_FILE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$CNF_LIST")
 
-        slurm_cmd = wrap_command_to_slurm(
-            command,
-            output_file=slurm_log,
-            job_name=f"baseline_{benchmark_file[:30]}",  # Truncate long names
-            time="00:30:00"  # 30 minutes timeout
-        )
+if [ -z "$CNF_FILE" ]; then
+    echo "ERROR: No CNF file found for array task $SLURM_ARRAY_TASK_ID"
+    exit 1
+fi
 
-        if dry_run:
-            print(f"Would submit: {slurm_cmd}")
-            jobs_submitted += 1
-        else:
-            logger.info(f"Submitting job for {benchmark_file}")
-            try:
-                slurm_output = os.popen(slurm_cmd).read().strip()
-
-                # Check if sbatch failed
-                if not slurm_output or "error" in slurm_output.lower():
-                    logger.error(f"Failed to submit job for {benchmark_file}: {slurm_output}")
-                    jobs_failed += 1
-                    # If we hit a job limit error, stop trying
-                    if "QOSMaxSubmitJobPerUserLimit" in slurm_output or "job submit limit" in slurm_output.lower():
-                        logger.error("Hit SLURM job submission limit. Stopping further submissions.")
-                        logger.info(f"Successfully submitted {jobs_submitted} jobs before hitting limit")
-                        break
-                    continue
-
-                # Parse job ID
-                slurm_id = int(slurm_output.split()[-1])
-                slurm_ids.append(slurm_id)
-                jobs_submitted += 1
-                logger.info(f"  Job ID: {slurm_id}")
-
-            except (ValueError, IndexError) as e:
-                logger.error(f"Failed to parse SLURM job ID from output: '{slurm_output}' - {e}")
-                jobs_failed += 1
-                continue
-
-    if skipped > 0:
-        logger.info(f"Skipped {skipped} already-evaluated instances")
+echo "Running baseline solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
+"$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$RESULT_DIR/$CNF_FILE.solving.log" 2>&1
+EXIT_CODE=$?
+echo "Solver finished with exit code $EXIT_CODE"
+exit $EXIT_CODE
+"""
+    with open(script_path, "w") as f:
+        f.write(script_content)
+    os.chmod(script_path, 0o755)
+    logger.info(f"Created job array script at {script_path}")
 
     if dry_run:
-        print(f"\nDry run complete. Would submit {jobs_submitted} jobs.")
-    else:
-        logger.info(f"Job submission summary: {jobs_submitted} submitted, {skipped} skipped, {jobs_failed} failed")
-        logger.info(f"Monitor with: squeue -u $USER")
-        if jobs_submitted < len(benchmark_files) - skipped:
-            remaining = len(benchmark_files) - skipped - jobs_submitted
-            logger.warning(f"Still have {remaining} benchmarks to evaluate. Re-run to submit more.")
+        print(f"\nDry run complete.")
+        print(f"Would submit job array with {len(cnf_files)} tasks")
+        print(f"Script: {script_path}")
+        return []
 
-    return slurm_ids
+    # Submit job array (0-indexed, so 0 to N-1)
+    array_range = f"0-{len(cnf_files) - 1}"
+    slurm_cmd = wrap_command_to_slurm_array(
+        script_path=script_path,
+        array_range=array_range,
+        mem="8G",
+        time="00:30:00",  # 30 minutes timeout (matches LLM evaluation)
+        job_name="baseline_array",
+        output_file=f"{abs_result}/slurm_array_%a.log",
+        max_concurrent=100,  # Limit concurrent tasks
+    )
+    logger.info(f"Submitting job array with command: {slurm_cmd}")
+
+    try:
+        slurm_output = os.popen(slurm_cmd).read().strip()
+
+        if not slurm_output or "error" in slurm_output.lower():
+            logger.error(f"Failed to submit job array: {slurm_output}")
+            return []
+
+        # Parse the job array ID (e.g., "Submitted batch job 12345")
+        slurm_id = int(slurm_output.split()[-1])
+        logger.info(f"Submitted job array {slurm_id} with {len(cnf_files)} tasks ({jobs_skipped} skipped)")
+        logger.info(f"Monitor with: squeue -u $USER")
+        logger.info(f"After completion, run: python scripts/evaluate_baseline_solver.py --collect")
+
+        return [slurm_id]
+
+    except (ValueError, IndexError) as e:
+        logger.error(f"Failed to parse SLURM job ID from output: '{slurm_output}' - {e}")
+        return []
 
 
 def collect_results(result_dir: str, output_file: str = None):
-    """Collect results from all .solving.log files and compute PAR2 score."""
-
+    """
+    Collect results from all .solving.log files and compute PAR2 score.
+    
+    Uses the same penalty (5000s) as LLM evaluation for timeouts/errors
+    to ensure scores are comparable.
+    """
     if not os.path.isdir(result_dir):
         logger.error(f"Result directory not found: {result_dir}")
         return
@@ -179,11 +216,11 @@ def collect_results(result_dir: str, output_file: str = None):
 
         if solving_time is not None:
             solving_times[instance_name] = solving_time
-            if solving_time >= 5000:
+            if solving_time >= PENALTY_SECONDS:
                 timeouts_or_errors.append(instance_name)
         else:
-            # Incomplete/timeout - assign penalty
-            solving_times[instance_name] = 5000.0
+            # Incomplete/timeout - assign penalty (matches LLM evaluation)
+            solving_times[instance_name] = float(PENALTY_SECONDS)
             timeouts_or_errors.append(instance_name)
 
     # Compute PAR2 score
@@ -194,7 +231,7 @@ def collect_results(result_dir: str, output_file: str = None):
         print(f"Baseline Solver Results")
         print(f"{'='*80}")
         print(f"Completed instances: {len(solving_times)}")
-        print(f"Timeouts/Errors: {len(timeouts_or_errors)}")
+        print(f"Timeouts/Errors: {len(timeouts_or_errors)} (penalty: {PENALTY_SECONDS}s)")
         print(f"PAR2 Score: {par2:.2f}")
         print(f"{'='*80}\n")
 
@@ -278,4 +315,5 @@ Examples:
 
 if __name__ == "__main__":
     main()
+
 
