@@ -124,11 +124,11 @@ class EvaluationPipeline:
             lines = open(file_path, "r").readlines()
         except Exception as e:
             logger.warning(f"Failed to read log file {file_path}: {e}")
-            return 5000
+            return 10000
 
         if not lines:
             logger.warning(f"Empty log file (likely timeout or crash): {file_path}")
-            return 5000
+            return 10000
 
         for line in reversed(lines):
             if "process-time" in line:
@@ -138,14 +138,14 @@ class EvaluationPipeline:
                     return time
             if "error" in line.lower():
                 logger.warning(f"Error found in solving log: {file_path}")
-                return 5000
+                return 10000
             # Check for common SLURM timeout/cancellation messages
             if "CANCELLED" in line or "TIMEOUT" in line or "TIME LIMIT" in line:
                 logger.warning(f"SLURM timeout/cancellation detected: {file_path}")
-                return 5000
+                return 10000
 
         logger.warning(f"No process-time found in log (incomplete run): {file_path}")
-        return 5000
+        return 10000
 
     def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> None:
         # collect the results from the solver
@@ -167,7 +167,7 @@ class EvaluationPipeline:
                     if instance_time is not None:
                         solving_times[instance_name] = instance_time
                         # Track instances that got the timeout penalty
-                        if instance_time >= 5000:
+                        if instance_time >= 10000:
                             timeouts_or_errors.append(instance_name)
                         logger.debug(f"Parsed {file} -> {instance_time}")
         else:
@@ -184,7 +184,7 @@ class EvaluationPipeline:
 
         # Log problematic instances summary
         if timeouts_or_errors:
-            logger.warning(f"Found {len(timeouts_or_errors)} instances that timed out or had errors (5000s penalty)")
+            logger.warning(f"Found {len(timeouts_or_errors)} instances that timed out or had errors (10000s penalty)")
             logger.info(f"Problematic instances: {', '.join(timeouts_or_errors[:10])}" +
                        (f" ... and {len(timeouts_or_errors) - 10} more" if len(timeouts_or_errors) > 10 else ""))
 
@@ -498,7 +498,7 @@ exit $EXIT_CODE
             script_path=script_path,
             array_range=array_range,
             mem="8G",
-            time="00:30:00",
+            time="01:23:220",
             job_name=f"solve_array",
             output_file=f"{result_dir}/slurm_array_%a.log",
             max_concurrent=100,  # Limit concurrent tasks to avoid overwhelming the cluster

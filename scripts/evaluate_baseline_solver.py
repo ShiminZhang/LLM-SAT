@@ -30,8 +30,8 @@ setup_logging()
 logger = get_logger(__name__)
 
 # Match LLM evaluation settings
-TIMEOUT_SECONDS = 1800  # 30 minutes
-PENALTY_SECONDS = 5000  # Penalty for timeout/error (matches LLM evaluation)
+TIMEOUT_SECONDS = 5000   # 30 minutes
+PENALTY_SECONDS = 10000  # Penalty for timeout/error (matches LLM evaluation)
 
 
 def parse_solving_time(log_file: str) -> Optional[float]:
@@ -159,7 +159,7 @@ exit $EXIT_CODE
         script_path=script_path,
         array_range=array_range,
         mem="8G",
-        time="00:30:00",  # 30 minutes timeout (matches LLM evaluation)
+        time="01:23:20",  # 5000 seconds timeout (matches LLM evaluation)
         job_name="baseline_array",
         output_file=f"{abs_result}/slurm_array_%a.log",
         max_concurrent=100,  # Limit concurrent tasks
