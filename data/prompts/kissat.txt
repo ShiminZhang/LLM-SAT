@@ -33,3 +33,5 @@ Design a restart policy (conceptual, not code) to maximize solver performance (s
 
 ### Final Instruction
 Act as a SAT-solver algorithm designer. Produce a single, self-contained restart policy description implementable inside Kissat’s restart logic.
+
+Example Algorithms that achieves good performance and compilation rate:

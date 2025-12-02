@@ -8,6 +8,7 @@ You MUST give your final code in following format (replace the content inside <c
 
 - You must only use attributes and functions that are defined in Kissat solver and available in restarting function.
 - You need to think carefully, make sure your code compiles in Kissat solver.
+- You must only implemente this function!!!
 
 ### Available Internal Attributes
 - is stable stage — source: solver->stable

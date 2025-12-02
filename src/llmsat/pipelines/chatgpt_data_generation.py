@@ -20,7 +20,7 @@ from llmsat.utils.aws import update_code_result, add_par2_to_code_results_table
 from llmsat.llmsat import setup_logging, get_logger 
 from llmsat.utils.paths import get_algorithm_dir
 import logging
-
+from statistics import mean
 setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
 def read_algorithm_prompt_file(path: str) -> str:
@@ -407,27 +407,34 @@ def print_generation_result(generation_tag: str):
         for code_id in code_ids:
             code_result = get_code_result(code_id)
             print(f"code_id: {code_id}, algorithm_id: {code_result.algorithm_id}, status: {code_result.status}, build_success: {code_result.build_success}, par2: {code_result.par2}")
-            if code_result.build_success:
-                result_path = get_solver_solving_times_path(algorithm_id, code_id)
-                with open(result_path, "r") as f:
-                    data = json.load(f)
-                    print(f"data: {data}")
+            # continue
+            # if code_result.build_success:
+            #     result_path = get_solver_solving_times_path(algorithm_id, code_id)
+
+            #     with open(result_path, "r") as f:
+            #         data = json.load(f) 
+            #         par2 = mean(data.values())
+            #         print(f"par2: {par2}")
+            #         if par2 > 0:
+            #             code_result.par2 = par2
+            #             update_code_result(code_result)
 
 def main():
     generate_data(
-        generation_tag="chatgpt_data_generation_gpt4o_2",
-        designer_prompt_path="./data/prompts/kissat.txt",
+        generation_tag="chatgpt_data_generation_gpt4o_algselfiteration_3",
+        designer_prompt_path="./data/prompts/kissat_self_iteration.txt",
         code_prompt_template_path="./data/prompts/kissat_code.txt",
-        n_algorithms=5, n_codes=10,
+        n_algorithms=40, n_codes=10,
         model="gpt-4o",
     )
 
 def test():
-    # print_generation_result("chatgpt_data_generation_gpt4o_2")
-    # print_generation_result("chatgpt_data_generation_gpt5_2")
-    print_generation_result(ALGORITHM)
+    # print_generation_result("chatgpt_data_generation")
+    # print_generation_result("chatgpt_data_generation_gpt4o_algsingleshot_example")
+
+    print_generation_result("chatgpt_data_generation_gpt4o_algselfiteration_2")
     # # clear_router_table(CHATGPT_DATA_GENERATION_TABLE)
-    # fake_generate_data("./data/prompts/kissat.txt", "./data/prompts/kissat_code.txt", "chatgpt_data_generation", algorithm_batch_id="batch_6921363d7c8481909540f10ab2723deb")
+    # fake_generate_data("./data/prompts/kissat_self_iteration.txt", "./data/prompts/kissat_code.txt", "chatgpt_data_generation_gpt4o_algsingleshot_example", algorithm_batch_id="batch_692a6496897c8190b4dd2dea58e3c634")
     # print(get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, None))
     # # algorithm_prompt = read_algorithm_prompt_file("./data/prompts/kissat.txt")
     # # algorithms = get_algorithms_by_prompt(algorithm_prompt)
@@ -474,3 +481,5 @@ def test():
 
 if __name__ == "__main__":
     main()
+    # fake_generate_data("./data/prompts/kissat.txt", "./data/prompts/kissat_code.txt", "chatgpt_data_generation_gpt4o_3", n_algorithms=50, n_codes=10, algorithm_batch_id="batch_6924b9189824819099023e6efabcae98")
+    # test()

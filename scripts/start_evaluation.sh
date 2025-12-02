@@ -6,4 +6,4 @@
 
 source ../../general/bin/activate
 PYTHONPATH=./src:$PYTHONPATH
-python src/llmsat/pipelines/evaluation.py --run_all
+python src/llmsat/pipelines/evaluation.py --run_all --generation_tag $1

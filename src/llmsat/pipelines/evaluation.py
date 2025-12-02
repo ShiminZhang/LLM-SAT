@@ -127,7 +127,7 @@ class EvaluationPipeline:
                 if match:
                     time = float(match.group(1))
                     return time
-            if "error" in line:
+            if "error" in line or "=== make stderr ===" in line:
                 logger.warning(f"Error in solving time file {file_path}")
                 print(file_path)
         
@@ -138,22 +138,31 @@ class EvaluationPipeline:
     def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> None:
         # collect the results from the solver
         solver_dir = get_solver_result_dir(algorithm_id, code_id)
+        if not os.path.isdir(solver_dir):
+            logger.warning(f"Solver directory missing: {solver_dir}")
+            return
         result_path = get_solver_solving_times_path(algorithm_id, code_id)
         if os.path.exists(result_path) and not force_recollect:
             logger.warning(f"Results already collected for algorithm {algorithm_id}, code {code_id}")
             return
         print(f"Collecting results from {solver_dir}")
         solving_times: Dict[str, float] = {}
+        removed_files = []
         if os.path.isdir(solver_dir):
-            for file in os.listdir(solver_dir):
+            files = os.listdir(solver_dir)
+            if len(files) == 0:
+                logger.warning(f"No files in solver directory: {solver_dir}")
+                return
+            for file in files:
                 if file.endswith(".solving.log"):
                     instance_name = file.split(".")[0]
-                    instance_time = self.parse_solving_time(f"{solver_dir}/{file}")
+                    instance_time = self.parse_solving_time(f"{solver_dir}/{file}") 
                     if instance_time is not None:
                         solving_times[instance_name] = instance_time
-                        logger.debug(f"Parsed {file} -> {instance_time}")
-        else:
-            logger.warning(f"Solver directory missing: {solver_dir}")
+                        logger.debug(f"Parsed {file} -> {instance_time}") 
+                        removed_files.append(file)
+        for file in removed_files:
+            os.remove(f"{solver_dir}/{file}")
         par2 = _compute_average(list(solving_times.values()))
         logger.info(f"Computed PAR2 for algorithm {algorithm_id}, code {code_id}: {par2}")
 
@@ -170,6 +179,7 @@ class EvaluationPipeline:
         print(f"Wrote solving times to {result_path}")
         if len(solving_times) != 400:
             logger.warning(f"Expected 400 instances, but got {len(solving_times)}")
+        self.clean_solver(algorithm_id, code_id)
 
         # remove all the solvers
         return par2
@@ -180,9 +190,10 @@ class EvaluationPipeline:
         logger.info(f"Submitting job to collect results for code_id={code_id}")
         code_result = get_code_result(code_id)
         algorithm_id = code_result.algorithm_id
+        logger.info(f"Algorithm ID: {algorithm_id}, Code ID: {code_id}")
         result_dir = get_solver_result_dir(algorithm_id, code_id)
         cmd = f"{activate_python_path} && python src/llmsat/pipelines/evaluation.py --algorithm_id {algorithm_id} --code_id {code_id} --collect_result"
-        output_file = f"{result_dir}/00000000_collect_result.log"
+        output_file = f"./logs/evaluation/collect_result_{code_id}.log"
         slurm_cmd = wrap_command_to_slurm(cmd, output_file=output_file, job_name=f"collect_result_{code_id}", dependencies=[str(slurm_id) for slurm_id in slurm_ids])
         slurm_id = os.popen(slurm_cmd).read()
         slurm_id = int(slurm_id.split()[-1])
@@ -403,7 +414,7 @@ class EvaluationPipeline:
                 slurm_log = f"{result_dir}/{benchmark_file}.slurm.log"
                 if os.path.exists(f"{result_dir}/{benchmark_file}.solving.log"):
                     continue
-                slurm_cmd = wrap_command_to_slurm(command, output_file=slurm_log, job_name=f"solve_{benchmark_file}")
+                slurm_cmd = wrap_command_to_slurm(command, output_file=slurm_log, job_name=f"solve_{benchmark_file}", time="00:00:5000")
                 logger.info(f"Submitting job with command: {slurm_cmd}")
                 slurm_id = os.popen(slurm_cmd).read()
                 slurm_id = int(slurm_id.split()[-1])
@@ -417,15 +428,16 @@ class EvaluationPipeline:
         if code_result is None:
             logger.error(f"Code result not found for code_id={code_id}")
             return
-        # if code_result.status == CodeStatus.BuildFailed:
-        #     logger.warning(f"Code result {code_id} is already build failed, skip?")
-        #     return
+        if code_result.status == CodeStatus.BuildFailed:
+            logger.warning(f"Code result {code_id} is already build failed, skip?")
+            return
         if code_result.status == CodeStatus.Evaluating:
             logger.warning(f"Code result {code_id} is already evaluating, skip")
             return
         assert code_result is not None, "Code result not found"
         logger.info(f"Running single solver for code_id={code_id}, algorithm_id={code_result.algorithm_id}")
         solver_path = self.build_solver(code_result) # build in evaluation
+        # solver_path = f"solvers/algorithm_{code_result.algorithm_id}/code_{code_result.id}"
         if solver_path is not None: # build successful
             logger.info(f"Solver built successfully: {solver_path}")
             result_dir = get_solver_result_dir(code_result.algorithm_id, code_result.id)
@@ -596,6 +608,7 @@ def main():
     parser.add_argument("--collect_result", action="store_true", default=False)
     parser.add_argument("--collect_all_results", action="store_true", default=False)
     parser.add_argument("--test", action="store_true", default=False)
+    parser.add_argument("--generation_tag", type=str, default="chatgpt_data_generation_gpt4o_2")
     args = parser.parse_args()
     evaluation_pipeline = EvaluationPipeline()
     # evaluation_pipeline.run_all_solvers("1")
@@ -603,7 +616,7 @@ def main():
     if args.run_all:
         assert args.algorithm_id is None, "Cannot specify both --algorithm_id and --run_all"
         # algorithms = get_algorithm_result_of_status(AlgorithmStatus.Generated)
-        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, "chatgpt_data_generation_gpt5_2")
+        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, args.generation_tag)
         algorithms = [get_algorithm_result(algorithm_id) for algorithm_id in algorithm_ids]
         # algorithms = get_algorithm_result_of_status(AlgorithmStatus.CodeGenerated)
         logger.info(f"Found {len(algorithms)} algorithms to evaluate")
@@ -628,7 +641,7 @@ def main():
         #     algorithm_id = algorithm_id_of_code_id[code_id]
         #     evaluation_pipeline.collect_results(algorithm_id, code_id, force_recollect=True)
         #     # return
-        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, ALGORITHM)
+        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, "chatgpt_data_generation_gpt4o_algsingleshot_example")
         for algorithm_id in algorithm_ids:
             algorithm_result = get_algorithm_result(algorithm_id)
             code_ids = algorithm_result.code_id_list
@@ -664,7 +677,42 @@ def test():
     for algorithm in algorithms:
         logger.info(f"{algorithm.id}, {algorithm.status}")
 
+def should_stat(generation_tag: str) -> bool:
+    setup_logging()
+    algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
+    print(f"Number of algorithms: {len(algorithm_ids)} for generation tag: {generation_tag}")
+    for algorithm_id in algorithm_ids:
+        algorithm = get_algorithm_result(algorithm_id)
+        logger.info(f"{algorithm.id}, {algorithm.status}")
+        code_ids = algorithm.code_id_list
+        for code_id in code_ids:
+            code = get_code_result(code_id)
+            logger.info(f"{code.id}, {code.status}, {code.par2}")
+
+def clean_up_evaluation_results(generation_tag: str):
+    algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
+    for algorithm_id in algorithm_ids:
+        logger.info(f"Cleaning up evaluation results for algorithm {algorithm_id}")
+        solver_dir = get_algorithm_dir(algorithm_id)
+        # remove any file or directory starting with "code_"
+        for file in os.listdir(solver_dir):
+            if file.startswith("code_"):
+                os.remove(f"{solver_dir}/{file}")
+        logger.info(f"Removed all files starting with 'code_' in {solver_dir}")
 
 if __name__ == "__main__":
     # test()
+    # clean_up_evaluation_results("chatgpt_data_generation_gpt4o_4")
     main()
+    # evaluation_pipeline = EvaluationPipeline()
+    # evaluation_pipeline.run_single_solver("f7ca9f12b4c6b5fa877a000117237e551a6e565ba6c377a48b1917524c8943cc")
+    # should_stat("chatgpt_data_generation_gpt4o_5")
+    # algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, "chatgpt_data_generation_gpt4o_algsingleshot_example")
+    # print(f"Number of algorithms: {len(algorithm_ids)}")
+    # all_solver_dirs = "./solvers"
+    # for solver_dir in os.listdir(all_solver_dirs):
+    #     if solver_dir.startswith("algorithm_"):
+    #         algorithm_id = solver_dir.split("_")[1]
+    #         if algorithm_id not in algorithm_ids:
+    #             print(f"Removing solver directory {solver_dir}")
+    #             shutil.rmtree(f"{all_solver_dirs}/{solver_dir}")

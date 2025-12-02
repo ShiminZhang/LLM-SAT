@@ -52,10 +52,10 @@ class CodeResult:
     algorithm_id: str
     code: str
     status: str
-    par2: float
+    last_updated: str
     # tag: str
     # coder: str
-    last_updated: str
+    par2: float = -1
     build_success: bool = NOT_INITIALIZED
 
 def get_id(input_str: str) -> str:
