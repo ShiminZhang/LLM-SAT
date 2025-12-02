@@ -498,7 +498,7 @@ exit $EXIT_CODE
             script_path=script_path,
             array_range=array_range,
             mem="8G",
-            time="01:23:220",
+            time="01:23:20",
             job_name=f"solve_array",
             output_file=f"{result_dir}/slurm_array_%a.log",
             max_concurrent=100,  # Limit concurrent tasks to avoid overwhelming the cluster
