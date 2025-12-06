@@ -35,7 +35,7 @@ from llmsat.llmsat import (
     RECOVERED_ALGORITHM,
 )
 from llmsat.utils.paths import get_solver_dir, get_solver_solving_times_path, get_algorithm_dir,get_solver_result_dir
-from llmsat.utils.utils import wrap_command_to_slurm
+from llmsat.utils.utils import wrap_command_to_slurm, wrap_command_to_slurm_array
 
 logger = get_logger(__name__)
 
@@ -76,8 +76,8 @@ def _compute_average(values: List[float]) -> Optional[float]:
 
 def _get_activation_cmd() -> str:
     # Use user-requested env activation instead of conda
-    logger.debug("Using activation command: source ../../general/bin/activate")
-    return "source ../../general/bin/activate"
+    logger.debug("Using activation command: source ~/.venvs/llmsat312/bin/activate")
+    return "source ~/.venvs/llmsat312/bin/activate"
 
 @dataclass
 class EvaluationPipeline:
@@ -120,20 +120,32 @@ class EvaluationPipeline:
         logger.debug(f"Removed solver directory {solver_dir} (ignore_errors=True)")
 
     def parse_solving_time(self, file_path: str) -> Optional[float]:
-        lines = open(file_path, "r").readlines()
-        for line in reversed(lines): 
+        try:
+            lines = open(file_path, "r").readlines()
+        except Exception as e:
+            logger.warning(f"Failed to read log file {file_path}: {e}")
+            return 10000
+
+        if not lines:
+            logger.warning(f"Empty log file (likely timeout or crash): {file_path}")
+            return 10000
+
+        for line in reversed(lines):
             if "process-time" in line:
                 match = re.search(r'(\d+\.?\d*)\s+seconds', line)
                 if match:
                     time = float(match.group(1))
                     return time
-            if "error" in line:
-                logger.warning(f"Error in solving time file {file_path}")
-                print(file_path)
-        
-        # logger.warning(f"Failed to parse solving time from")
-        # print(file_path)
-        return 5000
+            if "error" in line.lower():
+                logger.warning(f"Error found in solving log: {file_path}")
+                return 10000
+            # Check for common SLURM timeout/cancellation messages
+            if "CANCELLED" in line or "TIMEOUT" in line or "TIME LIMIT" in line:
+                logger.warning(f"SLURM timeout/cancellation detected: {file_path}")
+                return 10000
+
+        logger.warning(f"No process-time found in log (incomplete run): {file_path}")
+        return 10000
 
     def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> None:
         # collect the results from the solver
@@ -144,6 +156,9 @@ class EvaluationPipeline:
             return
         print(f"Collecting results from {solver_dir}")
         solving_times: Dict[str, float] = {}
+        timeouts_or_errors: List[str] = []  # Track instances that timed out or had errors
+        missing_logs: List[str] = []  # Track instances with no log files
+
         if os.path.isdir(solver_dir):
             for file in os.listdir(solver_dir):
                 if file.endswith(".solving.log"):
@@ -151,16 +166,32 @@ class EvaluationPipeline:
                     instance_time = self.parse_solving_time(f"{solver_dir}/{file}")
                     if instance_time is not None:
                         solving_times[instance_name] = instance_time
+                        # Track instances that got the timeout penalty
+                        if instance_time >= 10000:
+                            timeouts_or_errors.append(instance_name)
                         logger.debug(f"Parsed {file} -> {instance_time}")
         else:
             logger.warning(f"Solver directory missing: {solver_dir}")
+
+        # Check for missing benchmark instances (expected 400 total)
+        expected_benchmark_count = 400
+        if len(solving_times) < expected_benchmark_count:
+            missing_count = expected_benchmark_count - len(solving_times)
+            logger.warning(f"Missing results for {missing_count} instances out of {expected_benchmark_count}")
+
         par2 = _compute_average(list(solving_times.values()))
         logger.info(f"Computed PAR2 for algorithm {algorithm_id}, code {code_id}: {par2}")
+
+        # Log problematic instances summary
+        if timeouts_or_errors:
+            logger.warning(f"Found {len(timeouts_or_errors)} instances that timed out or had errors (10000s penalty)")
+            logger.info(f"Problematic instances: {', '.join(timeouts_or_errors[:10])}" +
+                       (f" ... and {len(timeouts_or_errors) - 10} more" if len(timeouts_or_errors) > 10 else ""))
 
         # update the code result and algorithm result
         code_result = get_code_result(code_id)
         if code_result is not None:
-            code_result.par2 = str(par2)
+            code_result.par2 = par2
             code_result.build_success = True
             code_result.status = CodeStatus.Evaluated
             update_code_result(code_result)
@@ -168,8 +199,9 @@ class EvaluationPipeline:
         with open(result_path, "w") as f:
             json.dump(solving_times, f)
         print(f"Wrote solving times to {result_path}")
-        if len(solving_times) != 400:
-            logger.warning(f"Expected 400 instances, but got {len(solving_times)}")
+        print(f"Completed: {len(solving_times)}/{expected_benchmark_count} instances")
+        if timeouts_or_errors:
+            print(f"Timeouts/Errors: {len(timeouts_or_errors)} instances")
 
         # remove all the solvers
         return par2
@@ -183,7 +215,13 @@ class EvaluationPipeline:
         result_dir = get_solver_result_dir(algorithm_id, code_id)
         cmd = f"{activate_python_path} && python src/llmsat/pipelines/evaluation.py --algorithm_id {algorithm_id} --code_id {code_id} --collect_result"
         output_file = f"{result_dir}/00000000_collect_result.log"
-        slurm_cmd = wrap_command_to_slurm(cmd, output_file=output_file, job_name=f"collect_result_{code_id}", dependencies=[str(slurm_id) for slurm_id in slurm_ids])
+        slurm_cmd = wrap_command_to_slurm(
+            cmd,
+            output_file=output_file,
+            job_name=f"collect_result_{code_id}",
+            dependencies=[str(slurm_id) for slurm_id in slurm_ids],
+            dependency_type="afterany"  # Collect results even if some jobs fail/timeout
+        )
         slurm_id = os.popen(slurm_cmd).read()
         slurm_id = int(slurm_id.split()[-1])
         logger.info(f"Submitted collect result job {slurm_id}, dependencies: {','.join([str(slurm_id) for slurm_id in slurm_ids])}")
@@ -192,23 +230,17 @@ class EvaluationPipeline:
 
     def filter_code(self, code: str) -> str:
         def normalize_escaped_whitespace(text: str) -> str:
-            # Heuristic: if we see many literal '\n' and very few real newlines, unescape once
-            literal_newlines = text.count("\\n")
-            real_newlines = text.count("\n")
-            if literal_newlines >= 3 and real_newlines < 3:
-                try:
-                    # Attempt a single unicode escape decode
-                    decoded = bytes(text, "utf-8").decode("unicode_escape")
-                    return decoded
-                except Exception:
-                    # Fallback to simple replacements
-                    text = text.replace("\\r\\n", "\n")
-                    text = text.replace("\\n", "\n")
-                    text = text.replace("\\t", "\t")
-                    text = text.replace('\\"', '"')
-                    return text
-            # Also normalize Windows line endings if present
-            return text.replace("\r\n", "\n")
+            # Always unescape common escape sequences
+            # This handles both JSON-escaped (\\n) and Python string literals (\n)
+            text = text.replace('\\n', '\n')
+            text = text.replace('\\t', '\t')
+            text = text.replace('\\r', '\r')
+            text = text.replace('\\"', '"')
+            text = text.replace("\\'", "'")
+            text = text.replace('\\\\', '\\')
+            # Also normalize Windows line endings
+            text = text.replace("\r\n", "\n")
+            return text
 
         def extract_function(text: str, func_name: str) -> Optional[str]:
             # Try to find a reasonable C function header for 'bool kissat_restarting'
@@ -392,24 +424,105 @@ class EvaluationPipeline:
             return None
         return 
 
-    def slurm_run_evaluate(self, solver_path: str, benchmark_path: str, result_dir: str) -> List[int]:
-        # run the solver on the benchmark
-        # activate_python_path = _get_activation_cmd()
-        logger.info(f"Submitting SLURM jobs for solver {solver_path} on benchmarks {benchmark_path}")
-        slurm_ids = []
-        for benchmark_file in os.listdir(benchmark_path):
+    def slurm_run_evaluate(self, solver_path: str, benchmark_path: str, result_dir: str, max_jobs: int = 400) -> List[int]:
+        """
+        Submit solver evaluation using a SLURM job array (counts as 1 job toward QOS limit).
+        
+        Creates a CNF file list and a wrapper script, then submits a single job array
+        that runs the solver on all benchmarks.
+        """
+        logger.info(f"Submitting SLURM job array for solver {solver_path} on benchmarks {benchmark_path}")
+        
+        # Ensure result directory exists
+        os.makedirs(result_dir, exist_ok=True)
+        
+        # Collect CNF files to evaluate (skip already completed ones)
+        cnf_files = []
+        jobs_skipped = 0
+        for benchmark_file in sorted(os.listdir(benchmark_path)):
             if benchmark_file.endswith(".cnf"):
-                command = f"{solver_path}/build/kissat {benchmark_path}/{benchmark_file} > {result_dir}/{benchmark_file}.solving.log"
-                slurm_log = f"{result_dir}/{benchmark_file}.slurm.log"
                 if os.path.exists(f"{result_dir}/{benchmark_file}.solving.log"):
+                    jobs_skipped += 1
                     continue
-                slurm_cmd = wrap_command_to_slurm(command, output_file=slurm_log, job_name=f"solve_{benchmark_file}")
-                logger.info(f"Submitting job with command: {slurm_cmd}")
-                slurm_id = os.popen(slurm_cmd).read()
-                slurm_id = int(slurm_id.split()[-1])
-                logger.info(f"Submitted job {slurm_id} for {benchmark_file}")
-                slurm_ids.append(slurm_id)
-        return slurm_ids
+                cnf_files.append(benchmark_file)
+        
+        if not cnf_files:
+            logger.info(f"All {jobs_skipped} benchmarks already evaluated, nothing to submit")
+            return []
+        
+        # Limit to max_jobs if needed
+        if len(cnf_files) > max_jobs:
+            logger.warning(f"Limiting evaluation to {max_jobs} benchmarks (out of {len(cnf_files)} remaining)")
+            cnf_files = cnf_files[:max_jobs]
+        
+        # Write CNF file list for the job array
+        cnf_list_path = f"{result_dir}/cnf_file_list.txt"
+        with open(cnf_list_path, "w") as f:
+            for cnf_file in cnf_files:
+                f.write(f"{cnf_file}\n")
+        logger.info(f"Wrote {len(cnf_files)} CNF files to {cnf_list_path}")
+        
+        # Create wrapper script for job array
+        script_path = f"{result_dir}/run_solver_array.sh"
+        script_content = f"""#!/bin/bash
+# SLURM job array script for solver evaluation
+# Each array task reads its assigned CNF file from the list
+
+CNF_LIST="{cnf_list_path}"
+SOLVER="{solver_path}/build/kissat"
+BENCHMARK_PATH="{benchmark_path}"
+RESULT_DIR="{result_dir}"
+
+# Get the CNF file for this array task (0-indexed)
+CNF_FILE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$CNF_LIST")
+
+if [ -z "$CNF_FILE" ]; then
+    echo "ERROR: No CNF file found for array task $SLURM_ARRAY_TASK_ID"
+    exit 1
+fi
+
+echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
+"$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$RESULT_DIR/$CNF_FILE.solving.log" 2>&1
+EXIT_CODE=$?
+echo "Solver finished with exit code $EXIT_CODE"
+exit $EXIT_CODE
+"""
+        with open(script_path, "w") as f:
+            f.write(script_content)
+        os.chmod(script_path, 0o755)
+        logger.info(f"Created job array script at {script_path}")
+        
+        # Submit job array (0-indexed, so 0 to N-1)
+        array_range = f"0-{len(cnf_files) - 1}"
+        slurm_cmd = wrap_command_to_slurm_array(
+            script_path=script_path,
+            array_range=array_range,
+            mem="8G",
+            time="01:23:20",
+            job_name=f"solve_array",
+            output_file=f"{result_dir}/slurm_array_%a.log",
+            gpus_per_node="h100:2",
+            max_concurrent=100,  # Limit concurrent tasks to avoid overwhelming the cluster
+        )
+        logger.info(f"Submitting job array with command: {slurm_cmd}")
+        
+        try:
+            slurm_output = os.popen(slurm_cmd).read().strip()
+            
+            if not slurm_output or "error" in slurm_output.lower():
+                logger.error(f"Failed to submit job array: {slurm_output}")
+                return []
+            
+            # Parse the job array ID (e.g., "Submitted batch job 12345")
+            slurm_id = int(slurm_output.split()[-1])
+            logger.info(f"Submitted job array {slurm_id} with {len(cnf_files)} tasks ({jobs_skipped} skipped)")
+            
+            # Return the base job ID for dependency tracking
+            return [slurm_id]
+            
+        except (ValueError, IndexError) as e:
+            logger.error(f"Failed to parse SLURM job ID from output: '{slurm_output}' - {e}")
+            return []
 
     def run_single_solver(self, code_id: str) -> None:  # process single code
         """Run evaluation for configured components."""
@@ -420,9 +533,9 @@ class EvaluationPipeline:
         # if code_result.status == CodeStatus.BuildFailed:
         #     logger.warning(f"Code result {code_id} is already build failed, skip?")
         #     return
-        if code_result.status == CodeStatus.Evaluating:
-            logger.warning(f"Code result {code_id} is already evaluating, skip")
-            return
+        # if code_result.status == CodeStatus.Evaluating:
+        #     logger.warning(f"Code result {code_id} is already evaluating, skip")
+        #     return
         assert code_result is not None, "Code result not found"
         logger.info(f"Running single solver for code_id={code_id}, algorithm_id={code_result.algorithm_id}")
         solver_path = self.build_solver(code_result) # build in evaluation
@@ -596,14 +709,23 @@ def main():
     parser.add_argument("--collect_result", action="store_true", default=False)
     parser.add_argument("--collect_all_results", action="store_true", default=False)
     parser.add_argument("--test", action="store_true", default=False)
+    parser.add_argument("--generation_tag", type=str, default=None, help="Generation tag to evaluate (required with --run_all or --collect_all_results)")
     args = parser.parse_args()
     evaluation_pipeline = EvaluationPipeline()
     # evaluation_pipeline.run_all_solvers("1")
 
     if args.run_all:
         assert args.algorithm_id is None, "Cannot specify both --algorithm_id and --run_all"
-        # algorithms = get_algorithm_result_of_status(AlgorithmStatus.Generated)
-        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, "chatgpt_data_generation_gpt5_2")
+        # Determine which generation tag to use
+        if args.generation_tag:
+            generation_tag = args.generation_tag
+        else:
+            # Fall back to hardcoded default for backward compatibility
+            generation_tag = "aemab_gpt4o_1"
+            logger.warning(f"No --generation_tag specified, using default: {generation_tag}")
+
+        logger.info(f"Evaluating algorithms from generation tag: {generation_tag}")
+        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
         algorithms = [get_algorithm_result(algorithm_id) for algorithm_id in algorithm_ids]
         # algorithms = get_algorithm_result_of_status(AlgorithmStatus.CodeGenerated)
         logger.info(f"Found {len(algorithms)} algorithms to evaluate")
@@ -617,32 +739,22 @@ def main():
             return
     elif args.collect_all_results:
         assert args.algorithm_id is None, "Cannot specify both --algorithm_id and --collect_all_results"
-        # code_results = get_code_result_of_status(CodeStatus.Evaluated)
-        # code_ids = [code_result.id for code_result in code_results]
-        # code_dirs = find_codes(code_ids)
-        # algorithm_id_of_code_id = {}
-        # for code_id, code_dir in code_dirs.items():
-        #     algorithm_id = code_dir.split("/")[-2].split("algorithm_")[1]
-        #     algorithm_id_of_code_id[code_id] = algorithm_id
-        # for code_id in code_ids:
-        #     algorithm_id = algorithm_id_of_code_id[code_id]
-        #     evaluation_pipeline.collect_results(algorithm_id, code_id, force_recollect=True)
-        #     # return
-        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, ALGORITHM)
+        # Determine which generation tag to use
+        if args.generation_tag:
+            generation_tag = args.generation_tag
+        else:
+            # Fall back to ALGORITHM constant for backward compatibility
+            generation_tag = ALGORITHM
+            logger.warning(f"No --generation_tag specified, using default: {generation_tag}")
+
+        logger.info(f"Collecting results for generation tag: {generation_tag}")
+        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
+        logger.info(f"Found {len(algorithm_ids)} algorithms to collect results for")
         for algorithm_id in algorithm_ids:
             algorithm_result = get_algorithm_result(algorithm_id)
             code_ids = algorithm_result.code_id_list
             for code_id in code_ids:
                 evaluation_pipeline.collect_results(algorithm_id, code_id, force_recollect=True)
-                # return
-        # restore_codes(list(algorithm_ids))
-        # exit()
-        # logger.info(f"code dirs: {code_dirs}")
-        # logger.info(f"all code ids: {code_ids}")
-        # algorithms = get_all_algorithm_results()
-        # logger.info(f"all algorithms: {len(algorithms)}")
-        # for algorithm in algorithms:
-        #     evaluation_pipeline.fix_algorithm_code_mapping(algorithm, code_ids)
         return
     elif args.test:
         evaluation_pipeline.test()

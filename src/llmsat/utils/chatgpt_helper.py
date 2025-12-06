@@ -30,7 +30,7 @@ def get_response_from_chatgpt(prompt: str, system_message: Optional[str] = None,
     """
     logger.info(f"Getting response from ChatGPT for prompt: {prompt}")
     client = _get_openai_client()
-    chosen_model = model or os.environ.get("OPENAI_MODEL", "gpt-4.1")
+    chosen_model = model or os.environ.get("OPENAI_MODEL", "gpt-4o")
     messages = []
     if system_message:
         messages.append({"role": "system", "content": system_message})
@@ -120,7 +120,27 @@ def download_batch_outputs(batch_id: str, output_path: Path) -> Path:
     batch = client.batches.retrieve(batch_id)
     status = getattr(batch, "status", None)
     if status != "completed":
-        raise RuntimeError(f"Batch {batch_id} is not completed (current status: {status}).")
+        logger.warning(f"Batch {batch_id} is not completed (current status: {status}). Attempting to retrieve error details.")
+        error_file_id = getattr(batch, "error_file_id", None)
+        error_path = output_path.with_suffix(".errors.jsonl")
+        if error_file_id:
+            try:
+                err_resp = client.files.content(error_file_id)
+                err_text = getattr(err_resp, "text", None)
+                if err_text is None:
+                    err_chunk = err_resp.read()
+                    if isinstance(err_chunk, bytes):
+                        error_path.write_bytes(err_chunk)
+                    else:
+                        error_path.write_text(str(err_chunk))
+                else:
+                    error_path.write_text(err_text)
+                logger.info(f"Saved batch error details to {error_path}")
+            except Exception as exc:
+                logger.error(f"Failed to download error file for batch {batch_id}: {exc}")
+        else:
+            logger.warning(f"Batch {batch_id} has no error_file_id to download.")
+        return error_path
     logger.info(f"Batch {batch_id} is completed (current status: {status}).")
     output_file_id = getattr(batch, "output_file_id", None)
     if not output_file_id:

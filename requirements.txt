@@ -6,3 +6,5 @@ pandas
 tqdm
 trl
 rich
+openai
+psycopg2-binary

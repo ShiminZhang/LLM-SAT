@@ -1,0 +1,142 @@
+You are implementing a restart trigger for the Kissat-MAB SAT solver. Generate the complete `kissat_restarting` function with signature and body.
+
+### Requirements
+- Output complete function: `bool kissat_restarting(kissat *solver) { ... }`
+- Must compile with existing Kissat-MAB codebase
+- First line must be: `assert(solver->unassigned);`
+- Return `true` to trigger restart, `false` to continue search
+
+### Available Headers (already included in restart.c)
+```c
+#include "restart.h"
+#include "internal.h"  // Provides access to solver struct and all subsystems
+#include "reluctant.h"
+#include <inttypes.h>
+#include <math.h>
+```
+
+### Available Macros
+
+**Statistics**:
+- `CONFLICTS` → `solver->statistics.conflicts`
+- `DECISIONS` → `solver->statistics.decisions`
+
+**Averages** (automatically selects focused/stable):
+- `AVERAGE(fast_glue)` → `solver->averages[solver->stable].fast_glue.value`
+- `AVERAGE(slow_glue)` → `solver->averages[solver->stable].slow_glue.value`
+- `AVERAGE(decision_rate)` → `solver->averages[solver->stable].decision_rate.value`
+
+**Options**:
+- `GET_OPTION(restart)` → `solver->options.restart` (bool-like int)
+- `GET_OPTION(restartmargin)` → `solver->options.restartmargin` (int 0-25)
+- `GET_OPTION(restartint)` → `solver->options.restartint` (int)
+
+### Available Signals
+
+**State**:
+```c
+solver->stable          // bool: true=stable mode, false=focused mode
+solver->level           // unsigned: current decision level
+solver->unassigned      // unsigned: unassigned variables count
+```
+
+**Statistics**:
+```c
+CONFLICTS                        // uint64_t (macro)
+DECISIONS                        // uint64_t (macro)
+solver->statistics.restarts      // uint64_t
+```
+
+**Limits**:
+```c
+solver->limits.restart.conflicts // uint64_t: next restart threshold
+```
+
+**Quality Metrics**:
+```c
+AVERAGE(fast_glue)      // double (macro): recent clause quality EMA
+AVERAGE(slow_glue)      // double (macro): baseline clause quality EMA
+AVERAGE(decision_rate)  // double (macro): decisions/conflict EMA
+```
+
+**MAB Signals** (observe only, do not modify):
+```c
+solver->mab              // bool: MAB enabled
+solver->heuristic        // unsigned: 0=VSIDS, 1=CHB
+solver->mab_reward[0]    // double: VSIDS cumulative reward
+solver->mab_reward[1]    // double: CHB cumulative reward
+solver->mab_select[0]    // unsigned: VSIDS selection count
+solver->mab_select[1]    // unsigned: CHB selection count
+solver->mab_decisions    // double: decisions since last restart
+solver->mab_conflicts    // unsigned: conflicts since last restart
+solver->mab_chosen_tot   // unsigned: variable selections since last restart
+solver->mabc             // double: UCB exploration constant
+```
+
+### Available Functions
+
+**Required**:
+- `assert(condition)` — assertion (required as first line)
+
+**Helpers**:
+- `kissat_reluctant_triggered(reluctant *r)` → `bool`
+  Usage: `kissat_reluctant_triggered(&solver->reluctant)`
+
+- `kissat_extremely_verbose(kissat *s, const char *fmt, ...)` → `void`
+  Optional logging for debugging
+
+**Math** (from math.h):
+- `log(double)`, `log2(double)`, `sqrt(double)`, etc.
+
+### Algorithm to Implement
+{algorithm}
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+<code>
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  // Your implementation here
+
+  return /* true or false */;
+}
+</code>
+
+### Compilation Constraints
+- Do NOT declare new struct types
+- Do NOT use static variables (function is called frequently)
+- Do NOT modify solver state (read-only access)
+- Do NOT include additional headers
+- Do NOT call restart execution functions (kissat_restart, restart_mab)
+
+### Baseline Reference (original implementation)
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+  return (limit <= fast);
+}
+```
+
+**Key points**:
+- Lines 2-7: Required guard conditions
+- Line 9: Stable mode uses reluctant doubling
+- Lines 10-15: Focused mode uses glue ratio with configurable margin
+
+OUTPUT RULES (MANDATORY):
+- Output ONLY one function wrapped exactly in <code> … </code>
+- No Markdown code fences, no comments outside the function.
+- Function signature must be: bool kissat_restarting(kissat *solver) { … }

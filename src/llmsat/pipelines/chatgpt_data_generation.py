@@ -269,6 +269,7 @@ def fake_generate_data(designer_prompt_path: str, code_prompt_template_path: str
                         algorithm_id=algorithm_id,
                         code=code_str,
                         status=CodeStatus.Generated,
+                        par2=None,
                         last_updated=datetime.now(),
                         build_success=NOT_INITIALIZED,
                     )
@@ -377,6 +378,7 @@ def generate_data(designer_prompt_path: str, code_prompt_template_path: str, gen
                         algorithm_id=mapped_algorithm_id,
                         code=code_str,
                         status=CodeStatus.Generated,
+                        par2=None,
                         last_updated=datetime.now(),
                         build_success=NOT_INITIALIZED,
                     )
@@ -415,10 +417,10 @@ def print_generation_result(generation_tag: str):
 
 def main():
     generate_data(
-        generation_tag="chatgpt_data_generation_gpt4o_2",
-        designer_prompt_path="./data/prompts/kissat.txt",
-        code_prompt_template_path="./data/prompts/kissat_code.txt",
-        n_algorithms=5, n_codes=10,
+        generation_tag="dpo_testing",
+        designer_prompt_path="./data/prompts/kissat_aemab.txt",
+        code_prompt_template_path="./data/prompts/kissat_aemab_code.txt",
+        n_algorithms=10, n_codes=0,
         model="gpt-4o",
     )
 

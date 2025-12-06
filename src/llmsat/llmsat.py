@@ -6,7 +6,7 @@ NOT_INITIALIZED = "NOT_INITIALIZED"
 BASE_SOLVER_PATH = "solvers/base"
 RECOVERED_ALGORITHM = "recovered_algorithm"
 SAT2025_BENCHMARK_PATH = "data/benchmarks/satcomp2025"
-PYENV_PATH = "../../general/bin/activate"
+PYENV_PATH = "~/.venvs/llmsat312/bin/activate"
 CHATGPT_DATA_GENERATION_TABLE = "chatgpt_datagen"
 
 #DATATYPES
