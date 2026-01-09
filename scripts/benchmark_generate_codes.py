@@ -20,7 +20,7 @@ from dataclasses import dataclass, asdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
 from llmsat.llmsat import CHATGPT_DATA_GENERATION_TABLE, setup_logging, get_logger
@@ -85,15 +85,8 @@ def extract_algorithm_description(raw_algorithm: str) -> Optional[str]:
 
 
 def load_model_and_tokenizer(model_path: str, is_finetuned: bool = False):
-    """Load model with QLoRA quantization."""
+    """Load model without bitsandbytes/QLoRA quantization."""
     print(f"\nLoading model: {model_path}")
-
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-    )
 
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
     if tokenizer.pad_token is None:
@@ -104,18 +97,16 @@ def load_model_and_tokenizer(model_path: str, is_finetuned: bool = False):
         # Load base model then apply PEFT adapter
         base_model = AutoModelForCausalLM.from_pretrained(
             BASE_MODEL,
-            quantization_config=bnb_config,
             device_map="auto",
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
         )
         model = PeftModel.from_pretrained(base_model, model_path)
         print(f"  Loaded fine-tuned model with adapter from {model_path}")
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
-            quantization_config=bnb_config,
             device_map="auto",
-            torch_dtype=torch.bfloat16,
+            dtype=torch.bfloat16,
         )
         print(f"  Loaded base model from {model_path}")
 

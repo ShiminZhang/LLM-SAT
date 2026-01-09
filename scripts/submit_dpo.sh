@@ -61,14 +61,14 @@ python scripts/train_dpo.py \
     --model_name "Qwen/Qwen2.5-7B-Instruct" \
     --train_data "data/dpo_formatted" \
     --output_dir "outputs/dpo1/dpo_training" \
-    --batch_size 2 \
-    --gradient_accumulation_steps 4 \
+    --batch_size 1 \
+    --gradient_accumulation_steps 8 \
     --no_qlora \
-    --no_lora \
+    --use_lora \
     --learning_rate 5e-6 \
     --num_epochs 3 \
     --beta 0.1 \
-    --max_length 2048 \
+    --max_length 1024 \
     --max_prompt_length 1024 \
     --run_name "sat-solver-dpo"
 

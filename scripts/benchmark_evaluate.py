@@ -248,7 +248,7 @@ def submit_all_evaluation_jobs(results: List[Dict], output_dir: str, cnf_file: s
 #SBATCH --job-name=bench_eval
 #SBATCH --array=0-{total_tasks - 1}%200
 #SBATCH --time=0-00:10:00
-#SBATCH --account=def-vganesh
+#SBATCH --qos=coc-ice
 #SBATCH --mem=8G
 #SBATCH --cpus-per-task=1
 #SBATCH --output={log_dir}/slurm_%A_%a.log

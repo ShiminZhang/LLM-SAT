@@ -146,7 +146,8 @@ def main(args):
         beta=args.beta,  # DPO temperature parameter
 
         # Optimization
-        optim="paged_adamw_32bit",  # Memory efficient optimizer
+        # Use torch AdamW to avoid bitsandbytes dependency when not using QLoRA
+        optim="adamw_torch",
         warmup_ratio=0.1,
         lr_scheduler_type="cosine",
 

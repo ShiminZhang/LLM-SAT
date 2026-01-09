@@ -5,6 +5,9 @@ data/benchmarks/*
 !data/benchmarks/**/*.uri
 data/results/
 logs/
+outputs/benchmark/
+outputs/dpo1/
+data/dpo_formatted/
 *.pyc
 solvers/base
 solvers/test
