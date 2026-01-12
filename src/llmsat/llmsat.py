@@ -45,6 +45,7 @@ class AlgorithmResult:
     error_rate: float
     code_id_list: List[str] # list of code ids that have been generated for this algorithm
     other_metrics: Dict[str, float]
+    target_function: str = "kissat_restarting"  # function to modify, stored in other_metrics for DB persistence
 
 @dataclass
 class CodeResult:

@@ -36,8 +36,12 @@ from llmsat.llmsat import (
 )
 from llmsat.utils.paths import get_solver_dir, get_solver_solving_times_path, get_algorithm_dir,get_solver_result_dir
 from llmsat.utils.utils import wrap_command_to_slurm, wrap_command_to_slurm_array
+from llmsat.code_injection import FunctionRegistry, FunctionInjector
 
 logger = get_logger(__name__)
+
+# Default registry path (relative to project root)
+DEFAULT_REGISTRY_PATH = "solvers/base/function_registry.yaml"
 
 
 @dataclass
@@ -82,8 +86,11 @@ def _get_activation_cmd() -> str:
 @dataclass
 class EvaluationPipeline:
     """Unified evaluation entry point for designer and coder models."""
-    def __init__(self):
-        pass
+    def __init__(self, registry_path: str = DEFAULT_REGISTRY_PATH):
+        # Initialize function registry and injector for code injection
+        self.registry = FunctionRegistry(registry_path)
+        self.injector = FunctionInjector(self.registry, BASE_SOLVER_PATH)
+        logger.info(f"Initialized FunctionRegistry with {len(self.registry)} functions: {self.registry.list_functions()}")
 
     # def clean_solving_logs(self, algorithm_id: str, code_id: str) -> None:
     #     # clean the solving logs
@@ -314,51 +321,46 @@ class EvaluationPipeline:
 
     def build_solver(self, code_result: CodeResult) -> str: # if success, return the solver path, otherwise return None
         logger.info(f"Building solver for code_result={code_result}")
-        code = code_result.code
-        code = self.filter_code(code) # 
-        if code is None:
-            logger.error("Failed to find kissat_restarting function in code")
+
+        # Get target function from algorithm
+        algorithm = get_algorithm_result(code_result.algorithm_id)
+        if algorithm is None:
+            logger.error(f"Algorithm not found: {code_result.algorithm_id}")
             return None
-        
-        # copy original solver to a new folder
+        target_function = algorithm.target_function
+        logger.info(f"Target function: {target_function}")
+
+        # Validate target function is in registry
+        if target_function not in self.registry:
+            logger.error(f"Target function '{target_function}' not in registry. Available: {self.registry.list_functions()}")
+            return None
+
+        # Parse LLM output to extract the function code
+        try:
+            parsed = self.injector.parse_llm_output(code_result.code, expected_function=target_function)
+            new_code = parsed.code
+        except ValueError as e:
+            logger.error(f"Failed to parse LLM output: {e}")
+            return None
+
+        # Copy base solver to new location
         new_solver_path = get_solver_dir(code_result.algorithm_id, code_result.id)
         logger.info(f"Building solver at {new_solver_path} for algorithm={code_result.algorithm_id}, code={code_result.id}")
         if os.path.exists(new_solver_path):
             shutil.rmtree(new_solver_path)
         shutil.copytree(BASE_SOLVER_PATH, new_solver_path)
-        # replace the code in the new solver
-        restart_file = f"{new_solver_path}/src/restart.c"
-        # First read the file to find where to insert the code
-        with open(restart_file, "r") as f:
-            lines = f.readlines()
-        
-        # Find LLMSAT start/end markers and replace the block between them
-        start_idx = None
-        end_idx = None
-        for i, line in enumerate(lines):
-            stripped = line.strip()
-            if start_idx is None and (line.startswith("//LLMSAT start") or stripped.startswith("// LLMSAT: start")):
-                start_idx = i
-                continue
-            if start_idx is not None and (line.startswith("//LLMSAT end") or stripped.startswith("// LLMSAT: end")):
-                end_idx = i
-                break
-        
-        if start_idx is None:
-            raise ValueError("Could not find '//LLMSAT start' marker in restart.c")
-        if end_idx is None:
-            raise ValueError("Could not find '//LLMSAT end' marker in restart.c")
-        logger.debug(f"Replacing lines ({start_idx+1}, {end_idx}) in restart.c between LLMSAT markers")
 
-        # Write the modified content: keep start marker line, replace inner block, keep end marker and rest
-        with open(restart_file, "w") as f:
-            # Up to and including start marker
-            f.writelines(lines[: start_idx + 1])
-            # New code block (ensure trailing newline)
-            f.write(code.rstrip() + "\n")
-            # From end marker to end (preserve end marker)
-            f.writelines(lines[end_idx:])
-        logger.debug(f"Injected code into {restart_file}")
+        # Inject the new function code using FunctionInjector
+        try:
+            self.injector.replace_function(new_solver_path, target_function, new_code)
+            logger.info(f"Injected {target_function} into {new_solver_path}")
+        except (KeyError, FileNotFoundError, ValueError) as e:
+            logger.error(f"Failed to inject code: {e}")
+            return None
+
+        # Get the modified file path for logging
+        func_info = self.registry[target_function]
+        modified_file = f"{new_solver_path}/{func_info.file}"
 
         # try compile the solver
         try:
@@ -397,9 +399,10 @@ class EvaluationPipeline:
             with open(build_log_path, "w") as f:
                 f.write(output)
             logger.info(f"Wrote build log to {build_log_path}")
-            # also copy the restart.c to the algorithm directory
-            shutil.copy2(restart_file, f"{algorithm_dir}/code_{code_result.id}.restart.c")
-            logger.info(f"Copied restart.c to {algorithm_dir}/code_{code_result.id}.restart.c")
+            # also copy the modified source file to the algorithm directory
+            modified_file_name = os.path.basename(func_info.file)
+            shutil.copy2(modified_file, f"{algorithm_dir}/code_{code_result.id}.{modified_file_name}")
+            logger.info(f"Copied {modified_file_name} to {algorithm_dir}/code_{code_result.id}.{modified_file_name}")
 
             if not build_success:
                 algorithm_dir = get_algorithm_dir(code_result.algorithm_id)
