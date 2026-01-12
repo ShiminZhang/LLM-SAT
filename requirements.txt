@@ -6,3 +6,4 @@ pandas
 tqdm
 trl
 rich
+pyyaml
