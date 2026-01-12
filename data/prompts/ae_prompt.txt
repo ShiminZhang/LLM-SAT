@@ -6,13 +6,15 @@ This algorithm (conceptual, not code) should modify one of the target functions 
 
 Choose exactly one function to modify:
 
-{function_names}
+kissat_restarting
 
 ### Competition Winner Strategies (Inspiration)
 
 The following are strategies from past SAT Competition winners. Your algorithm should be equally as creative and distinct and implementable as them.
 
-{competition_winners_and_descriptions}
+Kissat-MAB: Modifies the base Kissat solver in the restart heuristic by employing a Multi-Armed Bandit RL algorithm to choose between the VSIDS and CHB branching heuristic for a given restart through an Upper Confidence Bound formula. A reward is calculated for the given branching heuristic equal to the ratio of the (log of decisions) over decisionVars, where decisions and decisionVars are the number of decisions and number of decision variables (branched on at least once) since the latest restart, respectively. The UCB is calculated for each strategy by a formula which includes the mean of rewards for that strategy over the current solver run and a balancing term ensuring the exploration of the under-used branching strategy. UCB = reward(strategy)  + c * \frac{ln(t)}{n(strategy)} where n(strategy) is the number of times that strategy was selected in the given run of length t and c is a set exploration coefficient. 
+
+AE-Kissat-MAB: Within the restart heuristic, the Kissat-MAB solver which implements a Multi-Armed Bandit approach to combine VSIDS and CHB is modified to include a “sliding window” of length 10 to track recent heuristic performance. By comparing the immediate gain of the current branching strategy with the sliding window average, AE-Kissat-MAB generates a momentum coefficient (either 1.1 or 0.9) which multiplicatively scales the Adaptive Exploration Coefficient up upon good recent performance (exploitation) and down upon poor recent performance (exploration). This Adaptive Exploration Coefficient adjusts the Upper Confidence Bound formula in calculating which branching heuristic to use. 
 
 ### Output Format (JSON only)
 

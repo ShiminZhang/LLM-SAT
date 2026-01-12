@@ -1,0 +1,14 @@
+You are designing a variant heuristic strategy on top of the Kissat olver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).
+
+Here is the given strategy that you are creating a variant of:
+
+{leader_algorithm}
+
+Generate a variant that modifies hyperparameters, thresholds, or other minor tweaks while preserving the core idea. Your algorithm should have the potential to outperform the given strategy by tuning the strategy. Output in the same JSON format but without the target function field.
+
+### Required Output JSON
+{
+       "name": "Brief algorithm name (<=6 words)",
+       "algorithm": "Complete algorithmic description.",
+       "reason": "Why this variant improves on the original."
+}

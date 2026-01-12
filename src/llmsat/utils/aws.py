@@ -148,7 +148,7 @@ def update_algorithm_result(algorithm_result: AlgorithmResult):
     existing_algorithm_result = get_algorithm_result(algorithm_result.id)
     conn = connect_to_db()
     cur = conn.cursor()
-    # Include target_function in other_metrics for DB persistence
+    # Include target_function and parent_id in other_metrics for DB persistence
     other_metrics_obj = algorithm_result.other_metrics
     if other_metrics_obj is None:
         other_metrics_obj = {}
@@ -156,6 +156,9 @@ def update_algorithm_result(algorithm_result: AlgorithmResult):
         # Store target_function if not default
         if algorithm_result.target_function != "kissat_restarting":
             other_metrics_obj = {**other_metrics_obj, "target_function": algorithm_result.target_function}
+        # Store parent_id if set
+        if algorithm_result.parent_id is not None:
+            other_metrics_obj = {**other_metrics_obj, "parent_id": algorithm_result.parent_id}
     algorithm_result.last_updated = datetime.now()
     if other_metrics_obj is None:
         other_metrics_text = None
@@ -221,6 +224,10 @@ def ToAlgorithmResult(result: tuple) -> AlgorithmResult:
     target_function = "kissat_restarting"  # default
     if isinstance(other_metrics, dict) and "target_function" in other_metrics:
         target_function = other_metrics.pop("target_function")
+    # Extract parent_id from other_metrics if present
+    parent_id = None
+    if isinstance(other_metrics, dict) and "parent_id" in other_metrics:
+        parent_id = other_metrics.pop("parent_id")
     return AlgorithmResult(
         id=result[0],
         algorithm=result[1],
@@ -232,6 +239,7 @@ def ToAlgorithmResult(result: tuple) -> AlgorithmResult:
         error_rate=_to_float(result[7]),
         other_metrics=other_metrics,
         target_function=target_function,
+        parent_id=parent_id,
     )
 
 def ToCodeResult(result: tuple) -> CodeResult:
@@ -373,6 +381,10 @@ def _row_to_algorithm_result(row: Mapping[str, Any]) -> AlgorithmResult:
     target_function = "kissat_restarting"  # default
     if isinstance(other_metrics, dict) and "target_function" in other_metrics:
         target_function = other_metrics.pop("target_function")
+    # Extract parent_id from other_metrics if present
+    parent_id = None
+    if isinstance(other_metrics, dict) and "parent_id" in other_metrics:
+        parent_id = other_metrics.pop("parent_id")
     return AlgorithmResult(
         id=row.get("id"),
         algorithm=row.get("algorithm"),
@@ -384,6 +396,7 @@ def _row_to_algorithm_result(row: Mapping[str, Any]) -> AlgorithmResult:
         code_id_list=_text_to_code_id_list(row.get("code_id_list")),
         other_metrics=other_metrics,
         target_function=target_function,
+        parent_id=parent_id,
     )
 
 def add_router_table(name: str):
