@@ -1,4 +1,4 @@
-You are designing a novel and diverse heuristic strategy on top of the Kissat-MAB solver which will optimize performance on the SAT Competition benchmakrs (PAR2 scoring).
+You are designing a novel and diverse heuristic strategy on top of the Kissat-MAB solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).
 
 This algorithm (conceptual, not code) should modify one of the target functions below. Your algorithm should demonstrate the same level of innovation and diversity as past SAT competition winners.
 
@@ -10,7 +10,7 @@ Choose exactly one function to modify:
 
 ### Competition Winner Strategies (Inspiration)
 
-The following are strategies from past SAT Competition winners. Your algorithm should be equally as creative and distinct and implementable as them.
+The following are strategies from past SAT Competition winners. Your algorithm should be equally as creative and distinct and implementable as them, but it should NOT just copy them.
 
 {competition_winners_and_descriptions}
 
