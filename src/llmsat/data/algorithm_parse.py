@@ -15,8 +15,9 @@ class RestartPolicySpec:
     tie_breaking_rules: List[str]
 
 # New format keys (ae_prompt.txt style)
-NEW_FORMAT_REQUIRED_KEYS = ["name", "algorithm", "target_function"]
-NEW_FORMAT_OPTIONAL_KEYS = ["reason"]
+# target_function is optional for variant/member algorithms (they inherit from leader)
+NEW_FORMAT_REQUIRED_KEYS = ["name", "algorithm"]
+NEW_FORMAT_OPTIONAL_KEYS = ["reason", "target_function"]
 
 # Legacy format keys (kissat.txt style)
 LEGACY_EXPECTED_KEYS = [
@@ -101,19 +102,23 @@ def parse_algorithm_spec_json(text: str) -> Tuple[dict, Optional[str]]:
     else:
         raise ValueError(f"Missing required keys. Expected either {NEW_FORMAT_REQUIRED_KEYS} or {LEGACY_EXPECTED_KEYS}")
 
-def _validate_new_format(spec_obj: dict) -> Tuple[dict, str]:
-    """Validate new format and return (spec, target_function)."""
+def _validate_new_format(spec_obj: dict) -> Tuple[dict, Optional[str]]:
+    """Validate new format and return (spec, target_function).
+
+    target_function is optional for variant/member algorithms (they inherit from leader).
+    """
     name = spec_obj.get("name")
     algorithm = spec_obj.get("algorithm")
     target_function = spec_obj.get("target_function")
-    
+
     if not isinstance(name, str) or not name.strip():
         raise ValueError("'name' must be a non-empty string.")
     if not isinstance(algorithm, str) or not algorithm.strip():
         raise ValueError("'algorithm' must be a non-empty string.")
-    if not isinstance(target_function, str) or not target_function.strip():
-        raise ValueError("'target_function' must be a non-empty string.")
-    
+    # target_function is optional (variants/members inherit from leader)
+    if target_function is not None and (not isinstance(target_function, str) or not target_function.strip()):
+        raise ValueError("'target_function' must be a non-empty string if provided.")
+
     return spec_obj, target_function
 
 def _validate_legacy_format(spec_obj: dict) -> Tuple[dict, None]:

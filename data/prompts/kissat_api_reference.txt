@@ -1,0 +1,45 @@
+## Kissat API Reference (Supplement to restart.c)
+
+CRITICAL: The kissat struct is FIXED. Do NOT invent new struct fields. Only use fields shown in restart.c or listed below.
+
+### Additional Solver Fields Available
+
+Beyond what's shown in restart.c, you may also use:
+
+```c
+solver->vars              // total number of variables
+solver->random            // RNG state (type: generator, which is uint64_t)
+solver->ticks             // solver ticks counter
+solver->scinc             // VSIDS score increment value
+```
+
+### Random Number Functions
+
+```c
+// Generate random 32-bit unsigned
+static inline unsigned kissat_next_random32(generator *rng);
+
+// Pick random in range [low, high)
+static inline unsigned kissat_pick_random(generator *rng, unsigned low, unsigned high);
+
+// Pick random double in [0, 1)
+static inline double kissat_pick_double(generator *rng);
+
+// Pick random bool
+static inline bool kissat_pick_bool(generator *rng);
+
+// Usage: kissat_pick_random(&solver->random, 0, 10)
+```
+
+### Statistics Counters
+
+Use with INC(name) or ADD(name, value). Available counters include:
+- conflicts, decisions, propagations
+- restarts, stable_restarts, focused_restarts
+- restarts_levels, restarts_reused_trails, restarts_reused_levels
+- clauses_learned, clauses_reduced
+
+### Standard Library
+
+You may include and use: <math.h>, <stdbool.h>, <stdint.h>, <inttypes.h>
+Do NOT include: <stdlib.h>, <string.h>, <stdio.h> (use kissat's own allocator/logging)

@@ -4,8 +4,25 @@ You are an expert in writing C code for Kissat-based SAT Solvers and your task i
 - Output complete function with signature and body
 - Must compile with existing Kissat codebase
 
+### API Reference (Supplement to restart.c)
+
+CRITICAL: The kissat struct is FIXED. Do NOT invent new struct fields. Only use fields shown in restart.c or listed below.
+
+Additional solver fields available:
+- solver->vars (total variables), solver->random (RNG state), solver->ticks, solver->scinc
+
+Random number functions (use with &solver->random):
+- kissat_pick_random(&solver->random, low, high) - returns unsigned in [low, high)
+- kissat_pick_double(&solver->random) - returns double in [0, 1)
+- kissat_pick_bool(&solver->random) - returns random bool
+
+Statistics counters (use with INC/ADD): conflicts, decisions, propagations, restarts, stable_restarts, focused_restarts, clauses_learned, clauses_reduced
+
+Allowed includes: <math.h>, <stdbool.h>, <stdint.h>, <inttypes.h>
+Do NOT use: <stdlib.h>, <string.h>, <stdio.h>
+
 ### Algorithm to Implement
-{algorithm}
+ALGORITHM_PLACEHOLDER
 
 ### Output Format
 Wrap your complete function in `<code>` tags (no other text outside tags):
