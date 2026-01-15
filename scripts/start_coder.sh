@@ -15,7 +15,7 @@ set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"
 
 # activate your existing venv (path relative to submit dir)
-source ~/general/bin/activate
+source ~/.venvs/llmsat312/bin/activate
 
 # any modules you rely on
 # module load arrow

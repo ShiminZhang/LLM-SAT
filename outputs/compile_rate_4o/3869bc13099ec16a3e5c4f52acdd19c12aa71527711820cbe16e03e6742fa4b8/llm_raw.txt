@@ -1,0 +1,43 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  if (limit <= fast) {
+    // Thompson Sampling logic for MAB
+    if (solver->mab) {
+      double vsids_reward = solver->mab_reward[0] / (solver->mab_select[0] + 1);
+      double chb_reward = solver->mab_reward[1] / (solver->mab_select[1] + 1);
+      double exploration = solver->mabc * sqrt(log(CONFLICTS) / (solver->mab_chosen_tot + 1));
+
+      double vsids_score = vsids_reward + exploration;
+      double chb_score = chb_reward + exploration;
+
+      if (vsids_score > chb_score) {
+        kissat_extremely_verbose(solver, "Restarting with VSIDS strategy");
+        return true;
+      } else {
+        kissat_extremely_verbose(solver, "Restarting with CHB strategy");
+        return true;
+      }
+    }
+    return true;
+  }
+
+  return false;
+}
+```

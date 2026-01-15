@@ -1,0 +1,42 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  bool restart = false;
+
+  if (solver->stable) {
+    restart = kissat_reluctant_triggered(&solver->reluctant);
+  } else {
+    restart = (limit <= fast);
+  }
+
+  if (solver->mab) {
+    double reward_variance = 0.0;
+    if (solver->mab_select[solver->heuristic] > 1) {
+      double mean_reward = solver->mab_reward[solver->heuristic] / solver->mab_select[solver->heuristic];
+      reward_variance = (solver->mab_reward[solver->heuristic] - mean_reward * solver->mab_select[solver->heuristic]) / (solver->mab_select[solver->heuristic] - 1);
+    }
+    double adaptive_rate = 1.0 / (1.0 + sqrt(reward_variance));
+    double par2_penalty = 1.0 / (1.0 + solver->mab_decisions);
+    double hybrid_score = adaptive_rate * (1.0 / (1.0 + solver->mab_conflicts)) - par2_penalty;
+
+    if (hybrid_score > 0.5) {
+      restart = true;
+    }
+  }
+
+  return restart;
+}
+```

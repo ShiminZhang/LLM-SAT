@@ -1,0 +1,39 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  const double alpha = 0.1;  // Sensitivity parameter
+  const double beta = 0.9;   // Momentum term
+  static double lambda_previous = 1.0;  // Previous learning rate
+  double lambda_current = 1.0;  // Current learning rate
+
+  if (solver->stable) {
+    if (kissat_reluctant_triggered(&solver->reluctant))
+      return true;
+  } else {
+    const double fast = AVERAGE(fast_glue);
+    const double slow = AVERAGE(slow_glue);
+    const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+    const double limit = margin * slow;
+
+    double improvement = fast / slow;
+    double threshold = 1.0;  // Dynamic threshold (could be a moving average)
+
+    lambda_current *= (1 + alpha * (improvement - threshold));
+    double lambda_new = beta * lambda_previous + (1 - beta) * lambda_current;
+    lambda_previous = lambda_new;
+
+    if (limit <= fast)
+      return true;
+  }
+
+  return false;
+}
+```

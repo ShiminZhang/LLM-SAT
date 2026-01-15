@@ -1,0 +1,54 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  // Adaptive exploration mechanism
+  const unsigned min_window = 15;
+  const unsigned max_window = 25;
+  const double threshold = 0.08; // 8%
+  const double exploration_adjustment = 0.15; // 15%
+  const double min_exploration = 0.5;
+  const double max_exploration = 2.0;
+
+  double crr = fast / slow;
+  double window_average = 0.0;
+  unsigned window_size = min_window;
+
+  // Calculate window size based on CRR variance
+  if (fabs(crr - 1.0) > threshold) {
+    window_size = min_window;
+  } else {
+    window_size = max_window;
+  }
+
+  // Calculate window average (simplified for illustration)
+  for (unsigned i = 0; i < window_size; i++) {
+    window_average += crr; // Placeholder for actual CRR history
+  }
+  window_average /= window_size;
+
+  // Adjust exploration coefficient
+  if (crr > window_average * (1.0 + threshold)) {
+    solver->mabc = fmin(max_exploration, solver->mabc * (1.0 + exploration_adjustment));
+  } else if (crr < window_average * (1.0 - threshold)) {
+    solver->mabc = fmax(min_exploration, solver->mabc * (1.0 - exploration_adjustment));
+  }
+
+  return (limit <= fast);
+}
+```

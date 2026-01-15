@@ -1,0 +1,46 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  static const int window_size = 15;
+  static uint64_t conflict_history[window_size] = {0};
+  static int history_index = 0;
+  static uint64_t total_conflicts = 0;
+
+  // Update sliding window
+  total_conflicts -= conflict_history[history_index];
+  conflict_history[history_index] = CONFLICTS;
+  total_conflicts += conflict_history[history_index];
+  history_index = (history_index + 1) % window_size;
+
+  // Calculate average conflicts in the window
+  double average_conflicts = (double)total_conflicts / window_size;
+  double momentum = (double)CONFLICTS / average_conflicts;
+
+  // Adjust restart threshold based on momentum
+  if (momentum > 1.05) {
+    solver->limits.restart.conflicts *= 0.95;
+  } else if (momentum < 0.95) {
+    solver->limits.restart.conflicts *= 1.05;
+  }
+
+  // Stability factor adjustment
+  solver->limits.restart.conflicts *= 1.01;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+  return (limit <= fast);
+}
+```

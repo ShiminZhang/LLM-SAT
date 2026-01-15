@@ -1,0 +1,40 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Calculate Complexity Score (CS)
+  double conflicts = (double)CONFLICTS;
+  double decisions = (double)DECISIONS;
+  double clauses = (double)(solver->statistics.clauses_learned);
+  double cs = (conflicts * clauses) / sqrt(decisions + 1);
+
+  // Dynamic Restart Horizon (DRH) threshold
+  static double initial_threshold = 1000.0; // Example initial threshold
+  static int successes = 0;
+  static int failures = 0;
+  double threshold = initial_threshold * (1 + 0.1 * successes - 0.1 * failures);
+
+  // Determine if restart is needed
+  bool restart = false;
+  if (cs > threshold) {
+    threshold *= 1.3; // Increase horizon
+    successes++;
+    restart = true;
+  } else {
+    threshold *= 0.7; // Decrease horizon
+    failures++;
+  }
+
+  // Optional verbose logging
+  kissat_extremely_verbose(solver, "CS: %f, Threshold: %f, Restart: %d", cs, threshold, restart);
+
+  return restart;
+}
+```

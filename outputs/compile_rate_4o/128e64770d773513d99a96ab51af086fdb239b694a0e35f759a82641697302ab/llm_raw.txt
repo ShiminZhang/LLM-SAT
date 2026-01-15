@@ -1,0 +1,60 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  static double momentum_index = 1.0;
+  static double confidence_index = 0.0;
+  static double previous_ratios[5] = {0};
+  static int ratio_index = 0;
+  static int increase_count = 0;
+
+  double current_ratio = (double) solver->mab_conflicts / solver->mab_decisions;
+  previous_ratios[ratio_index] = current_ratio;
+  ratio_index = (ratio_index + 1) % 5;
+
+  double average_ratio = 0.0;
+  for (int i = 0; i < 5; i++) {
+    average_ratio += previous_ratios[i];
+  }
+  average_ratio /= 5.0;
+
+  if (current_ratio > average_ratio + 0.02) {
+    momentum_index += 0.05;
+    increase_count++;
+  } else {
+    momentum_index -= 0.05;
+    increase_count = 0;
+  }
+
+  if (increase_count >= 3) {
+    confidence_index += 0.1;
+    increase_count = 0;
+  }
+
+  momentum_index = fmax(0.5, fmin(1.5, momentum_index));
+  confidence_index = fmax(0.0, fmin(0.5, confidence_index));
+
+  uint64_t adjusted_restart_interval = GET_OPTION(restartint) * (momentum_index + confidence_index);
+
+  if (CONFLICTS >= adjusted_restart_interval) {
+    return true;
+  }
+
+  if (solver->stable) {
+    return kissat_reluctant_triggered(&solver->reluctant);
+  }
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+  return (limit <= fast);
+}
+```

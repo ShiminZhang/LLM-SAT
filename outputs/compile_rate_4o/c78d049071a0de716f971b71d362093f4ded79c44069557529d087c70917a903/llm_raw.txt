@@ -1,0 +1,43 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  if (limit <= fast)
+    return true;
+
+  // Calculate stability score based on context features
+  double clause_variable_ratio = (double)solver->statistics.clauses / solver->statistics.variables;
+  double average_clause_length = (double)solver->statistics.literals / solver->statistics.clauses;
+  double stability_score = 1.0 - (clause_variable_ratio + average_clause_length) / 2.0;
+
+  // Adjust exploration coefficient c
+  double adjusted_c = solver->mabc * (1.0 - stability_score);
+
+  // Calculate penalty factor for underperforming strategies
+  double vsids_performance = solver->mab_reward[0] / (solver->mab_select[0] + 1);
+  double chb_performance = solver->mab_reward[1] / (solver->mab_select[1] + 1);
+  double penalty_factor = (vsids_performance < chb_performance) ? 0.9 : 1.0;
+
+  // Calculate context bias with weighted average of conflict reduction rates
+  double recent_conflict_reduction = (double)solver->mab_conflicts / (solver->mab_decisions + 1);
+  double context_bias = (recent_conflict_reduction + penalty_factor) / 2.0;
+
+  // Determine if restart should be triggered
+  return (context_bias * adjusted_c) > 0.5;
+}
+```

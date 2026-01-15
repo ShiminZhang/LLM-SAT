@@ -1,0 +1,38 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  if (limit <= fast)
+    return true;
+
+  // Dynamic Petal Rotation logic
+  const double decision_rate = AVERAGE(decision_rate);
+  const double reward_sum = solver->mab_reward[0] + solver->mab_reward[1];
+  const double selection_sum = solver->mab_select[0] + solver->mab_select[1];
+  const double average_reward = reward_sum / (selection_sum ? selection_sum : 1);
+  const double performance_change = decision_rate / (solver->mab_decisions ? solver->mab_decisions : 1);
+
+  const double dynamic_threshold = average_reward * performance_change;
+  const double variance = fabs(fast - slow);
+
+  if (dynamic_threshold > variance)
+    return true;
+
+  return false;
+}
+```

@@ -1,0 +1,58 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  double short_term_momentum = 1.0;
+  double long_term_momentum = 1.0;
+  const double decay_factor = 0.95;
+  const unsigned short_window = 15;
+  const unsigned long_window = 45;
+
+  double decisions = DECISIONS;
+  double decision_rate = AVERAGE(decision_rate);
+  double reward = log(decisions) / (solver->mab_chosen_tot + 1);
+
+  if (solver->mab) {
+    unsigned vsids_count = solver->mab_select[0];
+    unsigned chb_count = solver->mab_select[1];
+    double vsids_reward = solver->mab_reward[0];
+    double chb_reward = solver->mab_reward[1];
+
+    if (vsids_count + chb_count > 0) {
+      double vsids_ratio = vsids_reward / (vsids_count + 1);
+      double chb_ratio = chb_reward / (chb_count + 1);
+
+      if (vsids_ratio > chb_ratio) {
+        short_term_momentum = decay_factor * short_term_momentum + (1 - decay_factor) * (vsids_ratio / chb_ratio);
+      } else {
+        long_term_momentum = decay_factor * long_term_momentum + (1 - decay_factor) * (chb_ratio / vsids_ratio);
+      }
+    }
+  }
+
+  double exploration_coefficient = solver->mabc;
+  if (short_term_momentum > 1.1 && long_term_momentum > 1.1) {
+    exploration_coefficient *= 1.25;
+  } else if (short_term_momentum < 0.9 && long_term_momentum < 0.9) {
+    exploration_coefficient *= 0.75;
+  }
+
+  if (solver->stable) {
+    return kissat_reluctant_triggered(&solver->reluctant);
+  }
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  return (limit <= fast);
+}
+```

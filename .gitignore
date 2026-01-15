@@ -2,6 +2,7 @@ credentials/
 models/
 solvers/algorithm_*/
 data/benchmarks/*
+data/dpo_formatted/*
 !data/benchmarks/**/*.uri
 data/results/
 logs/
@@ -11,3 +12,8 @@ solvers/test
 .env
 *.md
 *.log
+
+outputs/benchmark/*
+demo.txt
+*.pdf
+__pycache__/

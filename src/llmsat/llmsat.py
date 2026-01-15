@@ -6,7 +6,7 @@ NOT_INITIALIZED = "NOT_INITIALIZED"
 BASE_SOLVER_PATH = "solvers/base"
 RECOVERED_ALGORITHM = "recovered_algorithm"
 SAT2025_BENCHMARK_PATH = "data/benchmarks/satcomp2025"
-PYENV_PATH = "../../general/bin/activate"
+PYENV_PATH = "~/.venvs/llmsat312/bin/activate"
 CHATGPT_DATA_GENERATION_TABLE = "chatgpt_datagen"
 
 #DATATYPES
@@ -45,6 +45,8 @@ class AlgorithmResult:
     error_rate: float
     code_id_list: List[str] # list of code ids that have been generated for this algorithm
     other_metrics: Dict[str, float]
+    target_function: str = "kissat_restarting" # function to modify, stored in other_metrics for DB persistence
+    parent_id: Optional[str] = None  # ID of parent algorithm (for team member -> leader relationship)
 
 @dataclass
 class CodeResult:

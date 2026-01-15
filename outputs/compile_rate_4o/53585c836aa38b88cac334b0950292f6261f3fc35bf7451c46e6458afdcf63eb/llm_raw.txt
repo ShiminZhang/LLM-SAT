@@ -1,0 +1,54 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  double short_term_momentum = 1.0;
+  double long_term_momentum = 1.0;
+  double exploration_coefficient = solver->mabc;
+
+  // Calculate heuristic reward
+  double reward = log((double)solver->mab_conflicts / (double)solver->mab_chosen_tot);
+
+  // Update short-term and long-term momentum
+  short_term_momentum = 0.7 * reward + 0.3 * short_term_momentum;
+  long_term_momentum = 0.7 * reward + 0.3 * long_term_momentum;
+
+  // Adjust exploration coefficient based on momentum
+  if (short_term_momentum > 1 && long_term_momentum > 1) {
+    exploration_coefficient *= 1.15;
+  } else if (short_term_momentum < 1 && long_term_momentum < 1) {
+    exploration_coefficient *= 0.85;
+  } else {
+    if (short_term_momentum > long_term_momentum) {
+      exploration_coefficient *= 1.05;
+    } else {
+      exploration_coefficient *= 0.95;
+    }
+  }
+
+  // Fallback mechanism
+  if (solver->statistics.restarts % 100 == 0) {
+    if (reward < 0.5) {
+      short_term_momentum = 1.0;
+      long_term_momentum = 1.0;
+      exploration_coefficient = solver->mabc;
+    }
+  }
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+  return (limit <= fast);
+}
+```

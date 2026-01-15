@@ -1,0 +1,34 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  static double previous_adjustment = 0.0;
+  const double alpha = 0.1;  // Sensitivity parameter
+  const double beta = 0.9;   // Momentum factor
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  double improvement = fast - slow;
+  double threshold = 0.01 * slow;  // Dynamic threshold based on slow average
+
+  double adjustment = alpha * (improvement - threshold) + beta * previous_adjustment;
+  previous_adjustment = adjustment;
+
+  const double adjusted_limit = limit * (1 + adjustment);
+
+  return (adjusted_limit <= fast);
+}
+```

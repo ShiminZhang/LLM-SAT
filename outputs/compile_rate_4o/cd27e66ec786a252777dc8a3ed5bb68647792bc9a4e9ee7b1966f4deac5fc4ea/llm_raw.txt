@@ -1,0 +1,38 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double decision_rate = AVERAGE(decision_rate);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  if (solver->stable) {
+    if (kissat_reluctant_triggered(&solver->reluctant))
+      return true;
+  } else {
+    if (limit <= fast)
+      return true;
+  }
+
+  // Dynamic threshold for strategy switching
+  const double mab_reward_variance = fabs(solver->mab_reward[0] - solver->mab_reward[1]);
+  const double exploration_decay = solver->mabc / (1.0 + log2(1.0 + solver->mab_decisions));
+  const double penalty = mab_reward_variance / (1.0 + solver->mab_chosen_tot);
+
+  // Adaptive strategy based on decision rate and penalty
+  if (decision_rate > 1.0 + penalty + exploration_decay) {
+    return true;
+  }
+
+  return false;
+}
+```

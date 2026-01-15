@@ -21,7 +21,7 @@ GENERATION_TAG=$1
 shift  # Remove first argument, keep the rest
 
 # activate your existing venv (path relative to submit dir)
-source ~/general/bin/activate
+source ~/.venvs/llmsat312/bin/activate
 
 export PYTHONPATH="./src:${PYTHONPATH:-}"
 

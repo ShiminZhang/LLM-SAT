@@ -27,7 +27,7 @@ GENERATION_TAG=$1
 shift  # Remove first argument, keep the rest
 
 # Activate venv
-source ~/general/bin/activate
+source ~/.venvs/llmsat312/bin/activate
 
 echo "Starting sequential evaluation for tag: $GENERATION_TAG"
 echo "Additional args: $@"

@@ -1,0 +1,63 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  static const double initial_momentum = 1.0;
+  static const double initial_stability = 0.1;
+  static const double min_momentum = 0.5;
+  static const double max_momentum = 1.5;
+  static const double min_stability = 0.05;
+  static const double max_stability = 0.2;
+  static const int history_size = 5;
+
+  double momentum = initial_momentum;
+  double stability = initial_stability;
+  double ratios[history_size] = {0};
+  double sum_ratios = 0;
+  double sum_squares = 0;
+  int index = 0;
+
+  double current_ratio = (double)solver->mab_conflicts / solver->mab_decisions;
+  sum_ratios += current_ratio - ratios[index];
+  ratios[index] = current_ratio;
+  index = (index + 1) % history_size;
+
+  double average_ratio = sum_ratios / history_size;
+  double variance = 0;
+  for (int i = 0; i < history_size; i++) {
+    double diff = ratios[i] - average_ratio;
+    variance += diff * diff;
+  }
+  variance /= history_size;
+
+  if (current_ratio > average_ratio) {
+    momentum += 0.05 + stability;
+  } else {
+    momentum -= 0.05;
+  }
+
+  if (variance < 0.1) {
+    stability = fmin(stability + 0.01, max_stability);
+  } else if (variance > 0.2) {
+    stability = fmax(stability - 0.01, min_stability);
+  }
+
+  momentum = fmax(min_momentum, fmin(momentum, max_momentum));
+
+  uint64_t base_restart_interval = GET_OPTION(restartint);
+  uint64_t adjusted_restart_interval = (uint64_t)(base_restart_interval * momentum);
+
+  if (CONFLICTS >= adjusted_restart_interval) {
+    return true;
+  }
+
+  return false;
+}
+```

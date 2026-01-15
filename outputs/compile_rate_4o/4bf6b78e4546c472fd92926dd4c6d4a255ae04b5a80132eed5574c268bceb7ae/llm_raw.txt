@@ -1,0 +1,44 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Contextual features
+  double clause_variable_ratio = (double)solver->statistics.clauses / solver->statistics.variables;
+  double average_clause_length = (double)solver->statistics.literals / solver->statistics.clauses;
+  double progress_rate = (double)DECISIONS / CONFLICTS;
+  double conflict_variance = solver->statistics.conflict_variance;
+
+  // Adaptive context bias
+  double adaptive_context_bias = log2(1 + clause_variable_ratio + average_clause_length + progress_rate + conflict_variance);
+
+  // Enhanced UCB calculation
+  double c = solver->mabc * exp(-conflict_variance);
+  double ucb_vsids = solver->mab_reward[0] / (1 + solver->mab_select[0]) + c * sqrt((log(CONFLICTS) + adaptive_context_bias) / (1 + solver->mab_select[0]));
+  double ucb_chb = solver->mab_reward[1] / (1 + solver->mab_select[1]) + c * sqrt((log(CONFLICTS) + adaptive_context_bias) / (1 + solver->mab_select[1]));
+
+  // Decision based on UCB values
+  bool restart_decision = false;
+  if (solver->mab) {
+    restart_decision = (ucb_vsids > ucb_chb);
+  } else {
+    if (solver->stable) {
+      restart_decision = kissat_reluctant_triggered(&solver->reluctant);
+    } else {
+      const double fast = AVERAGE(fast_glue);
+      const double slow = AVERAGE(slow_glue);
+      const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+      const double limit = margin * slow;
+      restart_decision = (limit <= fast);
+    }
+  }
+
+  return restart_decision;
+}
+```

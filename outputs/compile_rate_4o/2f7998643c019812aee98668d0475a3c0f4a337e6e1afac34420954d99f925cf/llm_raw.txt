@@ -1,0 +1,51 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Calculate Clause Reduction Rate (CRR)
+  double crr = (double)solver->mab_conflicts / DECISIONS;
+
+  // Maintain a window of the last 20 restarts
+  static double crr_window[20] = {0};
+  static unsigned crr_index = 0;
+  static unsigned crr_count = 0;
+
+  // Update the window with the current CRR
+  crr_window[crr_index] = crr;
+  crr_index = (crr_index + 1) % 20;
+  if (crr_count < 20) crr_count++;
+
+  // Calculate the average CRR in the window
+  double crr_avg = 0;
+  for (unsigned i = 0; i < crr_count; i++) {
+    crr_avg += crr_window[i];
+  }
+  crr_avg /= crr_count;
+
+  // Adjust exploration coefficient based on CRR
+  double exploration_coefficient = solver->mabc;
+  if (crr > crr_avg * 1.15) {
+    exploration_coefficient *= 1.25; // Increase exploration
+  } else if (crr < crr_avg * 0.95) {
+    exploration_coefficient *= 0.85; // Decrease exploration
+  }
+
+  // Use the adjusted exploration coefficient to modify restart behavior
+  if (solver->stable) {
+    return kissat_reluctant_triggered(&solver->reluctant);
+  }
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow * exploration_coefficient;
+  return (limit <= fast);
+}
+```

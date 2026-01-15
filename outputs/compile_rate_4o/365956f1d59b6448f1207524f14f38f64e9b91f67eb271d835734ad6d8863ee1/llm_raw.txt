@@ -1,0 +1,51 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  static double previous_conflicts[20] = {0};
+  static unsigned index = 0;
+  static double momentum = 1.0;
+  static double variance_threshold = 100.0;
+
+  double current_conflicts = CONFLICTS;
+  double previous_conflict = previous_conflicts[index];
+  previous_conflicts[index] = current_conflicts;
+  index = (index + 1) % 20;
+
+  double conflict_variance = 0.0;
+  for (unsigned i = 0; i < 20; i++) {
+    double diff = previous_conflicts[i] - current_conflicts;
+    conflict_variance += diff * diff;
+  }
+  conflict_variance /= 20;
+
+  if (conflict_variance > variance_threshold) {
+    momentum *= 1.15;
+  } else {
+    momentum *= 0.85;
+  }
+
+  momentum = fmax(0.85, fmin(momentum, 1.15));
+
+  if (limit * momentum <= fast) {
+    return true;
+  }
+
+  return false;
+}
+```

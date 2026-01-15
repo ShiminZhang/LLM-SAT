@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+"""Analyze diversity of generated strategies.
+
+Reads a JSONL file produced by scripts/generate_diverse_batch.py and computes:
+- Embeddings for each strategy_text (sentence-transformers if available; else TF-IDF)
+- Cosine similarity distributions:
+  - leader-leader
+  - leader-member (within the same team)
+  - member-member (cross-team)
+- Near-duplicate pairs above a similarity threshold
+
+Writes:
+- outputs: diversity_report.json
+- outputs: strategy_summary.csv
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+
+def _stable_json_dumps(obj: Any) -> str:
+    return json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def _read_jsonl(path: Path) -> List[dict]:
+    rows: List[dict] = []
+    with path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
+
+
+def _describe(values: List[float]) -> dict:
+    if not values:
+        return {
+            "count": 0,
+            "mean": None,
+            "median": None,
+            "min": None,
+            "max": None,
+            "p10": None,
+            "p90": None,
+        }
+    arr = np.array(values, dtype=float)
+    return {
+        "count": int(arr.size),
+        "mean": float(arr.mean()),
+        "median": float(np.median(arr)),
+        "min": float(arr.min()),
+        "max": float(arr.max()),
+        "p10": float(np.percentile(arr, 10)),
+        "p90": float(np.percentile(arr, 90)),
+    }
+
+
+@dataclass
+class EmbeddingResult:
+    method: str
+    matrix: np.ndarray  # shape (n, d)
+
+
+def _embed_texts(texts: List[str], prefer_sentence_transformers: bool = True) -> EmbeddingResult:
+    if prefer_sentence_transformers:
+        try:
+            from sentence_transformers import SentenceTransformer  # type: ignore
+
+            model = SentenceTransformer("all-MiniLM-L6-v2")
+            mat = np.array(model.encode(texts, normalize_embeddings=True, show_progress_bar=True))
+            return EmbeddingResult(method="sentence-transformers/all-MiniLM-L6-v2", matrix=mat)
+        except Exception:
+            pass
+
+    vec = TfidfVectorizer(
+        max_features=5000,
+        ngram_range=(1, 2),
+        lowercase=True,
+        stop_words=None,
+    )
+    X = vec.fit_transform(texts)
+    # Normalize to unit length for cosine via dot.
+    norms = np.sqrt(X.multiply(X).sum(axis=1)).A1
+    norms[norms == 0] = 1.0
+    Xn = X.multiply(1.0 / norms[:, None])
+    return EmbeddingResult(method="tfidf(1-2gram,max=5000)", matrix=Xn.toarray())
+
+
+def _upper_triangle_pairs(sim: np.ndarray) -> List[float]:
+    n = sim.shape[0]
+    out: List[float] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            out.append(float(sim[i, j]))
+    return out
+
+
+def _top_pairs(
+    ids: List[str],
+    sim: np.ndarray,
+    threshold: float,
+    max_pairs: int,
+    allow_same: bool = False,
+) -> List[dict]:
+    pairs: List[Tuple[float, str, str]] = []
+    n = sim.shape[0]
+    for i in range(n):
+        for j in range(n):
+            if not allow_same and j <= i:
+                continue
+            s = float(sim[i, j])
+            if s >= threshold:
+                pairs.append((s, ids[i], ids[j]))
+    pairs.sort(reverse=True, key=lambda t: t[0])
+    out = [{"similarity": s, "a": a, "b": b} for s, a, b in pairs[:max_pairs]]
+    return out
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--in", dest="in_path", type=Path, required=True, help="Input strategies.jsonl")
+    ap.add_argument(
+        "--out-dir",
+        type=Path,
+        default=Path("outputs/diversity"),
+        help="Output directory",
+    )
+    ap.add_argument("--duplicate-threshold", type=float, default=0.95)
+    ap.add_argument("--max-duplicate-pairs", type=int, default=50)
+    ap.add_argument(
+        "--no-sentence-transformers",
+        action="store_true",
+        help="Force TF-IDF even if sentence-transformers is installed",
+    )
+
+    args = ap.parse_args()
+
+    rows = _read_jsonl(args.in_path)
+    if not rows:
+        raise SystemExit("No rows read from input")
+
+    leaders = [r for r in rows if r.get("type") == "leader"]
+    members = [r for r in rows if r.get("type") == "member"]
+
+    # Build per-strategy table
+    all_rows = []
+    for r in rows:
+        spec = r.get("spec") or {}
+        meta = r.get("meta") or {}
+        all_rows.append(
+            {
+                "id": r.get("id"),
+                "type": r.get("type"),
+                "leader_id": r.get("leader_id"),
+                "target_function": r.get("target_function"),
+                "name": spec.get("name"),
+                "temperature": meta.get("temperature"),
+                "model": meta.get("model"),
+                "created_at": meta.get("created_at"),
+                "strategy_text": r.get("strategy_text") or "",
+            }
+        )
+
+    df = pd.DataFrame(all_rows)
+    df["strategy_text"] = df["strategy_text"].fillna("")
+
+    texts = df["strategy_text"].tolist()
+    emb = _embed_texts(texts, prefer_sentence_transformers=not args.no_sentence_transformers)
+
+    sim_all = cosine_similarity(emb.matrix)
+
+    # Similarities by group
+    id_list = df["id"].astype(str).tolist()
+    idx_by_id = {sid: i for i, sid in enumerate(id_list)}
+
+    leader_ids = [str(r["id"]) for r in leaders]
+    member_ids = [str(r["id"]) for r in members]
+
+    leader_idx = [idx_by_id[i] for i in leader_ids if i in idx_by_id]
+    member_idx = [idx_by_id[i] for i in member_ids if i in idx_by_id]
+
+    leader_leader_vals: List[float] = []
+    if leader_idx:
+        leader_sim = sim_all[np.ix_(leader_idx, leader_idx)]
+        leader_leader_vals = _upper_triangle_pairs(leader_sim)
+
+    # leader-member within team
+    leader_member_vals: List[float] = []
+    members_by_leader: Dict[str, List[str]] = defaultdict(list)
+    for m in members:
+        members_by_leader[str(m["leader_id"])].append(str(m["id"]))
+
+    for lid in leader_ids:
+        if lid not in idx_by_id:
+            continue
+        li = idx_by_id[lid]
+        for mid in members_by_leader.get(lid, []):
+            mi = idx_by_id.get(mid)
+            if mi is None:
+                continue
+            leader_member_vals.append(float(sim_all[li, mi]))
+
+    # member-member across teams
+    member_member_cross_vals: List[float] = []
+    # Build list of (member_id, leader_id)
+    member_pairs = [(str(m["id"]), str(m["leader_id"])) for m in members]
+    for i in range(len(member_pairs)):
+        mid_a, lid_a = member_pairs[i]
+        ia = idx_by_id.get(mid_a)
+        if ia is None:
+            continue
+        for j in range(i + 1, len(member_pairs)):
+            mid_b, lid_b = member_pairs[j]
+            if lid_a == lid_b:
+                continue
+            ib = idx_by_id.get(mid_b)
+            if ib is None:
+                continue
+            member_member_cross_vals.append(float(sim_all[ia, ib]))
+
+    # Duplicates on full set
+    dup_pairs = _top_pairs(
+        ids=id_list,
+        sim=sim_all,
+        threshold=float(args.duplicate_threshold),
+        max_pairs=int(args.max_duplicate_pairs),
+        allow_same=False,
+    )
+
+    report = {
+        "input": str(args.in_path),
+        "counts": {
+            "total": int(len(rows)),
+            "leaders": int(len(leaders)),
+            "members": int(len(members)),
+        },
+        "embedding": {"method": emb.method, "dim": int(emb.matrix.shape[1])},
+        "similarity": {
+            "leader_leader": _describe(leader_leader_vals),
+            "leader_member_within_team": _describe(leader_member_vals),
+            "member_member_cross_team": _describe(member_member_cross_vals),
+        },
+        "duplicates": {
+            "threshold": float(args.duplicate_threshold),
+            "pairs": dup_pairs,
+        },
+    }
+
+    out_dir = args.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    report_path = out_dir / "diversity_report.json"
+    report_path.write_text(_stable_json_dumps(report) + "\n", encoding="utf-8")
+
+    csv_path = out_dir / "strategy_summary.csv"
+    df.drop(columns=["strategy_text"]).to_csv(csv_path, index=False)
+
+    print(f"Wrote: {report_path}")
+    print(f"Wrote: {csv_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

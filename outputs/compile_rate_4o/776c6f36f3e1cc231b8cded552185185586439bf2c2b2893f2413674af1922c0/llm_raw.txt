@@ -1,0 +1,55 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Calculate Adaptive Momentum Coefficient
+  static const int window_size = 15;
+  static uint64_t conflict_history[window_size] = {0};
+  static int history_index = 0;
+
+  uint64_t current_conflicts = CONFLICTS;
+  uint64_t previous_conflicts = conflict_history[history_index];
+  conflict_history[history_index] = current_conflicts;
+  history_index = (history_index + 1) % window_size;
+
+  uint64_t total_conflicts = 0;
+  for (int i = 0; i < window_size; i++) {
+    total_conflicts += conflict_history[i];
+  }
+  double average_conflicts = (double)total_conflicts / window_size;
+  double momentum = current_conflicts / average_conflicts;
+
+  // Adjust restart threshold based on momentum
+  if (momentum > 1.05) {
+    solver->limits.restart.conflicts *= 0.95;
+  } else if (momentum < 0.95) {
+    solver->limits.restart.conflicts *= 1.05;
+  }
+
+  // Override mechanism for cyclical conflicts
+  if (history_index == 0) {
+    uint64_t last_three_conflicts = conflict_history[(window_size - 1) % window_size] +
+                                    conflict_history[(window_size - 2) % window_size] +
+                                    conflict_history[(window_size - 3) % window_size];
+    if (last_three_conflicts >= 2 * previous_conflicts) {
+      solver->limits.restart.conflicts *= 1.20;
+    }
+  }
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+  return (limit <= fast);
+}
+```

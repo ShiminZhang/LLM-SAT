@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 from llmsat.data.create_prompt import build_record, write_jsonl, render_custom_id
-from llmsat.data.algorithm_parse import parse_kissat_restart_policy_json
+from llmsat.data.algorithm_parse import parse_algorithm_spec_json, parse_kissat_restart_policy_json
 from llmsat.utils.chatgpt_helper import (
     submit_batch_input as helper_submit_batch_input,
     block_until_completion as helper_block_until_completion,
@@ -124,7 +124,15 @@ def parse_code_response(response: Dict[str, Any]) -> str:
         return full_text[start + len("<code>"):end].strip()
     return full_text
 
-def parse_algorithm_response(response: Dict[str, Any]) -> str:
+def parse_algorithm_response(response: Dict[str, Any]) -> Tuple[str, Optional[str]]:
+    """
+    Parse algorithm response from LLM API.
+    
+    Returns:
+        Tuple of (algorithm_json_str, target_function)
+        - algorithm_json_str: JSON string of the algorithm spec
+        - target_function: Target function name (None if not specified or legacy format)
+    """
     # Extract text similarly to parse_code_response
     if not isinstance(response, dict):
         raw_text = str(response)
@@ -151,14 +159,16 @@ def parse_algorithm_response(response: Dict[str, Any]) -> str:
             raw_text = extracted if extracted is not None else (str(resp_obj.get("content")) if isinstance(resp_obj, dict) and "content" in resp_obj else json.dumps(response, ensure_ascii=False))
     # Parse into validated algorithm spec dict, then normalize to JSON string
     try:
-        spec = parse_kissat_restart_policy_json(raw_text)
+        spec, target_function = parse_algorithm_spec_json(raw_text)
         # Drop optional fields that aren't part of the core spec if present
         if isinstance(spec, dict) and "Reason" in spec:
             spec.pop("Reason")
-        return json.dumps(spec, ensure_ascii=False)
+        if isinstance(spec, dict) and "reason" in spec:
+            spec.pop("reason")
+        return json.dumps(spec, ensure_ascii=False), target_function
     except Exception:
         # If parsing fails, return the raw text for debugging/upstream handling
-        return raw_text
+        return raw_text, None
 
 # given algorithm batch id, generate data for the algorithm batch, everything is already generated, but we need to reupdate the algorithm and code results to the database
 def fake_generate_data(designer_prompt_path: str, code_prompt_template_path: str, generation_tag: str, n_algorithms: int = 500, n_codes: int = 10, algorithm_batch_id: str = None):
@@ -187,7 +197,7 @@ def fake_generate_data(designer_prompt_path: str, code_prompt_template_path: str
             except Exception:
                 # Skip malformed lines
                 continue
-            algorithm_str = parse_algorithm_response(algorithm_response)
+            algorithm_str, target_function = parse_algorithm_response(algorithm_response)
             algorithm_id = get_id(algorithm_str)
             update_router_table(CHATGPT_DATA_GENERATION_TABLE, algorithm_id, generation_tag)
             algorithm_result = AlgorithmResult(
@@ -200,6 +210,7 @@ def fake_generate_data(designer_prompt_path: str, code_prompt_template_path: str
                 error_rate=NOT_INITIALIZED,
                 other_metrics=NOT_INITIALIZED,
                 code_id_list=[],
+                target_function=target_function or "kissat_restarting",
             )
             update_algorithm_result(algorithm_result)
     # 2) Recreate codes by pairing input files with output batch files using mtime
@@ -315,7 +326,7 @@ def generate_data(designer_prompt_path: str, code_prompt_template_path: str, gen
             if not line:
                 continue
             algorithm_response = json.loads(line)
-            algorithm_str = parse_algorithm_response(algorithm_response)
+            algorithm_str, target_function = parse_algorithm_response(algorithm_response)
             algorithm_id = get_id(algorithm_str)
             algorithm_ids_local.append(algorithm_id)
             update_router_table(CHATGPT_DATA_GENERATION_TABLE, algorithm_id, generation_tag)
@@ -328,7 +339,9 @@ def generate_data(designer_prompt_path: str, code_prompt_template_path: str, gen
                 par2=NOT_INITIALIZED,
                 error_rate=NOT_INITIALIZED,
                 other_metrics=NOT_INITIALIZED,
-                code_id_list=[],)
+                code_id_list=[],
+                target_function=target_function or "kissat_restarting",
+            )
             update_algorithm_result(algorithm_result)
     # Use only algorithms from this batch/run instead of all-time router table
     algorithm_ids = algorithm_ids_local
@@ -423,6 +436,161 @@ def main():
         n_algorithms=10, n_codes=1,
         model="gpt-4o",
     )
+
+def generate_team_data(
+    designer_prompt_path: str,
+    variant_prompt_path: str,
+    code_prompt_template_path: str,
+    generation_tag: str,
+    n_leaders: int = 5,
+    m_variants_per_leader: int = 3,
+    model: str = "gpt-4o",
+):
+    """
+    Generate team-based algorithm data:
+    1. Generate n_leaders Team Leader strategies (separate API calls)
+    2. For each leader, generate m_variants_per_leader Team Member variants
+    3. All strategies (leaders + members) can later go through coder model for evaluation
+    
+    Args:
+        designer_prompt_path: Path to the designer prompt for Team Leaders
+        variant_prompt_path: Path to variant prompt template (uses {leader_algorithm} placeholder)
+        code_prompt_template_path: Path to code prompt template (for reference, not used here)
+        generation_tag: Tag for this generation run
+        n_leaders: Number of Team Leader strategies to generate
+        m_variants_per_leader: Number of Team Member variants per leader
+        model: OpenAI model to use
+    """
+    if generation_tag is None:
+        logger.error("Generation tag is None")
+        return
+    
+    designer_prompt = read_algorithm_prompt_file(designer_prompt_path)
+    variant_prompt_template = read_algorithm_prompt_file(variant_prompt_path)
+    
+    # Step 1: Generate Team Leaders (n separate batch requests, each with 1 algorithm)
+    logger.info(f"Generating {n_leaders} Team Leaders")
+    leader_batch_input_path = os.path.join(get_generation_output_dir(generation_tag), "leader_batch_input.txt")
+    create_batch_input_file(designer_prompt, leader_batch_input_path, n_requests=n_leaders, model=model)
+    
+    leader_batch_id = submit_batch_input(leader_batch_input_path)
+    block_until_completion(leader_batch_id)
+    
+    leaders_output_path = os.path.join(get_batch_output_dir(generation_tag, batch_id=leader_batch_id), "leaders_output.txt")
+    download_batch_outputs(leader_batch_id, leaders_output_path)
+    
+    # Parse and store Team Leaders
+    leader_ids = []
+    leader_target_functions = {}  # Map leader_id -> target_function for member inheritance
+    with open(leaders_output_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                leader_response = json.loads(line)
+            except Exception:
+                continue
+            leader_str, target_function = parse_algorithm_response(leader_response)
+            leader_id = get_id(leader_str)
+            leader_ids.append(leader_id)
+            leader_target_functions[leader_id] = target_function or "kissat_restarting"
+            
+            update_router_table(CHATGPT_DATA_GENERATION_TABLE, leader_id, generation_tag)
+            leader_result = AlgorithmResult(
+                id=leader_id,
+                algorithm=leader_str,
+                status=AlgorithmStatus.Generated,
+                last_updated=datetime.now(),
+                prompt=designer_prompt,
+                par2=NOT_INITIALIZED,
+                error_rate=NOT_INITIALIZED,
+                other_metrics={},
+                code_id_list=[],
+                parent_id=None,  # Leaders have no parent
+                target_function=target_function or "kissat_restarting",
+            )
+            update_algorithm_result(leader_result)
+    
+    logger.info(f"Generated {len(leader_ids)} Team Leaders")
+    
+    # Step 2: Generate Team Members for each leader
+    logger.info(f"Generating {m_variants_per_leader} Team Members per leader")
+    
+    waiting_batch_ids = []
+    batch_id_to_leader_id = {}
+    
+    for leader_id in leader_ids:
+        leader_result = get_algorithm_result(leader_id)
+        # Substitute leader's algorithm JSON into variant prompt
+        variant_prompt = variant_prompt_template.replace("{leader_algorithm}", leader_result.algorithm)
+        
+        member_batch_input_path = os.path.join(
+            get_batch_output_dir(generation_tag, batch_id=leader_batch_id),
+            f"member_batch_input_{leader_id}.txt"
+        )
+        create_batch_input_file(variant_prompt, member_batch_input_path, n_requests=m_variants_per_leader, model=model)
+        
+        batch_id = submit_batch_input(member_batch_input_path)
+        waiting_batch_ids.append(batch_id)
+        batch_id_to_leader_id[batch_id] = leader_id
+    
+    # Save batch mapping for recovery
+    batch_id_map = {
+        "leader_batch_id": leader_batch_id,
+        "member_batch_ids": waiting_batch_ids,
+        "member_batch_map": batch_id_to_leader_id,
+    }
+    json.dump(batch_id_map, open(
+        os.path.join(get_batch_output_dir(generation_tag, batch_id=leader_batch_id), 
+                     f"team_batch_id_map_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"), "w"))
+    
+    # Wait for all member batches and process
+    for batch_id in waiting_batch_ids:
+        block_until_completion(batch_id)
+        
+        leader_id = batch_id_to_leader_id[batch_id]
+        member_output_path = os.path.join(
+            get_batch_output_dir(generation_tag, batch_id=leader_batch_id),
+            f"member_output_{batch_id}.txt"
+        )
+        download_batch_outputs(batch_id, member_output_path)
+        
+        # Get leader's target_function for inheritance
+        leader_target_function = leader_target_functions.get(leader_id, "kissat_restarting")
+        
+        # Parse and store Team Members
+        with open(member_output_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    member_response = json.loads(line)
+                except Exception:
+                    continue
+                member_str, _ = parse_algorithm_response(member_response)
+                member_id = get_id(member_str)
+                
+                update_router_table(CHATGPT_DATA_GENERATION_TABLE, member_id, generation_tag)
+                member_result = AlgorithmResult(
+                    id=member_id,
+                    algorithm=member_str,
+                    status=AlgorithmStatus.Generated,
+                    last_updated=datetime.now(),
+                    prompt=variant_prompt_template,
+                    par2=NOT_INITIALIZED,
+                    error_rate=NOT_INITIALIZED,
+                    other_metrics={},
+                    code_id_list=[],
+                    parent_id=leader_id,  # Link to parent leader
+                    target_function=leader_target_function,  # Inherit from leader
+                )
+                update_algorithm_result(member_result)
+        
+        logger.info(f"Generated members for leader {leader_id}")
+    
+    logger.info(f"Team generation complete: {len(leader_ids)} leaders, {len(leader_ids) * m_variants_per_leader} members expected")
 
 def test():
     # print_generation_result("chatgpt_data_generation_gpt4o_2")

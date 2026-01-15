@@ -1,0 +1,47 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  static double momentum_index = 1.0;
+  static double last_ratios[5] = {0};
+  static int ratio_index = 0;
+
+  double current_ratio = (double) solver->mab_conflicts / solver->mab_decisions;
+  double average_ratio = 0.0;
+  for (int i = 0; i < 5; i++) {
+    average_ratio += last_ratios[i];
+  }
+  average_ratio /= 5.0;
+
+  if (current_ratio > average_ratio + 0.02) {
+    momentum_index += 0.07;
+  } else if (current_ratio < average_ratio - 0.02) {
+    momentum_index -= 0.07;
+  }
+
+  if (momentum_index < 0.6) {
+    momentum_index = 0.6;
+  } else if (momentum_index > 1.4) {
+    momentum_index = 1.4;
+  }
+
+  last_ratios[ratio_index] = current_ratio;
+  ratio_index = (ratio_index + 1) % 5;
+
+  uint64_t base_restart_interval = GET_OPTION(restartint);
+  uint64_t adjusted_restart_interval = (uint64_t)(base_restart_interval * momentum_index);
+
+  if (CONFLICTS >= solver->limits.restart.conflicts + adjusted_restart_interval) {
+    return true;
+  }
+
+  return false;
+}
+```

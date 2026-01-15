@@ -1,0 +1,41 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  if (limit <= fast) {
+    // Enhanced Petal Diagram logic
+    double inertia = 0.9; // Inertia factor for smoother transitions
+    double recent_performance = fast / slow;
+    double weighted_reward = (solver->mab_reward[solver->heuristic] / solver->mab_select[solver->heuristic]) * inertia;
+
+    // Adjust restart threshold based on recent performance
+    double dynamic_threshold = limit * (1.0 + weighted_reward);
+
+    // Check if dynamic threshold is met
+    if (recent_performance >= dynamic_threshold) {
+      // Implement cool-down phase logic
+      if (solver->mab_decisions > 1000) { // Example threshold for cool-down
+        return false; // Skip restart to explore alternatives
+      }
+      return true;
+    }
+  }
+
+  return false;
+}
+```

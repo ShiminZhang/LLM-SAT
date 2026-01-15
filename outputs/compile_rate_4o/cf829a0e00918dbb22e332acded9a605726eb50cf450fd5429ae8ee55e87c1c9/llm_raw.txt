@@ -1,0 +1,46 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Context features
+  double conflict_ratio = (double)CONFLICTS / DECISIONS;
+  double decision_rate = AVERAGE(decision_rate);
+  double fast_glue = AVERAGE(fast_glue);
+  double slow_glue = AVERAGE(slow_glue);
+  double solution_density = (double)(solver->unassigned) / solver->level;
+  double decision_level_variance = log2(solver->level + 1);
+
+  // Bayesian linear regression model (simplified for illustration)
+  double context[] = {conflict_ratio, decision_rate, fast_glue, slow_glue, solution_density, decision_level_variance};
+  double weights[] = {0.5, 0.3, 0.1, 0.1, 0.05, 0.05}; // Example weights
+  double expected_performance = 0.0;
+
+  for (int i = 0; i < 6; i++) {
+    expected_performance += context[i] * weights[i];
+  }
+
+  // Thompson Sampling decision
+  double noise = sqrt(expected_performance) * 0.1; // Gaussian noise
+  double performance_with_noise = expected_performance + noise;
+
+  // Decision based on performance prediction
+  if (performance_with_noise > 1.0) {
+    return true;
+  }
+
+  if (solver->stable) {
+    return kissat_reluctant_triggered(&solver->reluctant);
+  }
+
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow_glue;
+  return (limit <= fast_glue);
+}
+```

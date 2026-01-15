@@ -5,6 +5,6 @@
 #SBATCH --cpus-per-task=1
 #SBATCH -o logs/dumb_script_%j.log
 
-source ../../general/bin/activate
+source ~/.venvs/llmsat312/bin/activate
 PYTHONPATH=./src:$PYTHONPATH
 python scripts/run_baseline.py

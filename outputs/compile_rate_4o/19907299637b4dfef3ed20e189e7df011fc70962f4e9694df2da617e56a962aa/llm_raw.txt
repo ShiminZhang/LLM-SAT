@@ -1,0 +1,50 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  if (limit <= fast)
+    return true;
+
+  if (solver->mab) {
+    const double reward_vsids = solver->mab_reward[0];
+    const double reward_chb = solver->mab_reward[1];
+    const unsigned select_vsids = solver->mab_select[0];
+    const unsigned select_chb = solver->mab_select[1];
+
+    const double avg_reward_vsids = select_vsids ? reward_vsids / select_vsids : 0;
+    const double avg_reward_chb = select_chb ? reward_chb / select_chb : 0;
+
+    const double stddev_vsids = sqrt(avg_reward_vsids * (1 - avg_reward_vsids));
+    const double stddev_chb = sqrt(avg_reward_chb * (1 - avg_reward_chb));
+
+    const double exploration_vsids = solver->mabc / (stddev_vsids + 1);
+    const double exploration_chb = solver->mabc / (stddev_chb + 1);
+
+    const double ucb_vsids = avg_reward_vsids + exploration_vsids;
+    const double ucb_chb = avg_reward_chb + exploration_chb;
+
+    const double min_threshold = 0.1; // Minimum threshold to avoid noise
+
+    if (ucb_vsids > min_threshold || ucb_chb > min_threshold) {
+      return true;
+    }
+  }
+
+  return false;
+}
+```

@@ -1,0 +1,53 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Exploration mechanism: epsilon-greedy strategy
+  const double epsilon = 0.1; // Exploration probability
+  if ((double)rand() / RAND_MAX < epsilon) {
+    return true; // Explore by triggering a restart
+  }
+
+  // Calculate context vector
+  const double fast_glue = AVERAGE(fast_glue);
+  const double slow_glue = AVERAGE(slow_glue);
+  const double decision_rate = AVERAGE(decision_rate);
+
+  // Nonlinear model: simple neural network with one hidden layer
+  const double weights_input_hidden[3] = {0.5, 0.3, 0.2}; // Example weights
+  const double weights_hidden_output = 0.7; // Example weight
+  const double bias_hidden = 0.1; // Example bias
+  const double bias_output = 0.2; // Example bias
+
+  // Hidden layer computation
+  double hidden_activation = fast_glue * weights_input_hidden[0] +
+                             slow_glue * weights_input_hidden[1] +
+                             decision_rate * weights_input_hidden[2] +
+                             bias_hidden;
+  hidden_activation = tanh(hidden_activation); // Activation function
+
+  // Output layer computation
+  double output = hidden_activation * weights_hidden_output + bias_output;
+  output = tanh(output); // Activation function
+
+  // Decision based on model output
+  if (output > 0.5) {
+    return true; // Trigger restart
+  }
+
+  // Fallback to original strategy if model does not trigger
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow_glue;
+  return (limit <= fast_glue);
+}
+```

@@ -1,0 +1,43 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Calculate Complexity Score (CS)
+  double conflicts = (double)CONFLICTS;
+  double decisions = (double)DECISIONS;
+  double clauses = (double)(solver->statistics.clauses);
+  double CS = (conflicts * clauses) / (decisions + 1);
+
+  // Initialize and adjust threshold and horizon
+  static double threshold = 1000.0; // Initial threshold
+  static double horizon = 1.0;      // Initial horizon
+  const double learning_rate = 0.05;
+
+  // Compare CS with threshold and adjust
+  if (CS > threshold) {
+    horizon *= 1.25;
+    threshold += learning_rate * threshold;
+  } else {
+    horizon *= 0.75;
+    threshold -= learning_rate * threshold;
+  }
+
+  // Check if restart is triggered
+  if (solver->stable) {
+    return kissat_reluctant_triggered(&solver->reluctant);
+  } else {
+    const double fast = AVERAGE(fast_glue);
+    const double slow = AVERAGE(slow_glue);
+    const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+    const double limit = margin * slow;
+    return (limit <= fast);
+  }
+}
+```

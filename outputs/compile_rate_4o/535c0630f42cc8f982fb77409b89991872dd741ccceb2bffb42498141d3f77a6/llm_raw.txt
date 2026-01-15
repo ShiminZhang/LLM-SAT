@@ -1,0 +1,50 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  static double ewma_ratio = 1.0;
+  static double momentum_index = 1.0;
+  const double smoothing_factor = 0.3;
+  const double min_momentum = 0.6;
+  const double max_momentum = 1.4;
+  const double increase_factor = 0.07;
+  const double decrease_factor = 0.03;
+
+  double conflicts_since_last_restart = solver->mab_conflicts;
+  double decisions_since_last_restart = solver->mab_decisions;
+
+  if (decisions_since_last_restart == 0)
+    return false;
+
+  double current_ratio = conflicts_since_last_restart / decisions_since_last_restart;
+
+  ewma_ratio = smoothing_factor * current_ratio + (1 - smoothing_factor) * ewma_ratio;
+
+  if (current_ratio > ewma_ratio) {
+    momentum_index += increase_factor;
+  } else {
+    momentum_index -= decrease_factor;
+  }
+
+  if (momentum_index < min_momentum) {
+    momentum_index = min_momentum;
+  } else if (momentum_index > max_momentum) {
+    momentum_index = max_momentum;
+  }
+
+  uint64_t adjusted_restart_interval = GET_OPTION(restartint) * momentum_index;
+
+  if (CONFLICTS >= solver->limits.restart.conflicts + adjusted_restart_interval) {
+    return true;
+  }
+
+  return false;
+}
+```

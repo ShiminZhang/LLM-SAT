@@ -1,0 +1,59 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  double inertia_factor = 1.0;
+  double momentum = 0.0;
+  double shake_up_factor = 1.05; // Slight expansion for exploration
+
+  if (solver->mab) {
+    double vsids_reward = solver->mab_reward[0];
+    double chb_reward = solver->mab_reward[1];
+    unsigned vsids_count = solver->mab_select[0];
+    unsigned chb_count = solver->mab_select[1];
+
+    if (vsids_count > 0 && chb_count > 0) {
+      double vsids_avg_reward = vsids_reward / vsids_count;
+      double chb_avg_reward = chb_reward / chb_count;
+
+      if (solver->heuristic == 0 && vsids_avg_reward > chb_avg_reward) {
+        inertia_factor = 1.2; // More stable, less reactive
+      } else if (solver->heuristic == 1 && chb_avg_reward > vsids_avg_reward) {
+        inertia_factor = 1.2;
+      }
+    }
+  }
+
+  if (solver->stable) {
+    if (kissat_reluctant_triggered(&solver->reluctant)) {
+      momentum += 0.1; // Increase momentum in stable mode
+      return true;
+    }
+  } else {
+    const double fast = AVERAGE(fast_glue);
+    const double slow = AVERAGE(slow_glue);
+    const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+    const double limit = margin * slow * inertia_factor;
+
+    if (limit <= fast) {
+      momentum -= 0.1; // Decrease momentum in focused mode
+      return true;
+    }
+  }
+
+  if (momentum > 0.5) {
+    // Shake-up phase
+    kissat_extremely_verbose(solver, "Shake-up phase triggered");
+    return true;
+  }
+
+  return false;
+}
+```

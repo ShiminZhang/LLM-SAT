@@ -1,0 +1,41 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  const double fast_glue = AVERAGE(fast_glue);
+  const double slow_glue = AVERAGE(slow_glue);
+  const double decision_rate = AVERAGE(decision_rate);
+
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double glue_limit = margin * slow_glue;
+
+  if (solver->stable) {
+    if (kissat_reluctant_triggered(&solver->reluctant))
+      return true;
+  } else {
+    if (glue_limit <= fast_glue)
+      return true;
+  }
+
+  // Adaptive Petal Strategy
+  const double decay_factor = 0.95;
+  const double momentum_factor = 1.05;
+  const double petal_radius = sqrt(decision_rate) * decay_factor;
+  const double petal_variance = fabs(fast_glue - slow_glue);
+
+  const double primary_threshold = 1.0 / petal_radius;
+  const double secondary_threshold = petal_variance * momentum_factor;
+
+  if (primary_threshold < secondary_threshold)
+    return true;
+
+  return false;
+}
+```

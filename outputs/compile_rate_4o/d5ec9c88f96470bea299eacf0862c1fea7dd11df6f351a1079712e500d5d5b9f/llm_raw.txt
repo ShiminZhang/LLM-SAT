@@ -1,0 +1,45 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+
+  uint64_t conflicts = CONFLICTS;
+  uint64_t nano_threshold = 50;
+  uint64_t micro_threshold = 200;
+  uint64_t meso_threshold = 1500;
+  uint64_t macro_threshold = 12000;
+
+  if (conflicts < solver->limits.restart.conflicts)
+    return false;
+
+  if (conflicts < nano_threshold)
+    return false;
+
+  if (conflicts < micro_threshold) {
+    if (solver->stable)
+      return kissat_reluctant_triggered(&solver->reluctant);
+    const double fast = AVERAGE(fast_glue);
+    const double slow = AVERAGE(slow_glue);
+    const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+    const double limit = margin * slow;
+    return (limit <= fast);
+  }
+
+  if (conflicts < meso_threshold) {
+    double reward_conflict_ratio = solver->mab_reward[solver->heuristic] / (double)solver->mab_conflicts;
+    return reward_conflict_ratio > 1.0;
+  }
+
+  if (conflicts < macro_threshold) {
+    double decision_rate = AVERAGE(decision_rate);
+    double decay_factor = exp(-solver->mab_chosen_tot / 1000.0);
+    return decision_rate * decay_factor > 0.5;
+  }
+
+  return true;
+}
+```

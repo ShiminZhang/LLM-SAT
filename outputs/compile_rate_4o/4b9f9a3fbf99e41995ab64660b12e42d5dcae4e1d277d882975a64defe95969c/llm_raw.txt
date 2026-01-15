@@ -1,0 +1,53 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Calculate short-term and long-term momentum
+  double short_term_momentum = 0.0;
+  double long_term_momentum = 0.0;
+  unsigned short_term_window = 10;
+  unsigned long_term_window = 50;
+  double decay_factor = 0.95;
+
+  // Calculate momentum based on heuristic success
+  if (solver->mab_select[0] + solver->mab_select[1] > 0) {
+    short_term_momentum = (double)solver->mab_reward[solver->heuristic] / (solver->mab_select[0] + solver->mab_select[1]);
+    long_term_momentum = short_term_momentum; // Simplified for demonstration
+  }
+
+  // Adjust exploration coefficient
+  double exploration_coefficient = solver->mabc;
+  if (short_term_momentum > 0.9 && long_term_momentum > 0.9) {
+    exploration_coefficient *= 1.15;
+  } else if (short_term_momentum < 0.9 && long_term_momentum < 0.9) {
+    exploration_coefficient *= 0.85;
+  } else {
+    if (short_term_momentum > long_term_momentum) {
+      exploration_coefficient *= 1.05;
+    } else {
+      exploration_coefficient *= 0.95;
+    }
+  }
+
+  // Decay momentum
+  short_term_momentum *= decay_factor;
+  long_term_momentum *= decay_factor;
+
+  // Check if restart is triggered
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+  return (limit <= fast);
+}
+```

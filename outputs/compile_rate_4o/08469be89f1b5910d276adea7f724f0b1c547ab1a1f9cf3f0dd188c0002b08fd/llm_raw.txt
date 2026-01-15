@@ -1,0 +1,50 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+
+  if (!solver->level)
+    return false;
+
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  if (solver->stable) {
+    return kissat_reluctant_triggered(&solver->reluctant);
+  }
+
+  const double fast_glue = AVERAGE(fast_glue);
+  const double slow_glue = AVERAGE(slow_glue);
+  const double decision_rate = AVERAGE(decision_rate);
+
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double glue_limit = margin * slow_glue;
+
+  if (fast_glue > glue_limit) {
+    return true;
+  }
+
+  const uint64_t micro_conflict_threshold = 150;
+  const uint64_t meso_conflict_threshold = 1200;
+  const uint64_t macro_conflict_threshold = 9000;
+
+  if (CONFLICTS >= micro_conflict_threshold && decision_rate < 0.5) {
+    return true;
+  }
+
+  if (CONFLICTS >= meso_conflict_threshold && decision_rate < 0.3) {
+    return true;
+  }
+
+  if (CONFLICTS >= macro_conflict_threshold) {
+    const double decay_factor = exp(-solver->unassigned / 1000.0);
+    if (decision_rate < decay_factor) {
+      return true;
+    }
+  }
+
+  return false;
+}
+```
