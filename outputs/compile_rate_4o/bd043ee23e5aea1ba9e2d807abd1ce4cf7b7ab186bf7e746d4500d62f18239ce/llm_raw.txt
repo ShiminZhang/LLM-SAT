@@ -1,0 +1,41 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+
+  uint64_t conflicts = CONFLICTS;
+  uint64_t micro_threshold = 100;
+  uint64_t meso_threshold = 1000;
+  uint64_t macro_threshold = 10000;
+
+  if (conflicts < solver->limits.restart.conflicts)
+    return false;
+
+  if (conflicts < micro_threshold) {
+    return false;
+  } else if (conflicts < meso_threshold) {
+    double reward_conflict_ratio = solver->mab_reward[solver->heuristic] / (double) solver->mab_conflicts;
+    if (reward_conflict_ratio > 1.0) {
+      return true;
+    }
+  } else if (conflicts < macro_threshold) {
+    double fast = AVERAGE(fast_glue);
+    double slow = AVERAGE(slow_glue);
+    double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+    double limit = margin * slow;
+    if (limit <= fast) {
+      return true;
+    }
+  } else {
+    if (solver->stable) {
+      return kissat_reluctant_triggered(&solver->reluctant);
+    }
+  }
+
+  return false;
+}
+```

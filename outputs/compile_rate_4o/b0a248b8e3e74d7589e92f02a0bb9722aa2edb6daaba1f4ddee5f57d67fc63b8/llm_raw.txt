@@ -9,48 +9,44 @@ bool kissat_restarting(kissat *solver) {
   if (CONFLICTS < solver->limits.restart.conflicts)
     return false;
 
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  // Adaptive exploration mechanism
+  const unsigned window_size = 30;
   const double min_exploration = 0.5;
   const double max_exploration = 2.0;
   const double exploration_adjustment = 0.15;
   const double threshold = 0.07;
 
-  static double exploration_coefficient = 1.0;
-  static double crr_window[30] = {0};
-  static unsigned window_index = 0;
-  static unsigned window_count = 0;
-
   double current_crr = (double)solver->mab_conflicts / DECISIONS;
-  crr_window[window_index] = current_crr;
-  window_index = (window_index + 1) % 30;
-  if (window_count < 30) window_count++;
+  double window_average_crr = 0.0; // Assume a function to calculate this
 
-  double average_crr = 0.0;
-  for (unsigned i = 0; i < window_count; i++) {
-    average_crr += crr_window[i];
-  }
-  average_crr /= window_count;
+  // Calculate window average CRR (pseudo-code)
+  // window_average_crr = calculate_window_average_crr(solver, window_size);
 
-  if (current_crr > average_crr * (1.0 + threshold)) {
+  double exploration_coefficient = 1.0; // Assume initial value
+
+  if (current_crr > window_average_crr * (1.0 + threshold)) {
     exploration_coefficient *= (1.0 + exploration_adjustment);
-  } else if (current_crr < average_crr * (1.0 - threshold)) {
+  } else if (current_crr < window_average_crr * (1.0 - threshold)) {
     exploration_coefficient *= (1.0 - exploration_adjustment);
   }
 
-  if (exploration_coefficient < min_exploration) {
+  // Clamp exploration coefficient
+  if (exploration_coefficient < min_exploration)
     exploration_coefficient = min_exploration;
-  } else if (exploration_coefficient > max_exploration) {
+  if (exploration_coefficient > max_exploration)
     exploration_coefficient = max_exploration;
-  }
 
-  solver->limits.restart.conflicts = (uint64_t)(solver->limits.restart.conflicts * exploration_coefficient);
+  // Modify restart interval based on exploration coefficient
+  solver->limits.restart.conflicts *= exploration_coefficient;
 
-  if (solver->stable)
-    return kissat_reluctant_triggered(&solver->reluctant);
-
-  const double fast = AVERAGE(fast_glue);
-  const double slow = AVERAGE(slow_glue);
-  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
-  const double limit = margin * slow;
   return (limit <= fast);
 }
 ```

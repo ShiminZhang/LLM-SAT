@@ -9,50 +9,48 @@ bool kissat_restarting(kissat *solver) {
   if (CONFLICTS < solver->limits.restart.conflicts)
     return false;
 
-  static const double initial_momentum = 1.0;
-  static const double initial_stability = 0.1;
-  static const double min_momentum = 0.5;
-  static const double max_momentum = 1.5;
-  static const double min_stability = 0.05;
-  static const double max_stability = 0.2;
-  static const int history_size = 5;
-
-  double momentum = initial_momentum;
-  double stability = initial_stability;
-  double ratios[history_size] = {0};
-  double sum_ratios = 0;
-  double sum_squares = 0;
-  int index = 0;
+  static double momentum_index = 1.0;
+  static double stability_factor = 0.1;
+  static double past_ratios[5] = {0};
+  static int ratio_index = 0;
 
   double current_ratio = (double)solver->mab_conflicts / solver->mab_decisions;
-  sum_ratios += current_ratio - ratios[index];
-  ratios[index] = current_ratio;
-  index = (index + 1) % history_size;
+  past_ratios[ratio_index] = current_ratio;
+  ratio_index = (ratio_index + 1) % 5;
 
-  double average_ratio = sum_ratios / history_size;
-  double variance = 0;
-  for (int i = 0; i < history_size; i++) {
-    double diff = ratios[i] - average_ratio;
+  double average_ratio = 0.0;
+  for (int i = 0; i < 5; i++) {
+    average_ratio += past_ratios[i];
+  }
+  average_ratio /= 5.0;
+
+  double variance = 0.0;
+  for (int i = 0; i < 5; i++) {
+    double diff = past_ratios[i] - average_ratio;
     variance += diff * diff;
   }
-  variance /= history_size;
+  variance /= 5.0;
 
   if (current_ratio > average_ratio) {
-    momentum += 0.05 + stability;
+    momentum_index += 0.05 + stability_factor;
   } else {
-    momentum -= 0.05;
+    momentum_index -= 0.05;
   }
 
   if (variance < 0.1) {
-    stability = fmin(stability + 0.01, max_stability);
+    stability_factor += 0.01;
   } else if (variance > 0.2) {
-    stability = fmax(stability - 0.01, min_stability);
+    stability_factor -= 0.01;
   }
 
-  momentum = fmax(min_momentum, fmin(momentum, max_momentum));
+  if (stability_factor < 0.05) stability_factor = 0.05;
+  if (stability_factor > 0.2) stability_factor = 0.2;
+
+  if (momentum_index < 0.5) momentum_index = 0.5;
+  if (momentum_index > 1.5) momentum_index = 1.5;
 
   uint64_t base_restart_interval = GET_OPTION(restartint);
-  uint64_t adjusted_restart_interval = (uint64_t)(base_restart_interval * momentum);
+  uint64_t adjusted_restart_interval = (uint64_t)(base_restart_interval * momentum_index);
 
   if (CONFLICTS >= adjusted_restart_interval) {
     return true;

@@ -11,7 +11,6 @@ bool kissat_restarting(kissat *solver) {
 
   const double fast = AVERAGE(fast_glue);
   const double slow = AVERAGE(slow_glue);
-  const double decision_rate = AVERAGE(decision_rate);
   const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
   const double limit = margin * slow;
 
@@ -23,13 +22,23 @@ bool kissat_restarting(kissat *solver) {
       return true;
   }
 
-  // Dynamic threshold for strategy switching
-  const double mab_reward_variance = fabs(solver->mab_reward[0] - solver->mab_reward[1]);
-  const double exploration_decay = solver->mabc / (1.0 + log2(1.0 + solver->mab_decisions));
-  const double penalty = mab_reward_variance / (1.0 + solver->mab_chosen_tot);
+  // Dynamic threshold based on decision rate
+  const double decision_rate = AVERAGE(decision_rate);
+  const double dynamic_threshold = log2(decision_rate + 1) * margin;
 
-  // Adaptive strategy based on decision rate and penalty
-  if (decision_rate > 1.0 + penalty + exploration_decay) {
+  // Exploration decay in stable contexts
+  double exploration_coefficient = solver->mabc;
+  if (solver->stable) {
+    exploration_coefficient *= 0.99; // Decay factor
+  }
+
+  // Penalty for diminishing returns
+  double vsids_variance = solver->mab_reward[0] / (solver->mab_select[0] + 1);
+  double chb_variance = solver->mab_reward[1] / (solver->mab_select[1] + 1);
+  double penalty = fabs(vsids_variance - chb_variance);
+
+  // Adaptive strategy switching
+  if (dynamic_threshold < fast + penalty) {
     return true;
   }
 

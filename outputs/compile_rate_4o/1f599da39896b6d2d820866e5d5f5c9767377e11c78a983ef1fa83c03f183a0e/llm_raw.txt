@@ -9,33 +9,32 @@ bool kissat_restarting(kissat *solver) {
   if (CONFLICTS < solver->limits.restart.conflicts)
     return false;
 
-  if (solver->stable)
+  if (solver->stable) {
     return kissat_reluctant_triggered(&solver->reluctant);
+  }
 
   const double fast = AVERAGE(fast_glue);
   const double slow = AVERAGE(slow_glue);
   const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
   const double limit = margin * slow;
 
-  if (limit <= fast) {
-    // Enhanced Petal Diagram logic
-    double inertia = 0.9; // Inertia factor for smoother transitions
-    double recent_performance = fast / slow;
-    double weighted_reward = (solver->mab_reward[solver->heuristic] / solver->mab_select[solver->heuristic]) * inertia;
+  // Enhanced Petal Diagram logic
+  double inertia_factor = 0.9; // Smooth transition factor
+  double recent_performance = fast / slow;
+  double adjusted_performance = inertia_factor * recent_performance + (1 - inertia_factor) * AVERAGE(decision_rate);
 
-    // Adjust restart threshold based on recent performance
-    double dynamic_threshold = limit * (1.0 + weighted_reward);
+  // Normalize using median and variance (simplified for illustration)
+  double median = (fast + slow) / 2;
+  double variance = fabs(fast - slow);
+  double normalized_threshold = median + variance;
 
-    // Check if dynamic threshold is met
-    if (recent_performance >= dynamic_threshold) {
-      // Implement cool-down phase logic
-      if (solver->mab_decisions > 1000) { // Example threshold for cool-down
-        return false; // Skip restart to explore alternatives
-      }
-      return true;
+  // Cool-down phase logic (simplified)
+  if (solver->mab && solver->mab_decisions > 1000) {
+    if (solver->mab_reward[solver->heuristic] > 0.8 * solver->mab_chosen_tot) {
+      return false; // Cool-down: avoid overfitting
     }
   }
 
-  return false;
+  return (adjusted_performance >= normalized_threshold);
 }
 ```

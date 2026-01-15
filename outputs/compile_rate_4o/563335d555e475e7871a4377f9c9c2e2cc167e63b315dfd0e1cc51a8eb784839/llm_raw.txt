@@ -21,33 +21,29 @@ bool kissat_restarting(kissat *solver) {
   const double slow = AVERAGE(slow_glue);
   const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
   const double limit = margin * slow;
+  const double current_ratio = fast / slow;
 
-  if (limit <= fast) {
-    double current_ratio = fast / slow;
-    if (fabs(current_ratio - last_ratio) < 0.05) {
-      stable_count++;
-      if (stable_count >= 3) {
-        if (current_ratio > 1.05) {
-          window_size = window_size > 5 ? window_size - 1 : window_size;
-        } else if (current_ratio < 0.95) {
-          window_size = window_size < 15 ? window_size + 1 : window_size;
-        }
-        stable_count = 0;
-      }
-    } else {
-      stable_count = 0;
-    }
-    last_ratio = current_ratio;
-
-    if (current_ratio > 1.05) {
-      solver->limits.restart.conflicts *= 0.85;
-    } else if (current_ratio < 0.95) {
-      solver->limits.restart.conflicts *= 1.15;
-    }
-
-    return true;
+  if (current_ratio > 1.05) {
+    solver->limits.restart.conflicts *= 0.85;
+    stable_count = 0;
+  } else if (current_ratio < 0.95) {
+    solver->limits.restart.conflicts *= 1.15;
+    stable_count = 0;
+  } else {
+    stable_count++;
   }
 
-  return false;
+  if (stable_count >= 3) {
+    if (current_ratio > last_ratio) {
+      if (window_size < 15) window_size++;
+    } else if (current_ratio < last_ratio) {
+      if (window_size > 5) window_size--;
+    }
+    stable_count = 0;
+  }
+
+  last_ratio = current_ratio;
+
+  return (limit <= fast);
 }
 ```

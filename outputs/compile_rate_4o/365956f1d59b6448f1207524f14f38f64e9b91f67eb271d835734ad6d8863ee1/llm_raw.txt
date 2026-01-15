@@ -17,35 +17,47 @@ bool kissat_restarting(kissat *solver) {
   const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
   const double limit = margin * slow;
 
-  static double previous_conflicts[20] = {0};
-  static unsigned index = 0;
   static double momentum = 1.0;
-  static double variance_threshold = 100.0;
+  static double last_conflicts[20] = {0};
+  static unsigned index = 0;
+  static double variance_threshold = 1.0;
 
-  double current_conflicts = CONFLICTS;
-  double previous_conflict = previous_conflicts[index];
-  previous_conflicts[index] = current_conflicts;
+  double current_conflicts = CONFLICTS - solver->statistics.restarts;
+  double mean_conflicts = 0.0;
+  double variance = 0.0;
+
+  last_conflicts[index] = current_conflicts;
   index = (index + 1) % 20;
 
-  double conflict_variance = 0.0;
   for (unsigned i = 0; i < 20; i++) {
-    double diff = previous_conflicts[i] - current_conflicts;
-    conflict_variance += diff * diff;
+    mean_conflicts += last_conflicts[i];
   }
-  conflict_variance /= 20;
+  mean_conflicts /= 20;
 
-  if (conflict_variance > variance_threshold) {
+  for (unsigned i = 0; i < 20; i++) {
+    double diff = last_conflicts[i] - mean_conflicts;
+    variance += diff * diff;
+  }
+  variance /= 20;
+
+  if (variance > variance_threshold) {
     momentum *= 1.15;
   } else {
     momentum *= 0.85;
   }
 
-  momentum = fmax(0.85, fmin(momentum, 1.15));
+  momentum = fmax(0.85, fmin(1.15, momentum));
 
-  if (limit * momentum <= fast) {
-    return true;
+  if (variance > variance_threshold) {
+    variance_threshold *= 1.15;
+  } else {
+    variance_threshold *= 0.85;
   }
 
-  return false;
+  variance_threshold = fmax(0.85, fmin(1.15, variance_threshold));
+
+  const double adjusted_limit = limit * momentum;
+
+  return (adjusted_limit <= fast);
 }
 ```

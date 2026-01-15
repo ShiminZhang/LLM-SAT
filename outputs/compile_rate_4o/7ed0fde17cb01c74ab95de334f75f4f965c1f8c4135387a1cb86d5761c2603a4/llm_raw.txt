@@ -10,8 +10,8 @@ bool kissat_restarting(kissat *solver) {
     return false;
 
   static double previous_adjustment = 0.0;
-  const double alpha = 0.01; // Sensitivity parameter
-  const double beta = 0.9;   // Momentum parameter
+  const double alpha = 0.05; // Sensitivity parameter
+  const double beta = 0.1;   // Momentum parameter
   const double lambda_cap = 2.0; // Cap for lambda
 
   double fast = AVERAGE(fast_glue);
@@ -32,6 +32,6 @@ bool kissat_restarting(kissat *solver) {
   if (solver->stable)
     return kissat_reluctant_triggered(&solver->reluctant);
 
-  return (limit <= fast * lambda);
+  return (lambda * limit <= fast);
 }
 ```

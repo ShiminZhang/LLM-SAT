@@ -9,35 +9,39 @@ bool kissat_restarting(kissat *solver) {
   if (CONFLICTS < solver->limits.restart.conflicts)
     return false;
 
-  if (solver->stable)
+  double initial_c = solver->mabc;
+  double stability_score = 0.0;
+
+  // Calculate stability score based on variance of context features
+  double clause_variable_ratio = (double)solver->statistics.clauses / solver->statistics.variables;
+  double average_clause_length = (double)solver->statistics.literals / solver->statistics.clauses;
+  double variance = sqrt(clause_variable_ratio * average_clause_length);
+
+  stability_score = 1.0 / (1.0 + variance);
+
+  // Adjust exploration coefficient
+  double adjusted_c = initial_c * (1.0 - stability_score);
+
+  // Calculate context bias with weighted average of historical conflict reduction rates
+  double recent_conflict_reduction = (double)solver->mab_conflicts / solver->mab_decisions;
+  double historical_conflict_reduction = (double)solver->statistics.conflicts / solver->statistics.decisions;
+  double context_bias = 0.7 * recent_conflict_reduction + 0.3 * historical_conflict_reduction;
+
+  // Penalty factor for underperforming strategies
+  double penalty_factor = 1.0;
+  if (solver->mab_reward[solver->heuristic] < solver->mab_reward[1 - solver->heuristic]) {
+    penalty_factor = 0.9;
+  }
+
+  if (solver->stable) {
     return kissat_reluctant_triggered(&solver->reluctant);
+  }
 
   const double fast = AVERAGE(fast_glue);
   const double slow = AVERAGE(slow_glue);
   const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
-  const double limit = margin * slow;
+  const double limit = margin * slow * penalty_factor * context_bias;
 
-  if (limit <= fast)
-    return true;
-
-  // Calculate stability score based on context features
-  double clause_variable_ratio = (double)solver->statistics.clauses / solver->statistics.variables;
-  double average_clause_length = (double)solver->statistics.literals / solver->statistics.clauses;
-  double stability_score = 1.0 - (clause_variable_ratio + average_clause_length) / 2.0;
-
-  // Adjust exploration coefficient c
-  double adjusted_c = solver->mabc * (1.0 - stability_score);
-
-  // Calculate penalty factor for underperforming strategies
-  double vsids_performance = solver->mab_reward[0] / (solver->mab_select[0] + 1);
-  double chb_performance = solver->mab_reward[1] / (solver->mab_select[1] + 1);
-  double penalty_factor = (vsids_performance < chb_performance) ? 0.9 : 1.0;
-
-  // Calculate context bias with weighted average of conflict reduction rates
-  double recent_conflict_reduction = (double)solver->mab_conflicts / (solver->mab_decisions + 1);
-  double context_bias = (recent_conflict_reduction + penalty_factor) / 2.0;
-
-  // Determine if restart should be triggered
-  return (context_bias * adjusted_c) > 0.5;
+  return (limit <= fast);
 }
 ```

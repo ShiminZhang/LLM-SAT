@@ -9,30 +9,27 @@ bool kissat_restarting(kissat *solver) {
   if (CONFLICTS < solver->limits.restart.conflicts)
     return false;
 
-  static const int window_size = 15;
-  static uint64_t conflict_window[window_size] = {0};
-  static int window_index = 0;
+  static const int window_size = 10;
+  static uint64_t conflict_history[window_size] = {0};
+  static int history_index = 0;
   static uint64_t total_conflicts = 0;
-  static uint64_t original_threshold = 0;
 
-  if (original_threshold == 0)
-    original_threshold = solver->limits.restart.conflicts;
+  // Update conflict history
+  total_conflicts -= conflict_history[history_index];
+  conflict_history[history_index] = CONFLICTS;
+  total_conflicts += conflict_history[history_index];
+  history_index = (history_index + 1) % window_size;
 
-  total_conflicts -= conflict_window[window_index];
-  conflict_window[window_index] = CONFLICTS;
-  total_conflicts += conflict_window[window_index];
-  window_index = (window_index + 1) % window_size;
-
+  // Calculate average conflicts in the sliding window
   double average_conflicts = (double)total_conflicts / window_size;
   double momentum = (double)CONFLICTS / average_conflicts;
 
-  if (momentum > 1.05) {
-    solver->limits.restart.conflicts *= 0.95;
-  } else if (momentum < 0.95) {
-    solver->limits.restart.conflicts *= 1.05;
+  // Adjust restart threshold based on momentum
+  if (momentum > 1.1) {
+    solver->limits.restart.conflicts *= 0.9;
+  } else if (momentum < 0.9) {
+    solver->limits.restart.conflicts *= 1.1;
   }
-
-  solver->limits.restart.conflicts += (original_threshold - solver->limits.restart.conflicts) * 0.01;
 
   if (solver->stable)
     return kissat_reluctant_triggered(&solver->reluctant);

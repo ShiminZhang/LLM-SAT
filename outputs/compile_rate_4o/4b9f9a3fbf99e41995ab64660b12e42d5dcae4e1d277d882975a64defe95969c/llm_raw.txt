@@ -18,8 +18,9 @@ bool kissat_restarting(kissat *solver) {
 
   // Calculate momentum based on heuristic success
   if (solver->mab_select[0] + solver->mab_select[1] > 0) {
-    short_term_momentum = (double)solver->mab_reward[solver->heuristic] / (solver->mab_select[0] + solver->mab_select[1]);
-    long_term_momentum = short_term_momentum; // Simplified for demonstration
+    short_term_momentum = (double)solver->mab_reward[solver->heuristic] /
+                          (solver->mab_select[0] + solver->mab_select[1]);
+    long_term_momentum = short_term_momentum; // Simplified for illustration
   }
 
   // Adjust exploration coefficient

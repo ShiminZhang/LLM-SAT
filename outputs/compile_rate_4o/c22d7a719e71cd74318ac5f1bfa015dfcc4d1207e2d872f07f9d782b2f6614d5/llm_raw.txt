@@ -1,0 +1,38 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  static double learning_rate = 1.0;
+  const double alpha = 0.1; // Sensitivity parameter
+  const double threshold = 0.05; // Baseline for expected improvement
+
+  if (solver->stable) {
+    if (kissat_reluctant_triggered(&solver->reluctant)) {
+      double improvement = (double)solver->mab_conflicts / solver->mab_decisions;
+      learning_rate *= (1 + alpha * (improvement - threshold));
+      return true;
+    }
+    return false;
+  }
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  if (limit <= fast) {
+    double improvement = (double)solver->mab_conflicts / solver->mab_decisions;
+    learning_rate *= (1 + alpha * (improvement - threshold));
+    return true;
+  }
+
+  return false;
+}
+```

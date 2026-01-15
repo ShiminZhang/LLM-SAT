@@ -17,25 +17,25 @@ bool kissat_restarting(kissat *solver) {
   const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
   const double limit = margin * slow;
 
-  if (limit <= fast) {
-    // Thompson Sampling logic for MAB
-    if (solver->mab) {
-      double vsids_reward = solver->mab_reward[0] / (solver->mab_select[0] + 1);
-      double chb_reward = solver->mab_reward[1] / (solver->mab_select[1] + 1);
-      double exploration = solver->mabc * sqrt(log(CONFLICTS) / (solver->mab_chosen_tot + 1));
-
-      double vsids_score = vsids_reward + exploration;
-      double chb_score = chb_reward + exploration;
-
-      if (vsids_score > chb_score) {
-        kissat_extremely_verbose(solver, "Restarting with VSIDS strategy");
-        return true;
-      } else {
-        kissat_extremely_verbose(solver, "Restarting with CHB strategy");
-        return true;
-      }
-    }
+  if (limit <= fast)
     return true;
+
+  if (solver->mab) {
+    double reward_vsids = solver->mab_reward[0] / (solver->mab_select[0] + 1);
+    double reward_chb = solver->mab_reward[1] / (solver->mab_select[1] + 1);
+    double exploration_vsids = sqrt(log(solver->mab_decisions + 1) / (solver->mab_select[0] + 1));
+    double exploration_chb = sqrt(log(solver->mab_decisions + 1) / (solver->mab_select[1] + 1));
+
+    double score_vsids = reward_vsids + solver->mabc * exploration_vsids;
+    double score_chb = reward_chb + solver->mabc * exploration_chb;
+
+    if (score_vsids > score_chb) {
+      kissat_extremely_verbose(solver, "Restarting with VSIDS strategy");
+      return true;
+    } else {
+      kissat_extremely_verbose(solver, "Restarting with CHB strategy");
+      return true;
+    }
   }
 
   return false;

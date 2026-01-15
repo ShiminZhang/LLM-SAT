@@ -19,7 +19,7 @@ bool kissat_restarting(kissat *solver) {
 
   // Bayesian linear regression model (simplified for illustration)
   double context[] = {conflict_ratio, decision_rate, fast_glue, slow_glue, solution_density, decision_level_variance};
-  double weights[] = {0.5, 0.3, 0.1, 0.1, 0.05, 0.05}; // Example weights
+  double weights[] = {0.2, 0.3, 0.1, 0.1, 0.2, 0.1}; // Hypothetical weights
   double expected_performance = 0.0;
 
   for (int i = 0; i < 6; i++) {

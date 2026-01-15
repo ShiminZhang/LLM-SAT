@@ -12,15 +12,16 @@ bool kissat_restarting(kissat *solver) {
   // Calculate Clause Reduction Rate (CRR)
   double crr = (double)solver->mab_conflicts / DECISIONS;
 
-  // Maintain a window of the last 20 restarts
-  static double crr_window[20] = {0};
+  // Define a confidence window over the last 20 restarts
+  static const unsigned WINDOW_SIZE = 20;
+  static double crr_window[WINDOW_SIZE] = {0};
   static unsigned crr_index = 0;
   static unsigned crr_count = 0;
 
   // Update the window with the current CRR
   crr_window[crr_index] = crr;
-  crr_index = (crr_index + 1) % 20;
-  if (crr_count < 20) crr_count++;
+  crr_index = (crr_index + 1) % WINDOW_SIZE;
+  if (crr_count < WINDOW_SIZE) crr_count++;
 
   // Calculate the average CRR in the window
   double crr_avg = 0;
@@ -37,7 +38,7 @@ bool kissat_restarting(kissat *solver) {
     exploration_coefficient *= 0.85; // Decrease exploration
   }
 
-  // Use the adjusted exploration coefficient to modify restart behavior
+  // Use adjusted exploration coefficient to modify restart interval
   if (solver->stable) {
     return kissat_reluctant_triggered(&solver->reluctant);
   }

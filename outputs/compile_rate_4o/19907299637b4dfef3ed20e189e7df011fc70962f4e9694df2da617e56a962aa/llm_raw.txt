@@ -29,20 +29,16 @@ bool kissat_restarting(kissat *solver) {
     const double avg_reward_vsids = select_vsids ? reward_vsids / select_vsids : 0;
     const double avg_reward_chb = select_chb ? reward_chb / select_chb : 0;
 
-    const double stddev_vsids = sqrt(avg_reward_vsids * (1 - avg_reward_vsids));
-    const double stddev_chb = sqrt(avg_reward_chb * (1 - avg_reward_chb));
+    const double stddev = sqrt((avg_reward_vsids - avg_reward_chb) * (avg_reward_vsids - avg_reward_chb));
+    const double exploration = solver->mabc / (1 + stddev);
 
-    const double exploration_vsids = solver->mabc / (stddev_vsids + 1);
-    const double exploration_chb = solver->mabc / (stddev_chb + 1);
+    const double ucb_vsids = avg_reward_vsids + exploration * sqrt(log(solver->mab_decisions) / (1 + select_vsids));
+    const double ucb_chb = avg_reward_chb + exploration * sqrt(log(solver->mab_decisions) / (1 + select_chb));
 
-    const double ucb_vsids = avg_reward_vsids + exploration_vsids;
-    const double ucb_chb = avg_reward_chb + exploration_chb;
+    const double min_threshold = 0.1; // Minimum threshold to avoid noise overfitting
 
-    const double min_threshold = 0.1; // Minimum threshold to avoid noise
-
-    if (ucb_vsids > min_threshold || ucb_chb > min_threshold) {
+    if (ucb_vsids > min_threshold || ucb_chb > min_threshold)
       return true;
-    }
   }
 
   return false;

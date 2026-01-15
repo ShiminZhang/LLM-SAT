@@ -17,13 +17,9 @@ bool kissat_restarting(kissat *solver) {
   const double increase_factor = 0.07;
   const double decrease_factor = 0.03;
 
-  double conflicts_since_last_restart = solver->mab_conflicts;
-  double decisions_since_last_restart = solver->mab_decisions;
-
-  if (decisions_since_last_restart == 0)
-    return false;
-
-  double current_ratio = conflicts_since_last_restart / decisions_since_last_restart;
+  double conflicts_since_last = solver->mab_conflicts;
+  double decisions_since_last = solver->mab_decisions;
+  double current_ratio = conflicts_since_last / (decisions_since_last + 1e-9);
 
   ewma_ratio = smoothing_factor * current_ratio + (1 - smoothing_factor) * ewma_ratio;
 
@@ -41,7 +37,7 @@ bool kissat_restarting(kissat *solver) {
 
   uint64_t adjusted_restart_interval = GET_OPTION(restartint) * momentum_index;
 
-  if (CONFLICTS >= solver->limits.restart.conflicts + adjusted_restart_interval) {
+  if (CONFLICTS >= adjusted_restart_interval) {
     return true;
   }
 

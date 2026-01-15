@@ -1,0 +1,37 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  double vsids_reward = solver->mab_reward[0];
+  double chb_reward = solver->mab_reward[1];
+  unsigned vsids_count = solver->mab_select[0];
+  unsigned chb_count = solver->mab_select[1];
+
+  double vsids_avg_reward = vsids_count ? vsids_reward / vsids_count : 0;
+  double chb_avg_reward = chb_count ? chb_reward / chb_count : 0;
+
+  double petal_radius = sqrt(vsids_avg_reward * vsids_avg_reward + chb_avg_reward * chb_avg_reward);
+  double dynamic_threshold = 1.0 / (1.0 + petal_radius);
+
+  if (solver->stable) {
+    if (kissat_reluctant_triggered(&solver->reluctant))
+      return true;
+  } else {
+    const double fast = AVERAGE(fast_glue);
+    const double slow = AVERAGE(slow_glue);
+    const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+    const double limit = margin * slow;
+    if (limit <= fast)
+      return true;
+  }
+
+  return petal_radius > dynamic_threshold;
+}
+```

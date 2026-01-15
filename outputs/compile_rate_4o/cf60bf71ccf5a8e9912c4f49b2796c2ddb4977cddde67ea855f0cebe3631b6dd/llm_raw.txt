@@ -9,51 +9,44 @@ bool kissat_restarting(kissat *solver) {
   if (CONFLICTS < solver->limits.restart.conflicts)
     return false;
 
-  static double cs_history[5] = {0, 0, 0, 0, 0};
+  static double cs_history[5] = {0};
   static int cs_index = 0;
-  static double dynamic_threshold = 0.0;
+  static double dynamic_threshold = 0;
 
-  // Calculate Complexity Score (CS)
-  double conflicts = (double)CONFLICTS;
-  double decisions = (double)DECISIONS;
-  double clauses = (double)solver->statistics.clauses;
-  double cs = (conflicts + 0.5 * clauses) / (decisions + 1);
+  const double conflicts = (double)CONFLICTS;
+  const double decisions = (double)DECISIONS;
+  const double clauses = solver->statistics.clauses;
 
-  // Update CS history
-  cs_history[cs_index] = cs;
-  cs_index = (cs_index + 1) % 5;
+  double current_cs = (conflicts + 0.5 * clauses) / (decisions + 1);
 
-  // Calculate moving average of CS
-  double cs_average = 0.0;
+  double cs_sum = 0;
   for (int i = 0; i < 5; i++) {
-    cs_average += cs_history[i];
+    cs_sum += cs_history[i];
   }
-  cs_average /= 5.0;
+  double cs_average = cs_sum / 5.0;
 
-  // Adjust dynamic threshold
-  double learning_rate = 0.1;
-  dynamic_threshold = (1 - learning_rate) * dynamic_threshold + learning_rate * cs_average;
-
-  // Determine restart horizon adjustment
-  double cs_ratio = cs / dynamic_threshold;
-  double horizon_adjustment = 1.0;
+  double cs_ratio = current_cs / (cs_average + 1e-9);
 
   if (cs_ratio > 1.1) {
-    horizon_adjustment = 1.3; // Increase horizon
+    dynamic_threshold *= 1.3;
   } else if (cs_ratio < 0.9) {
-    horizon_adjustment = 0.7; // Decrease horizon
+    dynamic_threshold *= 0.7;
   }
 
-  // Apply horizon adjustment
-  solver->limits.restart.conflicts *= horizon_adjustment;
+  dynamic_threshold = 0.9 * dynamic_threshold + 0.1 * current_cs;
 
-  if (solver->stable)
+  cs_history[cs_index] = current_cs;
+  cs_index = (cs_index + 1) % 5;
+
+  if (solver->stable) {
     return kissat_reluctant_triggered(&solver->reluctant);
+  }
 
   const double fast = AVERAGE(fast_glue);
   const double slow = AVERAGE(slow_glue);
   const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
   const double limit = margin * slow;
-  return (limit <= fast);
+
+  return (limit <= fast) || (current_cs > dynamic_threshold);
 }
 ```

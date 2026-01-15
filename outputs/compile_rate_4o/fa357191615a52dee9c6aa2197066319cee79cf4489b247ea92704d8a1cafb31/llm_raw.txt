@@ -13,34 +13,27 @@ bool kissat_restarting(kissat *solver) {
   double long_term_momentum = 1.0;  // Placeholder for actual calculation
 
   // Calculate heuristic reward
-  double log_decisions = log((double) DECISIONS);
-  double decision_vars = (double) solver->mab_chosen_tot;
-  double heuristic_reward = log_decisions / decision_vars;
+  double heuristic_reward = log(DECISIONS) / solver->mab_chosen_tot;
 
   // Adjust exploration coefficient
-  double exploration_coefficient = solver->mabc;
-  if (short_term_momentum > 1.0 && long_term_momentum > 1.0) {
-    exploration_coefficient *= 1.15;
-  } else if (short_term_momentum < 1.0 && long_term_momentum < 1.0) {
-    exploration_coefficient *= 0.85;
-  } else if ((short_term_momentum >= 0.95 && short_term_momentum <= 1.05) ||
-             (long_term_momentum >= 0.95 && long_term_momentum <= 1.05)) {
-    exploration_coefficient *= 1.10;
+  if (short_term_momentum > 1 && long_term_momentum > 1) {
+    solver->mabc *= 1.15;
+  } else if (short_term_momentum < 1 && long_term_momentum < 1) {
+    solver->mabc *= 0.85;
+  } else if (short_term_momentum >= 0.95 && short_term_momentum <= 1.05) {
+    solver->mabc *= 1.10;
   }
 
-  // Log for debugging
-  kissat_extremely_verbose(solver, "Heuristic reward: %f, Exploration coefficient: %f",
-                           heuristic_reward, exploration_coefficient);
-
-  // Determine restart condition
-  if (solver->stable) {
+  // Check if in stable mode
+  if (solver->stable)
     return kissat_reluctant_triggered(&solver->reluctant);
-  } else {
-    const double fast = AVERAGE(fast_glue);
-    const double slow = AVERAGE(slow_glue);
-    const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
-    const double limit = margin * slow;
-    return (limit <= fast);
-  }
+
+  // Focused mode: use glue ratio with margin
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  return (limit <= fast);
 }
 ```

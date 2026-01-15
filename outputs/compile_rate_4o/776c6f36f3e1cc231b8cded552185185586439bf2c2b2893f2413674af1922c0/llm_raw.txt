@@ -9,21 +9,24 @@ bool kissat_restarting(kissat *solver) {
   if (CONFLICTS < solver->limits.restart.conflicts)
     return false;
 
-  // Calculate Adaptive Momentum Coefficient
+  // Calculate adaptive momentum coefficient
   static const int window_size = 15;
   static uint64_t conflict_history[window_size] = {0};
   static int history_index = 0;
+  static uint64_t last_conflict_count = 0;
 
-  uint64_t current_conflicts = CONFLICTS;
-  uint64_t previous_conflicts = conflict_history[history_index];
+  uint64_t current_conflicts = CONFLICTS - last_conflict_count;
+  last_conflict_count = CONFLICTS;
+
   conflict_history[history_index] = current_conflicts;
   history_index = (history_index + 1) % window_size;
 
-  uint64_t total_conflicts = 0;
+  uint64_t sum_conflicts = 0;
   for (int i = 0; i < window_size; i++) {
-    total_conflicts += conflict_history[i];
+    sum_conflicts += conflict_history[i];
   }
-  double average_conflicts = (double)total_conflicts / window_size;
+
+  double average_conflicts = (double)sum_conflicts / window_size;
   double momentum = current_conflicts / average_conflicts;
 
   // Adjust restart threshold based on momentum
@@ -34,13 +37,15 @@ bool kissat_restarting(kissat *solver) {
   }
 
   // Override mechanism for cyclical conflicts
-  if (history_index == 0) {
-    uint64_t last_three_conflicts = conflict_history[(window_size - 1) % window_size] +
-                                    conflict_history[(window_size - 2) % window_size] +
-                                    conflict_history[(window_size - 3) % window_size];
-    if (last_three_conflicts >= 2 * previous_conflicts) {
-      solver->limits.restart.conflicts *= 1.20;
-    }
+  static uint64_t last_three_conflicts[3] = {0};
+  static int last_three_index = 0;
+
+  last_three_conflicts[last_three_index] = current_conflicts;
+  last_three_index = (last_three_index + 1) % 3;
+
+  if (last_three_conflicts[0] > 2 * last_three_conflicts[1] &&
+      last_three_conflicts[1] > 2 * last_three_conflicts[2]) {
+    solver->limits.restart.conflicts *= 1.20;
   }
 
   if (solver->stable)

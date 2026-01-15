@@ -1,0 +1,53 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Contextual bandit approach
+  double context[3];
+  context[0] = (double)CONFLICTS / (double)DECISIONS;
+  context[1] = AVERAGE(decision_rate);
+  context[2] = AVERAGE(fast_glue) / AVERAGE(slow_glue);
+
+  // Linear model weights for each strategy
+  double glucose_weights[3] = {0.5, 0.3, 0.2};
+  double luby_weights[3] = {0.4, 0.4, 0.2};
+  double adaptive_weights[3] = {0.3, 0.3, 0.4};
+
+  // Calculate expected rewards
+  double glucose_reward = 0.0;
+  double luby_reward = 0.0;
+  double adaptive_reward = 0.0;
+
+  for (int i = 0; i < 3; i++) {
+    glucose_reward += glucose_weights[i] * context[i];
+    luby_reward += luby_weights[i] * context[i];
+    adaptive_reward += adaptive_weights[i] * context[i];
+  }
+
+  // Choose strategy with highest expected reward
+  double max_reward = fmax(glucose_reward, fmax(luby_reward, adaptive_reward));
+
+  if (max_reward == glucose_reward) {
+    if (solver->stable)
+      return kissat_reluctant_triggered(&solver->reluctant);
+    const double fast = AVERAGE(fast_glue);
+    const double slow = AVERAGE(slow_glue);
+    const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+    const double limit = margin * slow;
+    return (limit <= fast);
+  } else if (max_reward == luby_reward) {
+    // Implement Luby restart logic here if needed
+    return false; // Placeholder
+  } else {
+    // Implement Adaptive restart logic here if needed
+    return false; // Placeholder
+  }
+}
+```

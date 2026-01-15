@@ -18,19 +18,16 @@ bool kissat_restarting(kissat *solver) {
   if (conflicts < nano_threshold) {
     return false;
   } else if (conflicts < meso_threshold) {
-    double fast_glue = AVERAGE(fast_glue);
-    double slow_glue = AVERAGE(slow_glue);
-    double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
-    double limit = margin * slow_glue;
-    return (limit <= fast_glue);
+    double reward_conflict_ratio = solver->mab_reward[solver->heuristic] / (double) solver->mab_conflicts;
+    double decision_priority = AVERAGE(decision_rate) * reward_conflict_ratio;
+    return decision_priority > 1.0;
   } else if (conflicts < macro_threshold) {
-    double decision_rate = AVERAGE(decision_rate);
-    double reward_to_conflict_ratio = solver->mab_reward[solver->heuristic] / (double)solver->mab_conflicts;
-    return (reward_to_conflict_ratio > decision_rate);
+    double decay_factor = exp(-solver->mab_chosen_tot / (double) solver->mab_decisions);
+    double historical_analysis = AVERAGE(fast_glue) * decay_factor;
+    return historical_analysis < AVERAGE(slow_glue);
   } else {
-    double decay_factor = exp(-solver->mab_chosen_tot / (double)solver->mab_decisions);
-    double adaptive_threshold = macro_threshold * decay_factor;
-    return (conflicts >= adaptive_threshold);
+    solver->limits.restart.conflicts = conflicts + GET_OPTION(restartint);
+    return true;
   }
 }
 ```

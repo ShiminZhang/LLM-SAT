@@ -1,0 +1,53 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Contextual Multi-Armed Bandit (CMAB) approach
+  double context_bias = log2(solver->unassigned + 1) / (solver->level + 1);
+  double progress_rate = (double)CONFLICTS / (DECISIONS + 1);
+  double c = solver->mabc * sqrt(context_bias);
+
+  double rewards[3] = {0.0, 0.0, 0.0}; // Rewards for each strategy
+  unsigned counts[3] = {1, 1, 1}; // Selection counts for each strategy
+
+  // Calculate UCB for each strategy
+  for (unsigned i = 0; i < 3; i++) {
+    double average_reward = rewards[i] / counts[i];
+    double ucb_value = average_reward + c * sqrt((log(CONFLICTS + 1) + context_bias) / counts[i]);
+    rewards[i] = ucb_value;
+  }
+
+  // Select strategy with highest UCB value
+  unsigned best_strategy = 0;
+  for (unsigned i = 1; i < 3; i++) {
+    if (rewards[i] > rewards[best_strategy]) {
+      best_strategy = i;
+    }
+  }
+
+  // Implement selected strategy
+  switch (best_strategy) {
+    case 0: // Fixed interval
+      return CONFLICTS >= solver->limits.restart.conflicts;
+    case 1: // Geometric
+      return kissat_reluctant_triggered(&solver->reluctant);
+    case 2: // Luby
+      {
+        const double fast = AVERAGE(fast_glue);
+        const double slow = AVERAGE(slow_glue);
+        const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+        const double limit = margin * slow;
+        return (limit <= fast);
+      }
+  }
+
+  return false;
+}
+```

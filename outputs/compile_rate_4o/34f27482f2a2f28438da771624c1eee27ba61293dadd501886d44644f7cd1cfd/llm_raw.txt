@@ -28,11 +28,11 @@ bool kissat_restarting(kissat *solver) {
       double mean_reward = solver->mab_reward[solver->heuristic] / solver->mab_select[solver->heuristic];
       reward_variance = (solver->mab_reward[solver->heuristic] - mean_reward * solver->mab_select[solver->heuristic]) / (solver->mab_select[solver->heuristic] - 1);
     }
-    double adaptive_rate = 1.0 / (1.0 + sqrt(reward_variance));
-    double par2_penalty = 1.0 / (1.0 + solver->mab_decisions);
-    double hybrid_score = adaptive_rate * (1.0 / (1.0 + solver->mab_conflicts)) - par2_penalty;
+    double adaptive_learning_rate = 1.0 / (1.0 + sqrt(reward_variance));
+    double exploration_term = solver->mabc * sqrt(log2(solver->mab_decisions + 1) / (solver->mab_select[solver->heuristic] + 1));
+    double ucb_value = adaptive_learning_rate * (solver->mab_reward[solver->heuristic] / (solver->mab_select[solver->heuristic] + 1)) + exploration_term;
 
-    if (hybrid_score > 0.5) {
+    if (ucb_value > 0.5) {
       restart = true;
     }
   }

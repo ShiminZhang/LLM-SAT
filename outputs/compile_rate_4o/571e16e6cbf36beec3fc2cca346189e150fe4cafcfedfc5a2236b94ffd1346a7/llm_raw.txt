@@ -6,47 +6,51 @@ bool kissat_restarting(kissat *solver) {
     return false;
   if (!solver->level)
     return false;
-  if (CONFLICTS < solver->limits.restart.conflicts)
+
+  uint64_t conflicts = CONFLICTS;
+  uint64_t decisions = DECISIONS;
+  uint64_t restart_conflicts = solver->limits.restart.conflicts;
+
+  if (conflicts < restart_conflicts)
     return false;
 
+  if (solver->stable) {
+    if (kissat_reluctant_triggered(&solver->reluctant))
+      return true;
+  } else {
+    double fast_glue = AVERAGE(fast_glue);
+    double slow_glue = AVERAGE(slow_glue);
+    double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+    double limit = margin * slow_glue;
+
+    if (fast_glue >= limit)
+      return true;
+  }
+
   // Micro restart logic
-  const uint64_t micro_threshold = 80;
-  if (CONFLICTS % micro_threshold == 0) {
-    double recent_reward = solver->mab_reward[solver->heuristic] / (solver->mab_select[solver->heuristic] + 1);
-    if (recent_reward < 0.5) {
-      solver->limits.restart.conflicts += 10; // Slightly increase threshold if not effective
-    }
-    return true;
+  if (conflicts % 80 == 0) {
+    double decision_rate = AVERAGE(decision_rate);
+    if (decision_rate < 0.5)  // Example threshold
+      return true;
   }
 
   // Meso restart logic
-  const uint64_t meso_threshold = 800;
-  if (CONFLICTS % meso_threshold == 0) {
+  if (conflicts % 800 == 0) {
     double reward_variance = fabs(solver->mab_reward[0] - solver->mab_reward[1]);
-    if (reward_variance > 0.1) {
-      solver->limits.restart.conflicts += 50; // Adjust based on reward variance
-    }
-    return true;
+    if (reward_variance > 0.1)  // Example threshold
+      return true;
   }
 
   // Macro restart logic
-  const uint64_t macro_threshold = 8000;
-  if (CONFLICTS % macro_threshold == 0) {
-    double weighted_score = 0.5 * solver->mab_reward[0] + 0.5 * solver->mab_reward[1];
-    if (weighted_score > 1.0) {
-      solver->limits.restart.conflicts += 100; // Adjust based on historical success
-    }
-    return true;
+  if (conflicts % 8000 == 0) {
+    double vsids_score = solver->mab_reward[0] / (solver->mab_select[0] + 1);
+    double chb_score = solver->mab_reward[1] / (solver->mab_select[1] + 1);
+    double weighted_score = vsids_score * 0.7 + chb_score * 0.3;  // Example weights
+
+    if (weighted_score > 0.6)  // Example threshold
+      return true;
   }
 
-  // Default behavior for stable and focused modes
-  if (solver->stable)
-    return kissat_reluctant_triggered(&solver->reluctant);
-
-  const double fast = AVERAGE(fast_glue);
-  const double slow = AVERAGE(slow_glue);
-  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
-  const double limit = margin * slow;
-  return (limit <= fast);
+  return false;
 }
 ```

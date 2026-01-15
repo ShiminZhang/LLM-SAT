@@ -9,24 +9,26 @@ bool kissat_restarting(kissat *solver) {
   if (CONFLICTS < solver->limits.restart.conflicts)
     return false;
 
-  static double previous_adjustment = 0.0;
-  const double alpha = 0.1;  // Sensitivity parameter
-  const double beta = 0.9;   // Momentum factor
+  double short_term_momentum = 1.0; // Placeholder for actual calculation
+  double long_term_momentum = 1.0;  // Placeholder for actual calculation
 
-  if (solver->stable)
+  double exploration_coefficient = solver->mabc;
+
+  if (short_term_momentum > 1.0 && long_term_momentum > 1.0) {
+    exploration_coefficient *= 1.2;
+  } else if (short_term_momentum < 1.0 && long_term_momentum < 1.0) {
+    exploration_coefficient *= 0.8;
+  }
+
+  if (solver->stable) {
     return kissat_reluctant_triggered(&solver->reluctant);
+  }
 
   const double fast = AVERAGE(fast_glue);
   const double slow = AVERAGE(slow_glue);
   const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
   const double limit = margin * slow;
 
-  double improvement = fast - slow;
-  double threshold = 0.01 * slow;  // Dynamic threshold based on slow average
-
-  double adjustment = alpha * (improvement - threshold) + beta * previous_adjustment;
-  previous_adjustment = adjustment;
-
-  return (limit + adjustment <= fast);
+  return (limit <= fast);
 }
 ```

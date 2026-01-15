@@ -1,0 +1,44 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  static const unsigned WINDOW_SIZE = 20;
+  static double crr_window[WINDOW_SIZE] = {0};
+  static unsigned crr_index = 0;
+  static double exploration_coefficient = 1.0;
+
+  double current_crr = (double)solver->statistics.restarts / DECISIONS;
+  crr_window[crr_index] = current_crr;
+  crr_index = (crr_index + 1) % WINDOW_SIZE;
+
+  double average_crr = 0.0;
+  for (unsigned i = 0; i < WINDOW_SIZE; i++) {
+    average_crr += crr_window[i];
+  }
+  average_crr /= WINDOW_SIZE;
+
+  if (current_crr > 1.1 * average_crr) {
+    exploration_coefficient *= 1.2;
+  } else if (current_crr < 0.9 * average_crr) {
+    exploration_coefficient *= 0.8;
+  }
+
+  if (solver->stable) {
+    return kissat_reluctant_triggered(&solver->reluctant);
+  }
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow * exploration_coefficient;
+
+  return (limit <= fast);
+}
+```

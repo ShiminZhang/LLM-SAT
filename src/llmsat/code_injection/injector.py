@@ -247,11 +247,13 @@ class FunctionInjector:
 
         Handles cases where the LLM includes extra code before/after the function.
         """
-        # Pattern to find function definition start
-        # Handles: static, inline, return types, pointers
-        header_pattern = rf"(?:static\s+)?(?:inline\s+)?[\w\s\*]+\b{re.escape(func_name)}\s*\([^)]*\)\s*\{{"
+        code = re.sub(r"(?m)^\s*```[a-zA-Z0-9_-]*\s*$", "", code)
+        header_pattern = (
+            rf"^[ \t]*(?:static\s+)?(?:inline\s+)?"
+            rf"[A-Za-z_][\w\s\*]*\b{re.escape(func_name)}\s*\([^)]*\)\s*\{{"
+        )
 
-        match = re.search(header_pattern, code, re.DOTALL)
+        match = re.search(header_pattern, code, re.MULTILINE | re.DOTALL)
         if not match:
             return None
 

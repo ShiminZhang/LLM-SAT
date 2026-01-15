@@ -20,26 +20,31 @@ bool kissat_restarting(kissat *solver) {
     return false;
 
   if (conflicts < micro_threshold) {
-    if (solver->stable)
-      return kissat_reluctant_triggered(&solver->reluctant);
-    const double fast = AVERAGE(fast_glue);
-    const double slow = AVERAGE(slow_glue);
-    const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
-    const double limit = margin * slow;
-    return (limit <= fast);
+    double decision_rate = AVERAGE(decision_rate);
+    if (decision_rate > 0.5)  // Example condition for micro restart
+      return true;
   }
 
   if (conflicts < meso_threshold) {
-    double reward_conflict_ratio = solver->mab_reward[solver->heuristic] / (double)solver->mab_conflicts;
-    return reward_conflict_ratio > 1.0;
+    double fast_glue = AVERAGE(fast_glue);
+    double slow_glue = AVERAGE(slow_glue);
+    double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+    double limit = margin * slow_glue;
+    if (fast_glue > limit)
+      return true;
   }
 
   if (conflicts < macro_threshold) {
-    double decision_rate = AVERAGE(decision_rate);
-    double decay_factor = exp(-solver->mab_chosen_tot / 1000.0);
-    return decision_rate * decay_factor > 0.5;
+    if (solver->stable)
+      return kissat_reluctant_triggered(&solver->reluctant);
+    else {
+      double reward_ratio = solver->mab_reward[solver->heuristic] /
+                            (solver->mab_select[solver->heuristic] + 1);
+      if (reward_ratio < 0.1)  // Example condition for macro restart
+        return true;
+    }
   }
 
-  return true;
+  return false;
 }
 ```

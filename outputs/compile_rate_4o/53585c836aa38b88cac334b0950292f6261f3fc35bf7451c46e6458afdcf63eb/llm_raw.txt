@@ -14,7 +14,7 @@ bool kissat_restarting(kissat *solver) {
   double exploration_coefficient = solver->mabc;
 
   // Calculate heuristic reward
-  double reward = log((double)solver->mab_conflicts / (double)solver->mab_chosen_tot);
+  double reward = log((double)CONFLICTS / (double)solver->statistics.restarts);
 
   // Update short-term and long-term momentum
   short_term_momentum = 0.7 * reward + 0.3 * short_term_momentum;
@@ -34,7 +34,7 @@ bool kissat_restarting(kissat *solver) {
   }
 
   // Fallback mechanism
-  if (solver->statistics.restarts % 100 == 0) {
+  if (solver->statistics.restarts >= 100) {
     if (reward < 0.5) {
       short_term_momentum = 1.0;
       long_term_momentum = 1.0;

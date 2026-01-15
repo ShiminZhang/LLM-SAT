@@ -1,0 +1,37 @@
+```c
+bool kissat_restarting(kissat *solver) {
+  assert(solver->unassigned);
+
+  if (!GET_OPTION(restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  // Calculate Complexity Score (CS)
+  uint64_t conflicts = CONFLICTS;
+  uint64_t decisions = DECISIONS;
+  uint64_t clauses = solver->statistics.clauses;
+  double complexity_score = (double)(conflicts * clauses) / (decisions + 1);
+
+  // Define a threshold for complexity score
+  const double complexity_threshold = 1000.0; // Example threshold
+
+  // Adjust restart horizon based on complexity score
+  if (complexity_score > complexity_threshold) {
+    solver->limits.restart.conflicts *= 1.2;
+  } else {
+    solver->limits.restart.conflicts *= 0.8;
+  }
+
+  if (solver->stable)
+    return kissat_reluctant_triggered(&solver->reluctant);
+
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+  return (limit <= fast);
+}
+```

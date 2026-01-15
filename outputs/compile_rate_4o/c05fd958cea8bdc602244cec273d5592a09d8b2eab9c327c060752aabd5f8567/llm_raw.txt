@@ -12,8 +12,8 @@ bool kissat_restarting(kissat *solver) {
   // Calculate Clause Reduction Rate (CRR)
   double crr = (double)solver->mab_conflicts / DECISIONS;
 
-  // Define the confidence window size and calculate the average CRR
-  const unsigned window_size = 25;
+  // Define a confidence window over the last 25 restarts
+  unsigned window_size = 25;
   double window_average_crr = 0.0;
   for (unsigned i = 0; i < window_size; i++) {
     // Hypothetical function to get past CRR values
@@ -21,7 +21,7 @@ bool kissat_restarting(kissat *solver) {
   }
   window_average_crr /= window_size;
 
-  // Determine the exploration coefficient adjustment
+  // Determine exploration coefficient adjustments
   double exploration_coefficient = 1.0;
   if (crr > window_average_crr * 1.15) {
     exploration_coefficient *= 1.25; // Increase exploration

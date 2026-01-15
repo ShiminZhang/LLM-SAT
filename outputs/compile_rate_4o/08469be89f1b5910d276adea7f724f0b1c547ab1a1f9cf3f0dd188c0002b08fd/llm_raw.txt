@@ -38,11 +38,8 @@ bool kissat_restarting(kissat *solver) {
     return true;
   }
 
-  if (CONFLICTS >= macro_conflict_threshold) {
-    const double decay_factor = exp(-solver->unassigned / 1000.0);
-    if (decision_rate < decay_factor) {
-      return true;
-    }
+  if (CONFLICTS >= macro_conflict_threshold && decision_rate < 0.1) {
+    return true;
   }
 
   return false;

@@ -11,45 +11,39 @@ bool kissat_restarting(kissat *solver) {
 
   double inertia_factor = 1.0;
   double momentum = 0.0;
-  double shake_up_factor = 1.05; // Slight expansion for exploration
-
-  if (solver->mab) {
-    double vsids_reward = solver->mab_reward[0];
-    double chb_reward = solver->mab_reward[1];
-    unsigned vsids_count = solver->mab_select[0];
-    unsigned chb_count = solver->mab_select[1];
-
-    if (vsids_count > 0 && chb_count > 0) {
-      double vsids_avg_reward = vsids_reward / vsids_count;
-      double chb_avg_reward = chb_reward / chb_count;
-
-      if (solver->heuristic == 0 && vsids_avg_reward > chb_avg_reward) {
-        inertia_factor = 1.2; // More stable, less reactive
-      } else if (solver->heuristic == 1 && chb_avg_reward > vsids_avg_reward) {
-        inertia_factor = 1.2;
-      }
-    }
-  }
+  static double previous_radius = 0.0;
+  static unsigned stable_count = 0;
 
   if (solver->stable) {
     if (kissat_reluctant_triggered(&solver->reluctant)) {
-      momentum += 0.1; // Increase momentum in stable mode
+      stable_count++;
+      inertia_factor = 1.0 + (stable_count / 10.0);
       return true;
     }
+    return false;
   } else {
-    const double fast = AVERAGE(fast_glue);
-    const double slow = AVERAGE(slow_glue);
-    const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
-    const double limit = margin * slow * inertia_factor;
-
-    if (limit <= fast) {
-      momentum -= 0.1; // Decrease momentum in focused mode
-      return true;
-    }
+    stable_count = 0;
   }
 
-  if (momentum > 0.5) {
-    // Shake-up phase
+  const double fast = AVERAGE(fast_glue);
+  const double slow = AVERAGE(slow_glue);
+  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  const double limit = margin * slow;
+
+  double current_radius = fast / slow;
+  momentum = current_radius - previous_radius;
+  previous_radius = current_radius;
+
+  if (current_radius > limit) {
+    if (momentum > 0) {
+      inertia_factor *= 1.1;
+    } else {
+      inertia_factor *= 0.9;
+    }
+    return true;
+  }
+
+  if (solver->mab && solver->mab_decisions > 1000) {
     kissat_extremely_verbose(solver, "Shake-up phase triggered");
     return true;
   }

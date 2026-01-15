@@ -10,44 +10,33 @@ bool kissat_restarting(kissat *solver) {
     return false;
 
   // Exploration mechanism: epsilon-greedy strategy
-  const double epsilon = 0.1; // Exploration probability
-  if ((double)rand() / RAND_MAX < epsilon) {
-    return true; // Explore by triggering a restart
-  }
+  double epsilon = 0.1; // Exploration rate
+  bool explore = ((double)rand() / RAND_MAX) < epsilon;
 
-  // Calculate context vector
-  const double fast_glue = AVERAGE(fast_glue);
-  const double slow_glue = AVERAGE(slow_glue);
-  const double decision_rate = AVERAGE(decision_rate);
+  // Calculate context features
+  double fast_glue = AVERAGE(fast_glue);
+  double slow_glue = AVERAGE(slow_glue);
+  double decision_rate = AVERAGE(decision_rate);
+  double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
+  double limit = margin * slow_glue;
 
   // Nonlinear model: simple neural network with one hidden layer
-  const double weights_input_hidden[3] = {0.5, 0.3, 0.2}; // Example weights
-  const double weights_hidden_output = 0.7; // Example weight
-  const double bias_hidden = 0.1; // Example bias
-  const double bias_output = 0.2; // Example bias
+  double hidden_layer[3];
+  hidden_layer[0] = tanh(fast_glue * 0.5 + slow_glue * 0.3 + decision_rate * 0.2);
+  hidden_layer[1] = tanh(fast_glue * 0.4 + slow_glue * 0.4 + decision_rate * 0.2);
+  hidden_layer[2] = tanh(fast_glue * 0.3 + slow_glue * 0.5 + decision_rate * 0.2);
 
-  // Hidden layer computation
-  double hidden_activation = fast_glue * weights_input_hidden[0] +
-                             slow_glue * weights_input_hidden[1] +
-                             decision_rate * weights_input_hidden[2] +
-                             bias_hidden;
-  hidden_activation = tanh(hidden_activation); // Activation function
+  double output = hidden_layer[0] * 0.3 + hidden_layer[1] * 0.3 + hidden_layer[2] * 0.4;
 
-  // Output layer computation
-  double output = hidden_activation * weights_hidden_output + bias_output;
-  output = tanh(output); // Activation function
+  // Dynamic learning rate adjustment based on reward variance
+  double reward_variance = fabs(solver->mab_reward[0] - solver->mab_reward[1]);
+  double learning_rate = 0.01 / (1.0 + reward_variance);
 
-  // Decision based on model output
-  if (output > 0.5) {
-    return true; // Trigger restart
-  }
-
-  // Fallback to original strategy if model does not trigger
-  if (solver->stable)
+  // Decision based on exploration or model output
+  if (explore) {
     return kissat_reluctant_triggered(&solver->reluctant);
-
-  const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
-  const double limit = margin * slow_glue;
-  return (limit <= fast_glue);
+  } else {
+    return (output > 0.5) && (limit <= fast_glue);
+  }
 }
 ```

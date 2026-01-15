@@ -17,30 +17,27 @@ bool kissat_restarting(kissat *solver) {
   if (solver->stable)
     return kissat_reluctant_triggered(&solver->reluctant);
 
-  if (limit <= fast)
-    return true;
-
   // Dual-threshold learning rate adaptation
   const double improvement = slow - fast;
-  const double upper_threshold = 0.1;
-  const double lower_threshold = -0.1;
-  const double alpha_low = 0.01;
-  const double alpha_high = 0.01;
-  const double beta = 0.99;
+  const double upper_threshold = 0.1;  // Example threshold
+  const double lower_threshold = -0.1; // Example threshold
+  const double alpha_low = 0.01;       // Example sensitivity
+  const double alpha_high = 0.01;      // Example sensitivity
+  const double beta = 0.99;            // Example decay factor
 
-  static double lambda = 1.0;
-  static double alpha_low_dynamic = alpha_low;
-  static double alpha_high_dynamic = alpha_high;
+  static double lambda = 1.0;          // Learning rate
+  static double alpha_low_decay = alpha_low;
+  static double alpha_high_decay = alpha_high;
 
   if (improvement < lower_threshold) {
-    lambda *= (1 + alpha_low_dynamic * (improvement - lower_threshold));
+    lambda *= (1 + alpha_low_decay * (improvement - lower_threshold));
   } else if (improvement > upper_threshold) {
-    lambda *= (1 - alpha_high_dynamic * (improvement - upper_threshold));
+    lambda *= (1 - alpha_high_decay * (improvement - upper_threshold));
   }
 
-  alpha_low_dynamic *= beta;
-  alpha_high_dynamic *= beta;
+  alpha_low_decay *= beta;
+  alpha_high_decay *= beta;
 
-  return false;
+  return (limit <= fast);
 }
 ```

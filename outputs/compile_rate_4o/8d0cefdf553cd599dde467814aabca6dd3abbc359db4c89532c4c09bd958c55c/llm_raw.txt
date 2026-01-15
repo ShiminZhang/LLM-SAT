@@ -9,35 +9,27 @@ bool kissat_restarting(kissat *solver) {
   if (CONFLICTS < solver->limits.restart.conflicts)
     return false;
 
+  static double threshold = 1.0; // Initial threshold
+  const double learning_rate = 0.01; // Learning rate for threshold adjustment
+
   // Calculate Complexity Score (CS)
-  double conflicts = (double)CONFLICTS;
-  double decisions = (double)DECISIONS;
-  double clauses = (double)(solver->statistics.clauses);
-  double CS = (conflicts * clauses) / (decisions + 1);
+  double cs = (double)(CONFLICTS * solver->statistics.restarts) / (DECISIONS + 1);
 
-  // Initialize and adjust threshold and horizon
-  static double threshold = 1000.0; // Initial threshold
-  static double horizon = 1.0;      // Initial horizon
-  const double learning_rate = 0.05;
-
-  // Compare CS with threshold and adjust
-  if (CS > threshold) {
-    horizon *= 1.25;
-    threshold += learning_rate * threshold;
-  } else {
-    horizon *= 0.75;
-    threshold -= learning_rate * threshold;
+  // Determine if restart should be triggered
+  bool restart = false;
+  if (cs > threshold * 1.1) { // CS significantly above threshold
+    solver->limits.restart.conflicts *= 1.25; // Increase horizon
+    threshold += learning_rate; // Increase threshold
+    restart = true;
+  } else if (cs < threshold * 0.9) { // CS significantly below threshold
+    solver->limits.restart.conflicts *= 0.75; // Decrease horizon
+    threshold -= learning_rate; // Decrease threshold
   }
 
-  // Check if restart is triggered
-  if (solver->stable) {
-    return kissat_reluctant_triggered(&solver->reluctant);
-  } else {
-    const double fast = AVERAGE(fast_glue);
-    const double slow = AVERAGE(slow_glue);
-    const double margin = (100.0 + GET_OPTION(restartmargin)) / 100.0;
-    const double limit = margin * slow;
-    return (limit <= fast);
-  }
+  // Optional verbose logging for debugging
+  kissat_extremely_verbose(solver, "CS: %f, Threshold: %f, Restart: %s",
+                           cs, threshold, restart ? "true" : "false");
+
+  return restart;
 }
 ```
