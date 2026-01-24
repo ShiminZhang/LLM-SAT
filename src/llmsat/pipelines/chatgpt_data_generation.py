@@ -457,12 +457,12 @@ def print_generation_result(generation_tag: str):
 
 def main():
     generate_team_data(
-        generation_tag="ae",
+        generation_tag="diversity_testing",
         designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
         variant_prompt_path="./data/prompts/variant_prompt.txt",
         code_prompt_template_path="./data/prompts/coder_prompt.txt",
-        n_leaders=1,
-        m_variants_per_leader=2,
+        n_leaders=5,
+        m_variants_per_leader=8,
         model="gpt-4o",
     )
 
