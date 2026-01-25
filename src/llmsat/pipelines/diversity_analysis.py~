@@ -1,0 +1,574 @@
+"""
+Diversity Analysis Pipeline using LLM-as-a-Judge
+
+This script assesses the diversity of generated algorithms using GPT-4o as a judge.
+It evaluates:
+1. Leader diversity: How different are the team leaders from each other?
+2. Member diversity: How different are the team members within each team?
+
+The judge provides a score (1-10) with explanation for each assessment.
+"""
+
+import os
+import json
+import argparse
+from pathlib import Path
+from datetime import datetime
+from typing import List, Dict, Any, Optional, Tuple
+from collections import defaultdict
+
+from llmsat.llmsat import (
+    CHATGPT_DATA_GENERATION_TABLE,
+    setup_logging,
+    get_logger,
+)
+from llmsat.utils.aws import (
+    get_ids_from_router_table,
+    get_algorithm_result,
+)
+from llmsat.utils.chatgpt_helper import (
+    submit_batch_input as helper_submit_batch_input,
+    block_until_completion as helper_block_until_completion,
+    download_batch_outputs as helper_download_batch_outputs,
+)
+from llmsat.data.create_prompt import build_record, write_jsonl, render_custom_id
+
+import logging
+setup_logging(level=logging.INFO)
+logger = get_logger(__name__)
+
+# Judge model
+JUDGE_MODEL = "gpt-4o"
+
+
+def get_diversity_report_dir(generation_tag: str) -> str:
+    """Get the diversity report directory, creating it if necessary."""
+    dir_path = f"outputs/{generation_tag}/diversity_report/"
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+    return dir_path
+
+
+def extract_algorithm_text(algorithm_json_str: str) -> str:
+    """
+    Extract the algorithm name and description from the algorithm JSON.
+    Returns a clean text representation for the judge.
+    """
+    try:
+        spec = json.loads(algorithm_json_str)
+        name = spec.get("name", "Unknown")
+        algorithm = spec.get("algorithm", "")
+        return f"### {name}\n\n{algorithm}"
+    except json.JSONDecodeError:
+        # If not valid JSON, return as-is
+        return algorithm_json_str
+
+
+def build_leader_diversity_prompt(leader_texts: List[Tuple[str, str]]) -> str:
+    """
+    Build the prompt for assessing leader diversity.
+
+    Args:
+        leader_texts: List of (leader_id, algorithm_text) tuples
+
+    Returns:
+        The prompt string for the judge
+    """
+    algorithms_section = "\n\n---\n\n".join([
+        f"**Algorithm {i+1}** (ID: {lid})\n\n{text}"
+        for i, (lid, text) in enumerate(leader_texts)
+    ])
+
+    return f"""You are an expert evaluator assessing the diversity of SAT solver restart heuristic algorithms.
+
+Below are {len(leader_texts)} independently generated "Team Leader" algorithms. Each algorithm describes a strategy for deciding when a SAT solver should restart its search.
+
+Your task is to assess how DIVERSE these algorithms are from each other. Consider:
+- Do they use fundamentally different approaches or mechanisms?
+- Do they track different state variables or metrics?
+- Do they use different mathematical formulations or thresholds?
+- Do they adapt to different solver behaviors or problem characteristics?
+
+A diverse set of algorithms would explore different regions of the solution space, increasing the chances of finding novel, high-performing heuristics.
+
+## Algorithms to Evaluate
+
+{algorithms_section}
+
+## Your Assessment
+
+Provide your assessment in the following JSON format:
+```json
+{{
+    "score": <integer from 1-10>,
+    "explanation": "<your explanation>"
+}}
+```
+
+Scoring guide:
+- 1-2: Very low diversity - algorithms are nearly identical or trivially different
+- 3-4: Low diversity - algorithms share the same core approach with minor variations
+- 5-6: Moderate diversity - some algorithms explore different approaches, but overlap exists
+- 7-8: High diversity - algorithms explore distinctly different approaches and mechanisms
+- 9-10: Very high diversity - algorithms are fundamentally different, covering a wide range of strategies
+
+Focus only on assessing diversity. Do not suggest improvements or modifications.
+"""
+
+
+def build_member_diversity_prompt(leader_id: str, leader_text: str, member_texts: List[Tuple[str, str]]) -> str:
+    """
+    Build the prompt for assessing member diversity within a team.
+
+    Args:
+        leader_id: The leader algorithm's ID
+        leader_text: The leader algorithm's text
+        member_texts: List of (member_id, algorithm_text) tuples
+
+    Returns:
+        The prompt string for the judge
+    """
+    members_section = "\n\n---\n\n".join([
+        f"**Member {i+1}** (ID: {mid})\n\n{text}"
+        for i, (mid, text) in enumerate(member_texts)
+    ])
+
+    return f"""You are an expert evaluator assessing the diversity of SAT solver restart heuristic algorithms.
+
+Below is a "Team Leader" algorithm and its {len(member_texts)} "Team Member" variants. The members are variations generated from the leader.
+
+Your task is to assess how DIVERSE the member algorithms are FROM EACH OTHER (not from the leader). Consider:
+- Do the members explore different variations of the leader's core approach?
+- Do they modify different aspects (thresholds, conditions, state tracking)?
+- Do they introduce different adaptations or extensions?
+- Is there meaningful variety, or are they trivially different?
+
+A diverse set of members would explore different variations while staying true to the leader's core concept.
+
+## Team Leader (for context)
+ID: {leader_id}
+
+{leader_text}
+
+## Team Members to Evaluate
+
+{members_section}
+
+## Your Assessment
+
+Provide your assessment in the following JSON format:
+```json
+{{
+    "score": <integer from 1-10>,
+    "explanation": "<your explanation>"
+}}
+```
+
+Scoring guide:
+- 1-2: Very low diversity - members are nearly identical or trivially different
+- 3-4: Low diversity - members share the same modifications with minor variations
+- 5-6: Moderate diversity - some members explore different variations, but overlap exists
+- 7-8: High diversity - members explore distinctly different variations of the leader's approach
+- 9-10: Very high diversity - members represent fundamentally different interpretations/extensions
+
+Focus only on assessing diversity. Do not suggest improvements or modifications.
+"""
+
+
+def create_diversity_batch_input(
+    prompts: List[Tuple[str, str]],  # (custom_id, prompt)
+    output_path: str,
+    model: str = JUDGE_MODEL
+) -> None:
+    """
+    Create a batch input file for diversity assessment.
+
+    Args:
+        prompts: List of (custom_id, prompt) tuples
+        output_path: Path to write the JSONL file
+        model: Model to use for assessment
+    """
+    system_message = "You are an expert evaluator of algorithm diversity. Provide assessments in valid JSON format only."
+
+    try:
+        temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.3"))
+    except Exception:
+        temperature = 0.3  # Lower temperature for consistent scoring
+
+    records = []
+    for custom_id, prompt in prompts:
+        records.append(
+            build_record(
+                system_message=system_message,
+                user_prompt=prompt,
+                model=model,
+                temperature=temperature,
+                method="POST",
+                url="/v1/responses",
+                custom_id=custom_id,
+            )
+        )
+    write_jsonl(records, Path(output_path))
+    logger.info(f"Created diversity batch input with {len(records)} requests at {output_path}")
+
+
+def parse_diversity_response(response: Dict[str, Any]) -> Tuple[Optional[int], Optional[str]]:
+    """
+    Parse the judge's response to extract score and explanation.
+
+    Returns:
+        Tuple of (score, explanation) or (None, None) if parsing fails
+    """
+    # Extract text from batch API response structure
+    if not isinstance(response, dict):
+        raw_text = str(response)
+    else:
+        resp_obj = response.get("response") or response
+        text = None
+
+        if isinstance(resp_obj, dict):
+            text = resp_obj.get("output_text")
+
+        if not text and isinstance(resp_obj, dict):
+            body = resp_obj.get("body", {})
+            if isinstance(body, dict):
+                outputs = body.get("output") or body.get("outputs")
+            else:
+                outputs = resp_obj.get("output") or resp_obj.get("outputs")
+
+            if isinstance(outputs, list):
+                for item in outputs:
+                    content = item.get("content") if isinstance(item, dict) else None
+                    if isinstance(content, list):
+                        for part in content:
+                            if isinstance(part, dict) and part.get("type") == "output_text":
+                                text = part.get("text")
+                                if text:
+                                    break
+                    if text:
+                        break
+
+        if text:
+            raw_text = text
+        elif isinstance(resp_obj, dict) and "content" in resp_obj:
+            raw_text = str(resp_obj["content"])
+        else:
+            raw_text = json.dumps(response, ensure_ascii=False)
+
+    # Try to extract JSON from the response
+    try:
+        # Look for JSON block in markdown
+        import re
+        json_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw_text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1).strip()
+        else:
+            # Try to find raw JSON object
+            json_match = re.search(r'\{[^{}]*"score"[^{}]*\}', raw_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                json_str = raw_text
+
+        result = json.loads(json_str)
+        score = result.get("score")
+        explanation = result.get("explanation", "")
+
+        if isinstance(score, (int, float)) and 1 <= score <= 10:
+            return int(score), explanation
+        else:
+            logger.warning(f"Invalid score value: {score}")
+            return None, raw_text
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse JSON from response: {e}")
+        return None, raw_text
+
+
+def load_algorithms_by_generation_tag(generation_tag: str) -> List[Dict[str, Any]]:
+    """
+    Load all algorithms for a generation tag from the database.
+
+    Returns:
+        List of algorithm dicts with id, algorithm, parent_id
+    """
+    algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
+    algorithms = []
+
+    for alg_id in algorithm_ids:
+        result = get_algorithm_result(alg_id)
+        if result:
+            algorithms.append({
+                "id": result.id,
+                "algorithm": result.algorithm,
+                "parent_id": result.parent_id,
+            })
+
+    return algorithms
+
+
+def group_algorithms(algorithms: List[Dict[str, Any]]) -> Tuple[List[Dict], Dict[str, List[Dict]]]:
+    """
+    Group algorithms into leaders and members.
+
+    Returns:
+        Tuple of (leaders_list, members_by_leader_dict)
+    """
+    leaders = []
+    members_by_leader = defaultdict(list)
+
+    for alg in algorithms:
+        if alg["parent_id"] is None:
+            leaders.append(alg)
+        else:
+            members_by_leader[alg["parent_id"]].append(alg)
+
+    return leaders, dict(members_by_leader)
+
+
+def run_diversity_analysis(
+    generation_tag: str,
+    skip_leader_diversity: bool = False,
+    skip_member_diversity: bool = False,
+) -> Dict[str, Any]:
+    """
+    Run the full diversity analysis pipeline.
+
+    Args:
+        generation_tag: The generation tag to analyze
+        skip_leader_diversity: Skip leader diversity assessment
+        skip_member_diversity: Skip member diversity assessment
+
+    Returns:
+        The diversity report as a dict
+    """
+    report_dir = get_diversity_report_dir(generation_tag)
+
+    # Load algorithms
+    logger.info(f"Loading algorithms for generation tag: {generation_tag}")
+    algorithms = load_algorithms_by_generation_tag(generation_tag)
+    logger.info(f"Loaded {len(algorithms)} algorithms")
+
+    if not algorithms:
+        logger.error("No algorithms found for generation tag")
+        return {"error": "No algorithms found"}
+
+    # Group into leaders and members
+    leaders, members_by_leader = group_algorithms(algorithms)
+    logger.info(f"Found {len(leaders)} leaders and {sum(len(m) for m in members_by_leader.values())} members")
+
+    # Prepare batch input
+    prompts = []  # List of (custom_id, prompt)
+
+    # Leader diversity prompt
+    if not skip_leader_diversity and len(leaders) > 1:
+        leader_texts = [
+            (l["id"], extract_algorithm_text(l["algorithm"]))
+            for l in leaders
+        ]
+        leader_prompt = build_leader_diversity_prompt(leader_texts)
+        prompts.append(("leader_diversity", leader_prompt))
+        logger.info("Added leader diversity assessment to batch")
+
+    # Member diversity prompts (one per team)
+    if not skip_member_diversity:
+        for leader in leaders:
+            leader_id = leader["id"]
+            members = members_by_leader.get(leader_id, [])
+
+            if len(members) > 1:
+                leader_text = extract_algorithm_text(leader["algorithm"])
+                member_texts = [
+                    (m["id"], extract_algorithm_text(m["algorithm"]))
+                    for m in members
+                ]
+                member_prompt = build_member_diversity_prompt(leader_id, leader_text, member_texts)
+                prompts.append((f"member_diversity_{leader_id}", member_prompt))
+
+        logger.info(f"Added {len([p for p in prompts if p[0].startswith('member_')])} member diversity assessments to batch")
+
+    if not prompts:
+        logger.warning("No diversity assessments to run")
+        return {"error": "No assessments to run (need >1 leader or >1 member per team)"}
+
+    # Create and submit batch
+    batch_input_path = os.path.join(report_dir, "diversity_batch_input.jsonl")
+    create_diversity_batch_input(prompts, batch_input_path)
+
+    logger.info("Submitting diversity assessment batch...")
+    batch_id = helper_submit_batch_input(batch_input_path)
+    logger.info(f"Batch submitted with ID: {batch_id}")
+
+    # Wait for completion
+    logger.info("Waiting for batch completion...")
+    status = helper_block_until_completion(batch_id)
+    logger.info(f"Batch completed with status: {status}")
+
+    if status != "completed":
+        return {"error": f"Batch failed with status: {status}"}
+
+    # Download results
+    batch_output_path = os.path.join(report_dir, "diversity_batch_output.jsonl")
+    helper_download_batch_outputs(batch_id, Path(batch_output_path))
+    logger.info(f"Downloaded batch output to {batch_output_path}")
+
+    # Parse results
+    results = {}
+    custom_id_to_response = {}
+
+    with open(batch_output_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                response = json.loads(line)
+                custom_id = response.get("custom_id", "unknown")
+                custom_id_to_response[custom_id] = response
+            except json.JSONDecodeError:
+                continue
+
+    # Process leader diversity
+    if "leader_diversity" in custom_id_to_response:
+        score, explanation = parse_diversity_response(custom_id_to_response["leader_diversity"])
+        results["leader_diversity"] = {
+            "score": score,
+            "explanation": explanation,
+            "num_leaders": len(leaders),
+            "leader_ids": [l["id"] for l in leaders],
+        }
+
+    # Process member diversity
+    member_results = {}
+    for leader in leaders:
+        leader_id = leader["id"]
+        custom_id = f"member_diversity_{leader_id}"
+
+        if custom_id in custom_id_to_response:
+            score, explanation = parse_diversity_response(custom_id_to_response[custom_id])
+            members = members_by_leader.get(leader_id, [])
+            member_results[leader_id] = {
+                "score": score,
+                "explanation": explanation,
+                "num_members": len(members),
+                "member_ids": [m["id"] for m in members],
+            }
+
+    if member_results:
+        results["member_diversity"] = member_results
+
+        # Calculate aggregate member diversity score
+        valid_scores = [r["score"] for r in member_results.values() if r["score"] is not None]
+        if valid_scores:
+            results["member_diversity_aggregate"] = {
+                "mean_score": sum(valid_scores) / len(valid_scores),
+                "min_score": min(valid_scores),
+                "max_score": max(valid_scores),
+                "num_teams": len(valid_scores),
+            }
+
+    # Build final report
+    report = {
+        "generation_tag": generation_tag,
+        "timestamp": datetime.now().isoformat(),
+        "summary": {
+            "num_algorithms": len(algorithms),
+            "num_leaders": len(leaders),
+            "num_members": sum(len(m) for m in members_by_leader.values()),
+        },
+        "results": results,
+        "batch_id": batch_id,
+    }
+
+    # Save report
+    report_path = os.path.join(report_dir, "diversity_report.json")
+    with open(report_path, "w") as f:
+        json.dump(report, f, indent=2)
+    logger.info(f"Saved diversity report to {report_path}")
+
+    return report
+
+
+def print_report_summary(report: Dict[str, Any]) -> None:
+    """Print a human-readable summary of the diversity report."""
+    print("\n" + "=" * 60)
+    print("DIVERSITY ANALYSIS REPORT")
+    print("=" * 60)
+
+    print(f"\nGeneration Tag: {report.get('generation_tag')}")
+    print(f"Timestamp: {report.get('timestamp')}")
+
+    summary = report.get("summary", {})
+    print(f"\nAlgorithms: {summary.get('num_algorithms', 0)} total")
+    print(f"  - Leaders: {summary.get('num_leaders', 0)}")
+    print(f"  - Members: {summary.get('num_members', 0)}")
+
+    results = report.get("results", {})
+
+    if "leader_diversity" in results:
+        ld = results["leader_diversity"]
+        print(f"\n--- Leader Diversity ---")
+        print(f"Score: {ld.get('score', 'N/A')}/10")
+        print(f"Explanation: {ld.get('explanation', 'N/A')}")
+
+    if "member_diversity_aggregate" in results:
+        agg = results["member_diversity_aggregate"]
+        print(f"\n--- Member Diversity (Aggregate) ---")
+        print(f"Mean Score: {agg.get('mean_score', 0):.2f}/10")
+        print(f"Range: {agg.get('min_score', 0)}-{agg.get('max_score', 0)}/10")
+        print(f"Teams Evaluated: {agg.get('num_teams', 0)}")
+
+    if "member_diversity" in results:
+        print(f"\n--- Member Diversity (Per Team) ---")
+        for leader_id, md in results["member_diversity"].items():
+            score = md.get("score", "N/A")
+            num_members = md.get("num_members", 0)
+            print(f"  Team {leader_id[:8]}...: {score}/10 ({num_members} members)")
+
+    print("\n" + "=" * 60)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Diversity Analysis using LLM-as-a-Judge")
+    parser.add_argument(
+        "--generation_tag",
+        type=str,
+        required=True,
+        help="Generation tag to analyze"
+    )
+    parser.add_argument(
+        "--skip_leader_diversity",
+        action="store_true",
+        help="Skip leader diversity assessment"
+    )
+    parser.add_argument(
+        "--skip_member_diversity",
+        action="store_true",
+        help="Skip member diversity assessment"
+    )
+    parser.add_argument(
+        "--print_only",
+        type=str,
+        default=None,
+        help="Path to existing report JSON to print (skip analysis)"
+    )
+
+    args = parser.parse_args()
+
+    if args.print_only:
+        with open(args.print_only, "r") as f:
+            report = json.load(f)
+        print_report_summary(report)
+        return
+
+    report = run_diversity_analysis(
+        generation_tag=args.generation_tag,
+        skip_leader_diversity=args.skip_leader_diversity,
+        skip_member_diversity=args.skip_member_diversity,
+    )
+
+    print_report_summary(report)
+
+
+if __name__ == "__main__":
+    main()
