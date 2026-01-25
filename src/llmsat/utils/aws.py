@@ -3,6 +3,10 @@ import psycopg2.extras
 import argparse
 import os
 import json
+from dotenv import load_dotenv
+
+# Load .env file from project root
+load_dotenv()
 from typing import List, Dict, Any, Mapping, Optional
 from llmsat.llmsat import CodeResult, CodeStatus, AlgorithmResult, AlgorithmStatus
 from datetime import datetime

@@ -7,3 +7,4 @@ tqdm
 trl
 rich
 pyyaml
+python-dotenv
