@@ -9,3 +9,4 @@ rich
 pyyaml
 python-dotenv
 psycopg2-binary
+openai
