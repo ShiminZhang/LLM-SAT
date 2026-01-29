@@ -1,0 +1,51 @@
+You are judging similarity between two SAT-solver restart strategies.
+Return JSON only.
+
+Goal
+- Provide a semantic similarity score that matches what embedding cosine tries to capture.
+- Make the score consistent across: leader-vs-leader, leader-vs-member (same team), member-vs-member (cross team).
+
+How to judge (metrics)
+1) Core mechanism overlap (highest weight)
+- What signals are used to trigger restarts? (e.g., LBD trends, conflicts since last restart, glue distribution, trail level, propagation rate)
+- What decision rule is used? (e.g., threshold crossing, moving average, hysteresis, two-phase logic)
+- What is the scheduling policy? (e.g., geometric/linear schedule, adaptive schedule, cooldown)
+
+2) Control structure similarity
+- Are they both: single-threshold? multi-threshold? stateful controller? phase-based?
+- Do they use the same states/variables and update cadence?
+
+3) Parameterization vs idea change
+- If B is basically A with different constants/weights, treat as very similar.
+- If B introduces new signals or a different controller, treat as materially different.
+
+4) Expected qualitative behavior
+- Do both aim for the same behavior pattern (more frequent early restarts, less frequent later, bursty restarts, stabilization, anti-thrashing)?
+
+Scoring rubric
+- similarity = 1.0: essentially the same algorithmic idea (minor rewording/tuning)
+- similarity = 0.7: same core mechanism, moderate differences (extra guard/cooldown, slightly different signal mix)
+- similarity = 0.5: shares some components but materially different core decision logic
+- similarity = 0.3: mostly different, small overlap (e.g., both mention "adaptive" but implement differently)
+- similarity = 0.0: clearly different ideas
+
+Output requirements
+- Output MUST be a single JSON object.
+- similarity must be a number in [0, 1].
+- same_family should be true if similarity >= 0.7, else false.
+- rationale must be one short sentence naming the main shared/different mechanism.
+
+Strategy A
+Name: {{A_NAME}}
+Algorithm: {{A_ALGORITHM}}
+
+Strategy B
+Name: {{B_NAME}}
+Algorithm: {{B_ALGORITHM}}
+
+Return JSON only:
+{
+  "similarity": 0.0,
+  "same_family": false,
+  "rationale": "..."
+}

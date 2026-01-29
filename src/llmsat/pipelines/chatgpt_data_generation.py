@@ -31,7 +31,9 @@ def create_batch_input_file(prompt: str, output_path: str, n_requests: int = 10,
     logger.info(f"Creating batch input file for {n_requests} requests")
     # Reuse JSONL record structure from llmsat.data.create_prompt
     system_message = os.environ.get("LLMSAT_SYSTEM_MESSAGE", "You are an AI researcher specialising in SAT solver heuristics.")
-    model = os.environ.get("OPENAI_MODEL", "gpt-4.1")
+    # Respect the function argument if provided; otherwise fall back to env/default.
+    # This avoids surprising behavior where passing model=... is ignored.
+    model = model or os.environ.get("OPENAI_MODEL", "gpt-4.1")
     try:
         temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.7"))
     except Exception:
@@ -70,10 +72,8 @@ def read_code_prompt_template(path: str) -> str:
     return read_algorithm_prompt_file(path)
 
 def generate_code_prompt(template: str, algorithm: str) -> str:
-    try:
-        return template.format(algorithm=algorithm)
-    except Exception:
-        return f"{template}\n\nAlgorithm:\n{algorithm}"
+    """Substitute the algorithm into the coder prompt template."""
+    return template.replace("ALGORITHM_PLACEHOLDER", algorithm)
 
 def parse_code_response(response: Dict[str, Any]) -> str:
     # Try to extract assistant text from OpenAI batch Responses output
@@ -124,39 +124,67 @@ def parse_code_response(response: Dict[str, Any]) -> str:
         return full_text[start + len("<code>"):end].strip()
     return full_text
 
+def _strip_markdown_code_block(text: str) -> str:
+    """Strip markdown code block wrappers (```json...```) from text."""
+    import re
+    # Match ```json or ``` at start, and ``` at end
+    pattern = r'^```(?:json)?\s*\n?(.*?)\n?```\s*$'
+    match = re.match(pattern, text.strip(), re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
+
 def parse_algorithm_response(response: Dict[str, Any]) -> Tuple[str, Optional[str]]:
     """
     Parse algorithm response from LLM API.
-    
+
     Returns:
         Tuple of (algorithm_json_str, target_function)
         - algorithm_json_str: JSON string of the algorithm spec
         - target_function: Target function name (None if not specified or legacy format)
     """
-    # Extract text similarly to parse_code_response
+    # Extract text from the batch API response structure
+    # Structure: {"response": {"body": {"output": [{"content": [{"type": "output_text", "text": "..."}]}]}}}
     if not isinstance(response, dict):
         raw_text = str(response)
     else:
         resp_obj = response.get("response") or response
-        text = resp_obj.get("output_text") if isinstance(resp_obj, dict) else None
-        if text:
-            raw_text = text
-        else:
-            outputs = resp_obj.get("output") or resp_obj.get("outputs") if isinstance(resp_obj, dict) else None
-            extracted = None
+        text = None
+
+        # Try direct output_text field first
+        if isinstance(resp_obj, dict):
+            text = resp_obj.get("output_text")
+
+        if not text and isinstance(resp_obj, dict):
+            # Navigate into body.output for batch API responses
+            body = resp_obj.get("body", {})
+            if isinstance(body, dict):
+                outputs = body.get("output") or body.get("outputs")
+            else:
+                outputs = resp_obj.get("output") or resp_obj.get("outputs")
+
             if isinstance(outputs, list):
                 for item in outputs:
                     content = item.get("content") if isinstance(item, dict) else None
                     if isinstance(content, list):
                         for part in content:
                             if isinstance(part, dict) and part.get("type") == "output_text":
-                                maybe = part.get("text")
-                                if maybe:
-                                    extracted = maybe
+                                text = part.get("text")
+                                if text:
                                     break
-                    if extracted:
+                    if text:
                         break
-            raw_text = extracted if extracted is not None else (str(resp_obj.get("content")) if isinstance(resp_obj, dict) and "content" in resp_obj else json.dumps(response, ensure_ascii=False))
+
+        if text:
+            raw_text = text
+        elif isinstance(resp_obj, dict) and "content" in resp_obj:
+            raw_text = str(resp_obj["content"])
+        else:
+            raw_text = json.dumps(response, ensure_ascii=False)
+
+    # Strip markdown code block wrapper if present
+    raw_text = _strip_markdown_code_block(raw_text)
+
     # Parse into validated algorithm spec dict, then normalize to JSON string
     try:
         spec, target_function = parse_algorithm_spec_json(raw_text)
@@ -166,8 +194,9 @@ def parse_algorithm_response(response: Dict[str, Any]) -> Tuple[str, Optional[st
         if isinstance(spec, dict) and "reason" in spec:
             spec.pop("reason")
         return json.dumps(spec, ensure_ascii=False), target_function
-    except Exception:
+    except Exception as e:
         # If parsing fails, return the raw text for debugging/upstream handling
+        logger.warning(f"Failed to parse algorithm response: {e}")
         return raw_text, None
 
 # given algorithm batch id, generate data for the algorithm batch, everything is already generated, but we need to reupdate the algorithm and code results to the database
@@ -429,11 +458,13 @@ def print_generation_result(generation_tag: str):
                     print(f"data: {data}")
 
 def main():
-    generate_data(
-        generation_tag="dpo_testing",
-        designer_prompt_path="./data/prompts/kissat_mab.txt",
-        code_prompt_template_path="./data/prompts/kissat_mab_code.txt",
-        n_algorithms=10, n_codes=1,
+    generate_team_data(
+        generation_tag="diversity_testing",
+        designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
+        variant_prompt_path="./data/prompts/variant_prompt.txt",
+        code_prompt_template_path="./data/prompts/coder_prompt.txt",
+        n_leaders=10,
+        m_variants_per_leader=5,
         model="gpt-4o",
     )
 
@@ -442,24 +473,24 @@ def generate_team_data(
     variant_prompt_path: str,
     code_prompt_template_path: str,
     generation_tag: str,
-    n_leaders: int = 5,
-    m_variants_per_leader: int = 3,
+    n_leaders: int = 10,
+    m_variants_per_leader: int = 5,
     model: str = "gpt-4o",
 ):
     """
-    Generate team-based algorithm data:
+    Generate team-based algorithm data and code:
     1. Generate n_leaders Team Leader strategies (separate API calls)
     2. For each leader, generate m_variants_per_leader Team Member variants
-    3. All strategies (leaders + members) can later go through coder model for evaluation
-    
+    3. Generate code for all n_leaders + n_leaders*m_variants_per_leader algorithms
+
     Args:
         designer_prompt_path: Path to the designer prompt for Team Leaders
         variant_prompt_path: Path to variant prompt template (uses {leader_algorithm} placeholder)
-        code_prompt_template_path: Path to code prompt template (for reference, not used here)
+        code_prompt_template_path: Path to code prompt template (uses ALGORITHM_PLACEHOLDER placeholder)
         generation_tag: Tag for this generation run
         n_leaders: Number of Team Leader strategies to generate
         m_variants_per_leader: Number of Team Member variants per leader
-        model: OpenAI model to use
+        model: OpenAI model to use for both algorithm and code generation
     """
     if generation_tag is None:
         logger.error("Generation tag is None")
@@ -546,19 +577,20 @@ def generate_team_data(
                      f"team_batch_id_map_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"), "w"))
     
     # Wait for all member batches and process
+    member_ids = []  # Track all member IDs for code generation
     for batch_id in waiting_batch_ids:
         block_until_completion(batch_id)
-        
+
         leader_id = batch_id_to_leader_id[batch_id]
         member_output_path = os.path.join(
             get_batch_output_dir(generation_tag, batch_id=leader_batch_id),
             f"member_output_{batch_id}.txt"
         )
         download_batch_outputs(batch_id, member_output_path)
-        
+
         # Get leader's target_function for inheritance
         leader_target_function = leader_target_functions.get(leader_id, "kissat_restarting")
-        
+
         # Parse and store Team Members
         with open(member_output_path, "r") as f:
             for line in f:
@@ -571,7 +603,8 @@ def generate_team_data(
                     continue
                 member_str, _ = parse_algorithm_response(member_response)
                 member_id = get_id(member_str)
-                
+                member_ids.append(member_id)
+
                 update_router_table(CHATGPT_DATA_GENERATION_TABLE, member_id, generation_tag)
                 member_result = AlgorithmResult(
                     id=member_id,
@@ -587,10 +620,91 @@ def generate_team_data(
                     target_function=leader_target_function,  # Inherit from leader
                 )
                 update_algorithm_result(member_result)
-        
+
         logger.info(f"Generated members for leader {leader_id}")
-    
-    logger.info(f"Team generation complete: {len(leader_ids)} leaders, {len(leader_ids) * m_variants_per_leader} members expected")
+
+    logger.info(f"Team generation complete: {len(leader_ids)} leaders, {len(member_ids)} members")
+
+    # Step 3: Generate code for all algorithms (leaders + members)
+    all_algorithm_ids = leader_ids + member_ids
+    logger.info(f"Starting code generation for {len(all_algorithm_ids)} algorithms")
+
+    code_prompt_template = read_code_prompt_template(code_prompt_template_path)
+
+    # Submit code generation batches (one per algorithm, one code per algorithm)
+    code_batch_ids = []
+    code_batch_to_algorithm = {}
+
+    for algorithm_id in all_algorithm_ids:
+        algorithm_result = get_algorithm_result(algorithm_id)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.algorithm)
+
+        code_batch_input_path = os.path.join(
+            get_batch_output_dir(generation_tag, batch_id=leader_batch_id),
+            f"code_batch_input_{algorithm_id}.txt"
+        )
+        create_batch_input_file(code_prompt, code_batch_input_path, n_requests=1, model=model)
+
+        batch_id = submit_batch_input(code_batch_input_path)
+        code_batch_ids.append(batch_id)
+        code_batch_to_algorithm[batch_id] = algorithm_id
+
+    # Update batch map with code batch info
+    batch_id_map["code_batch_ids"] = code_batch_ids
+    batch_id_map["code_batch_map"] = code_batch_to_algorithm
+    json.dump(batch_id_map, open(
+        os.path.join(get_batch_output_dir(generation_tag, batch_id=leader_batch_id),
+                     f"team_batch_id_map_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"), "w"))
+
+    logger.info(f"Submitted {len(code_batch_ids)} code generation batches")
+
+    # Wait for all code batches and store CodeResults
+    for batch_id in code_batch_ids:
+        block_until_completion(batch_id)
+
+        algorithm_id = code_batch_to_algorithm[batch_id]
+        code_output_path = os.path.join(
+            get_batch_output_dir(generation_tag, batch_id=leader_batch_id),
+            f"code_output_{batch_id}.txt"
+        )
+        download_batch_outputs(batch_id, code_output_path)
+
+        # Parse and store CodeResult
+        algorithm_result = get_algorithm_result(algorithm_id)
+        with open(code_output_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    code_response = json.loads(line)
+                except Exception:
+                    continue
+                code_str = parse_code_response(code_response)
+                code_id = get_id(code_str)
+
+                code_result = CodeResult(
+                    id=code_id,
+                    algorithm_id=algorithm_id,
+                    code=code_str,
+                    status=CodeStatus.Generated,
+                    par2=None,
+                    last_updated=datetime.now(),
+                    build_success=NOT_INITIALIZED,
+                )
+                update_code_result(code_result)
+
+                # Update algorithm with code reference
+                if algorithm_result.code_id_list is None:
+                    algorithm_result.code_id_list = []
+                algorithm_result.code_id_list.append(code_id)
+
+        # Update algorithm status to CodeGenerated
+        algorithm_result.status = AlgorithmStatus.CodeGenerated
+        update_algorithm_result(algorithm_result)
+        logger.info(f"Generated code for algorithm {algorithm_id}")
+
+    logger.info(f"Code generation complete for {len(all_algorithm_ids)} algorithms")
 
 def test():
     # print_generation_result("chatgpt_data_generation_gpt4o_2")

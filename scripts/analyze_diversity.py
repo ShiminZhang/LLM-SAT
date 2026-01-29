@@ -2,7 +2,7 @@
 """Analyze diversity of generated strategies.
 
 Reads a JSONL file produced by scripts/generate_diverse_batch.py and computes:
-- Embeddings for each strategy_text (sentence-transformers if available; else TF-IDF)
+- Embeddings for each strategy_text (Qwen3 / sentence-transformers / TF-IDF)
 - Cosine similarity distributions:
   - leader-leader
   - leader-member (within the same team)
@@ -98,6 +98,57 @@ def _embed_texts(texts: List[str], prefer_sentence_transformers: bool = True) ->
     return EmbeddingResult(method="tfidf(1-2gram,max=5000)", matrix=Xn.toarray())
 
 
+def _embed_qwen3(
+    texts: List[str],
+    model_id: str,
+    batch_size: int = 16,
+    max_length: int = 512,
+    trust_remote_code: bool = False,
+) -> EmbeddingResult:
+    """Embed texts using a Qwen3 embedding model via Hugging Face transformers.
+
+    This expects a model that can be loaded with AutoModel and returns last_hidden_state.
+    Embedding is computed by mean pooling over tokens (masked) and then L2-normalized.
+    """
+    import torch
+    from transformers import AutoModel, AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=trust_remote_code)
+    model = AutoModel.from_pretrained(model_id, trust_remote_code=trust_remote_code)
+    model.eval()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    all_vecs: List[np.ndarray] = []
+    with torch.no_grad():
+        for start in range(0, len(texts), batch_size):
+            batch = texts[start : start + batch_size]
+            enc = tokenizer(
+                batch,
+                padding=True,
+                truncation=True,
+                max_length=max_length,
+                return_tensors="pt",
+            )
+            enc = {k: v.to(device) for k, v in enc.items()}
+            out = model(**enc)
+            last = out.last_hidden_state  # (b, t, h)
+            mask = enc.get("attention_mask")
+            if mask is None:
+                pooled = last.mean(dim=1)
+            else:
+                mask_f = mask.unsqueeze(-1).to(last.dtype)
+                summed = (last * mask_f).sum(dim=1)
+                denom = mask_f.sum(dim=1).clamp(min=1e-6)
+                pooled = summed / denom
+            pooled = torch.nn.functional.normalize(pooled, p=2, dim=1)
+            all_vecs.append(pooled.detach().cpu().numpy())
+
+    mat = np.concatenate(all_vecs, axis=0)
+    return EmbeddingResult(method=f"qwen3:{model_id}", matrix=mat)
+
+
 def _upper_triangle_pairs(sim: np.ndarray) -> List[float]:
     n = sim.shape[0]
     out: List[float] = []
@@ -130,7 +181,13 @@ def _top_pairs(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in", dest="in_path", type=Path, required=True, help="Input strategies.jsonl")
+    ap.add_argument("--in", dest="in_path", type=Path, required=False, help="Input strategies.jsonl")
+    ap.add_argument(
+        "--team-batch-dir",
+        type=Path,
+        default=None,
+        help="Load strategies from outputs/<tag>/batch_<leader_batch_id>/ produced by generate_team_data",
+    )
     ap.add_argument(
         "--out-dir",
         type=Path,
@@ -140,14 +197,38 @@ def main() -> int:
     ap.add_argument("--duplicate-threshold", type=float, default=0.95)
     ap.add_argument("--max-duplicate-pairs", type=int, default=50)
     ap.add_argument(
-        "--no-sentence-transformers",
+        "--embedding",
+        choices=["auto", "tfidf", "st", "qwen3"],
+        default="auto",
+        help="Embedding backend for cosine similarity",
+    )
+    ap.add_argument(
+        "--qwen-model",
+        type=str,
+        default="Qwen/Qwen3-Embedding-0.6B",
+        help="Hugging Face model id/path for Qwen3 embedding",
+    )
+    ap.add_argument("--qwen-batch-size", type=int, default=16)
+    ap.add_argument("--qwen-max-length", type=int, default=512)
+    ap.add_argument(
+        "--qwen-trust-remote-code",
         action="store_true",
-        help="Force TF-IDF even if sentence-transformers is installed",
+        help="Pass trust_remote_code=True when loading the Qwen model",
     )
 
     args = ap.parse_args()
 
-    rows = _read_jsonl(args.in_path)
+    if args.team_batch_dir is None and args.in_path is None:
+        raise SystemExit("Must pass --in strategies.jsonl or --team-batch-dir")
+    if args.team_batch_dir is not None and args.in_path is not None:
+        raise SystemExit("Pass only one of --in or --team-batch-dir")
+
+    if args.team_batch_dir is not None:
+        from llmsat.utils.team_batch_io import load_team_strategies_from_batch_dir
+
+        rows = load_team_strategies_from_batch_dir(args.team_batch_dir)
+    else:
+        rows = _read_jsonl(args.in_path)
     if not rows:
         raise SystemExit("No rows read from input")
 
@@ -177,7 +258,25 @@ def main() -> int:
     df["strategy_text"] = df["strategy_text"].fillna("")
 
     texts = df["strategy_text"].tolist()
-    emb = _embed_texts(texts, prefer_sentence_transformers=not args.no_sentence_transformers)
+    if args.embedding == "tfidf":
+        emb = _embed_texts(texts, prefer_sentence_transformers=False)
+    elif args.embedding == "st":
+        emb = _embed_texts(texts, prefer_sentence_transformers=True)
+        if not emb.method.startswith("sentence-transformers/"):
+            raise SystemExit(
+                "sentence-transformers embedding requested, but it is not available. Install 'sentence-transformers' or use --embedding tfidf/qwen3."
+            )
+    elif args.embedding == "qwen3":
+        emb = _embed_qwen3(
+            texts,
+            model_id=str(args.qwen_model),
+            batch_size=int(args.qwen_batch_size),
+            max_length=int(args.qwen_max_length),
+            trust_remote_code=bool(args.qwen_trust_remote_code),
+        )
+    else:
+        # auto
+        emb = _embed_texts(texts, prefer_sentence_transformers=True)
 
     sim_all = cosine_similarity(emb.matrix)
 

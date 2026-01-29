@@ -59,15 +59,20 @@ def _read_jsonl(path: Path) -> List[dict]:
 
 
 def _render_coder_prompt(template: str, algorithm_text: str) -> str:
-    # Avoid .format(): template includes literal braces in baseline snippet.
-    if "{algorithm}" not in template:
-        raise ValueError("Coder template missing '{algorithm}' placeholder")
-    return template.replace("{algorithm}", algorithm_text)
+    # Avoid .format(): templates include literal braces in baseline snippets.
+    if "{algorithm}" in template:
+        return template.replace("{algorithm}", algorithm_text)
+    if "ALGORITHM_PLACEHOLDER" in template:
+        return template.replace("ALGORITHM_PLACEHOLDER", algorithm_text)
+    raise ValueError(
+        "Coder template missing placeholder: expected '{algorithm}' or 'ALGORITHM_PLACEHOLDER'"
+    )
 
 
 @dataclass(frozen=True)
 class CompileConfig:
     strategies_path: Path
+    team_batch_dir: Optional[Path]
     base_solver: Path
     registry_path: Path
     code_prompt_template_path: Path
@@ -77,6 +82,7 @@ class CompileConfig:
     temperature: float
     max_strategies: Optional[int]
     only_members: bool
+    use_batch_codes: bool
 
 
 def _compile_solver(solver_path: Path, jobs: int = 8) -> tuple[bool, str]:
@@ -115,21 +121,38 @@ def _compile_solver(solver_path: Path, jobs: int = 8) -> tuple[bool, str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--strategies", type=Path, required=True, help="strategies.jsonl")
+    ap.add_argument("--strategies", type=Path, required=False, help="strategies.jsonl")
+    ap.add_argument(
+        "--team-batch-dir",
+        type=Path,
+        default=None,
+        help="Load strategies (and optionally codes) from outputs/<tag>/batch_<leader_batch_id>/ produced by generate_team_data",
+    )
     ap.add_argument("--base-solver", type=Path, default=Path("solvers/base"))
     ap.add_argument("--registry", type=Path, default=Path("solvers/base/function_registry.yaml"))
-    ap.add_argument("--code-template", type=Path, default=Path("data/prompts/kissat_mab_code.txt"))
+    ap.add_argument("--code-template", type=Path, default=Path("data/prompts/coder_prompt.txt"))
     ap.add_argument("--out-dir", type=Path, default=Path("outputs/compile_rate"))
     ap.add_argument("--model", type=str, default=None)
     ap.add_argument("--system-message", type=str, default=None)
     ap.add_argument("--temperature", type=float, default=0.2)
     ap.add_argument("--max-strategies", type=int, default=None)
     ap.add_argument("--only-members", action="store_true", help="Compile only member strategies")
+    ap.add_argument(
+        "--use-batch-codes",
+        action="store_true",
+        help="When using --team-batch-dir, compile existing code_output_*.txt instead of calling the coder model",
+    )
 
     args = ap.parse_args()
 
+    if args.team_batch_dir is None and args.strategies is None:
+        raise SystemExit("Must pass --strategies JSONL or --team-batch-dir")
+    if args.team_batch_dir is not None and args.strategies is not None:
+        raise SystemExit("Pass only one of --strategies or --team-batch-dir")
+
     cfg = CompileConfig(
-        strategies_path=args.strategies,
+        strategies_path=args.strategies or Path(""),
+        team_batch_dir=args.team_batch_dir,
         base_solver=args.base_solver,
         registry_path=args.registry,
         code_prompt_template_path=args.code_template,
@@ -139,9 +162,21 @@ def main() -> int:
         temperature=float(args.temperature),
         max_strategies=args.max_strategies,
         only_members=bool(args.only_members),
+        use_batch_codes=bool(args.use_batch_codes),
     )
 
-    rows = _read_jsonl(cfg.strategies_path)
+    if cfg.team_batch_dir is not None:
+        from llmsat.utils.team_batch_io import load_team_codes_from_batch_dir, load_team_strategies_from_batch_dir
+
+        rows = load_team_strategies_from_batch_dir(cfg.team_batch_dir)
+        batch_codes = load_team_codes_from_batch_dir(cfg.team_batch_dir) if cfg.use_batch_codes else {}
+        if cfg.use_batch_codes and not batch_codes:
+            raise SystemExit(
+                "--use-batch-codes set but no code outputs found. Ensure code generation completed and code_output_*.txt files exist."
+            )
+    else:
+        rows = _read_jsonl(cfg.strategies_path)
+        batch_codes = {}
     if cfg.only_members:
         rows = [r for r in rows if r.get("type") == "member"]
 
@@ -184,13 +219,19 @@ def main() -> int:
                 shutil.rmtree(solver_copy)
             shutil.copytree(cfg.base_solver, solver_copy)
 
-            prompt = _render_coder_prompt(template, algorithm_text)
-            llm_raw = get_response_from_chatgpt(
-                prompt=prompt,
-                system_message=cfg.system_message,
-                model=cfg.model,
-                temperature=cfg.temperature,
-            )
+            if cfg.use_batch_codes:
+                candidates = batch_codes.get(sid) or []
+                if not candidates:
+                    raise RuntimeError(f"No batch code available for algorithm_id={sid}")
+                llm_raw = str(candidates[0].get("code") or "")
+            else:
+                prompt = _render_coder_prompt(template, algorithm_text)
+                llm_raw = get_response_from_chatgpt(
+                    prompt=prompt,
+                    system_message=cfg.system_message,
+                    model=cfg.model,
+                    temperature=cfg.temperature,
+                )
 
             parsed = injector.parse_llm_output(llm_raw, expected_function=TARGET_FUNCTION)
             injector.replace_function(solver_copy, parsed.function_name, parsed.code)
