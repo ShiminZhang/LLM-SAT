@@ -3,6 +3,8 @@ You are an expert in writing C code for Kissat-based SAT Solvers and your task i
 ### Requirements
 - Output complete function with signature and body
 - Must compile with existing Kissat codebase
+- Make sure not to use C code which doesn't compile (such as static unsigned, instead opt for #define macros).
+
 
 ### API Reference (Supplement to restart.c)
 
