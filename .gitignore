@@ -5,9 +5,10 @@ data/benchmarks/*
 !data/benchmarks/**/*.uri
 data/results/
 logs/
-*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
 solvers/base
 solvers/test
 .env
-*.md
 *.log

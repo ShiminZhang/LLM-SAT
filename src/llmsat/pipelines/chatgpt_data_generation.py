@@ -461,8 +461,8 @@ def main():
         designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
         variant_prompt_path="./data/prompts/variant_prompt.txt",
         code_prompt_template_path="./data/prompts/coder_prompt.txt",
-        n_leaders=5,
-        m_variants_per_leader=8,
+        n_leaders=3,
+        m_variants_per_leader=2,
         model="gpt-4o",
     )
 
@@ -507,7 +507,7 @@ def generate_team_data(
     
     leaders_output_path = os.path.join(get_batch_output_dir(generation_tag, batch_id=leader_batch_id), "leaders_output.txt")
     download_batch_outputs(leader_batch_id, leaders_output_path)
-    
+
     # Parse and store Team Leaders
     leader_ids = []
     leader_target_functions = {}  # Map leader_id -> target_function for member inheritance
