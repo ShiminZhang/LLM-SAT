@@ -4,7 +4,7 @@ Here is the given strategy that you are creating a variant of:
 
 {leader_algorithm}
 
-Generate a variant that modifies hyperparameters, thresholds, or other minor tweaks while preserving the core idea. Your algorithm should have the potential to outperform the given strategy by tuning the strategy. Output in the same JSON format but without the target function field.
+Generate a variant of this algorithm that slightly modifies the internal structure of the algorithm, making tweaks to a part of the algorithm that can be improved upon. Include in your reason the step of the original algorithm.
 
 ### Required Output JSON
 {

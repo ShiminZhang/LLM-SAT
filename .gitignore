@@ -17,3 +17,5 @@ outputs/benchmark/*
 demo.txt
 *.pdf
 __pycache__/
+
+.cache/huggingface/

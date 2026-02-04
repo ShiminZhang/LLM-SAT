@@ -1,29 +1,24 @@
-You are designing a novel and diverse heuristic strategy on top of the Kissat-MAB solver which will optimize performance on the SAT Competition benchmakrs (PAR2 scoring).
+You are designing a novel and diverse heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).
 
-This algorithm (conceptual, not code) should modify one of the target functions below. Your algorithm should demonstrate the same level of innovation and diversity as past SAT competition winners.
+This algorithm (conceptual, not code) should modify the target function below. Your algorithm should demonstrate the same level of innovation and diversity as past SAT competition winners.
 
-### Target Functions
+### Target Function
 
-Choose exactly one function to modify:
-
-{function_names}
-
-### Competition Winner Strategies (Inspiration)
-
-The following are strategies from past SAT Competition winners. Your algorithm should be equally as creative and distinct and implementable as them.
-
-{competition_winners_and_descriptions}
+kissat_restarting
 
 ### Output Format (JSON only)
 
 ```json
 {
 	"name": "Brief algorithm name (<=6 words)",
+
 	"algorithm": "Complete algorithmic description. Be specific and quantitative.",
+
 	"reason": "1-2 brief lines about why this improves performance.",
+
 	"target_function": "exact_function_name_from_list_above"
 }
 
-IMPORTANT: target_function must exactly match one of the target function names listed above (no parens).
+IMPORTANT: target_function must exactly match the target function name listed above (no parens).
 
 Your algorithm will be implemented by a coder model. Make sure they have the requisite information in your algorithmic description to be able to implement it faithfully.
