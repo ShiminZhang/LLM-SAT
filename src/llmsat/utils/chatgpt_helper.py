@@ -28,7 +28,7 @@ def get_response_from_chatgpt(prompt: str, system_message: Optional[str] = None,
     Single-turn call to OpenAI Responses API.
     Returns the text output.
     """
-    logger.info(f"Getting response from ChatGPT for prompt: {prompt}")
+    # logger.info(f"Getting response from ChatGPT for prompt: {prompt}")
     client = _get_openai_client()
     chosen_model = model or os.environ.get("OPENAI_MODEL", "gpt-4.1")
     messages = []
@@ -41,7 +41,7 @@ def get_response_from_chatgpt(prompt: str, system_message: Optional[str] = None,
         input=messages,
         temperature=temperature,
     )
-    logger.info(f"Response from ChatGPT: {resp}")
+    # logger.info(f"Response from ChatGPT: {resp}")
     # Try multiple extraction strategies for robustness across SDK versions
     text = getattr(resp, "output_text", None)
     if text:

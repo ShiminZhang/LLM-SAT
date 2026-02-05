@@ -37,6 +37,7 @@ from llmsat.llmsat import (
 from llmsat.utils.paths import get_solver_dir, get_solver_solving_times_path, get_algorithm_dir,get_solver_result_dir
 from llmsat.utils.utils import wrap_command_to_slurm, wrap_command_to_slurm_array
 from llmsat.code_injection import FunctionRegistry, FunctionInjector
+from llmsat.debugging import CompilerDebugger
 
 logger = get_logger(__name__)
 
@@ -319,6 +320,137 @@ class EvaluationPipeline:
             return None
         return extracted
 
+    def _compile_with_debugging(
+        self,
+        solver_path: str, #new_solver_path = get_solver_dir(code_result.algorithm_id, code_result.id)
+        current_code: str, #new_code = parsed.code
+        target_function: str, #target_function = algorithm.target_function
+        max_debug_rounds: int = 3,
+        debug_model: str = "gpt-5.2",
+    ) -> tuple:
+        """
+        Compile solver with optional LLM debugging on failure.
+        
+        This method handles the compile → debug → recompile loop:
+        1. Inject current code and run make
+        2. If make fails and we haven't exceeded max_debug_rounds, ask LLM to fix
+        3. Repeat with the fixed code
+        
+        Args:
+            solver_path: Path to the solver directory
+            current_code: Initial function code to compile
+            target_function: Name of the target function
+            max_debug_rounds: Maximum number of debugging attempts (default: 3)
+            debug_model: LLM model for debugging (default: gpt-5.2)
+            
+        Returns:
+            Tuple of (success: bool, final_code: str or None, all_logs: list)
+        """
+        debugger = CompilerDebugger(model=debug_model)
+        func_info = self.registry[target_function]
+        modified_file_path = f"{solver_path}/{func_info.file}"
+        
+        try:
+            with open(modified_file_path, "r") as f:
+                original_file_content = f.read()
+        except FileNotFoundError:
+            logger.error(f"Target file not found: {modified_file_path}")
+            return (False, None, [f"[ERROR] Target file not found: {modified_file_path}"])
+        
+        all_logs = []
+        code_to_try = current_code
+        
+        for attempt in range(max_debug_rounds + 1):
+            attempt_header = f"\n{'='*60}\n=== ATTEMPT {attempt + 1} of {max_debug_rounds + 1} {'='*30}\n{'='*60}\n"
+            all_logs.append(attempt_header)
+
+            try:
+                with open(modified_file_path, "w") as f:
+                    f.write(original_file_content)
+            except Exception as e:
+                logger.error(f"Failed to restore file on attempt {attempt + 1}: {e}")
+                all_logs.append(f"[ERROR] Failed to restore file: {e}")
+                return (False, None, all_logs)
+            
+            try:
+                logger.info(f"Attempt {attempt + 1}: Injecting code into {solver_path}")
+                self.injector.replace_function(solver_path, target_function, code_to_try)
+                logger.info(f"Attempt {attempt + 1}: Injected code into {solver_path}")
+                all_logs.append(f"[INFO] Injected {target_function} into solver")
+            except Exception as e:
+                logger.error(f"Failed to inject code on attempt {attempt + 1}: {e}")
+                all_logs.append(f"[ERROR] Failed to inject code: {e}")
+                return (False, None, all_logs)
+            
+            if attempt == 0:
+                all_logs.append("\n--- ./configure ---")
+                configure_proc = subprocess.run(
+                    ["./configure"],
+                    cwd=solver_path,
+                    capture_output=True,
+                    text=True,
+                )
+                all_logs.append(f"[stdout]\n{configure_proc.stdout or '(empty)'}")
+                all_logs.append(f"[stderr]\n{configure_proc.stderr or '(empty)'}")
+                
+                if configure_proc.returncode != 0:
+                    logger.error(f"Configure failed on attempt {attempt + 1}")
+                    all_logs.append(f"[FAILED] Configure returned {configure_proc.returncode}")
+                    return (False, None, all_logs)
+                all_logs.append("[OK] Configure succeeded")
+            
+            all_logs.append("\n--- make -j1 ---")
+            make_proc = subprocess.run(
+                ["make", "-j1"],
+                cwd=solver_path,
+                capture_output=True,
+                text=True,
+            )
+            all_logs.append(f"[stdout]\n{make_proc.stdout or '(empty)'}")
+            all_logs.append(f"[stderr]\n{make_proc.stderr or '(empty)'}")
+            
+            if make_proc.returncode == 0:
+                logger.info(f"Build succeeded on attempt {attempt + 1}")
+                all_logs.append("[SUCCESS] Build completed successfully!")
+                return (True, code_to_try, all_logs)
+            
+            all_logs.append(f"[FAILED] Make returned {make_proc.returncode}")
+            
+            if attempt >= max_debug_rounds:
+                logger.warning(f"Build failed after {attempt + 1} attempts, no more debugging rounds")
+                all_logs.append("\n[FINAL] No more debugging rounds available")
+                break
+            
+            try:
+                with open(modified_file_path, "r") as f:
+                    current_file_content = f.read()
+            except FileNotFoundError:
+                logger.error(f"Modified file not found: {modified_file_path}")
+                current_file_content = ""
+            
+            all_logs.append("\n--- LLM Debugging ---")
+            logger.info(f"Build failed on attempt {attempt + 1}, requesting LLM fix...")
+            all_logs.append(f"[INFO] Requesting fix from LLM (model: {debug_model})")
+            
+            fixed_code = debugger.suggest_fix(
+                failing_code=code_to_try,
+                compiler_stderr=make_proc.stderr or "",
+                current_file_content=current_file_content,
+                function_name=target_function,
+                function_signature=func_info.signature,
+            )
+            
+            if fixed_code is None:
+                logger.warning(f"Debugger could not suggest a fix, stopping")
+                all_logs.append("[FAILED] LLM could not suggest a fix")
+                break
+            
+            all_logs.append(f"[OK] LLM suggested fix")
+            code_to_try = fixed_code
+            logger.info(f"Debugging attempt {attempt + 1}: trying LLM-suggested fix")
+        
+        return (False, None, all_logs)
+
     def build_solver(self, code_result: CodeResult) -> str: # if success, return the solver path, otherwise return None
         logger.info(f"Building solver for code_result={code_result}")
 
@@ -345,74 +477,51 @@ class EvaluationPipeline:
 
         # Copy base solver to new location
         new_solver_path = get_solver_dir(code_result.algorithm_id, code_result.id)
+        # logger.info(f"new_solver_path: {new_solver_path}")
+
         logger.info(f"Building solver at {new_solver_path} for algorithm={code_result.algorithm_id}, code={code_result.id}")
         if os.path.exists(new_solver_path):
             shutil.rmtree(new_solver_path)
         shutil.copytree(BASE_SOLVER_PATH, new_solver_path)
 
-        # Inject the new function code using FunctionInjector
-        try:
-            self.injector.replace_function(new_solver_path, target_function, new_code)
-            logger.info(f"Injected {target_function} into {new_solver_path}")
-        except (KeyError, FileNotFoundError, ValueError) as e:
-            logger.error(f"Failed to inject code: {e}")
-            return None
-
-        # Get the modified file path for logging
+        # Compile with debugging support
+        # Note: _compile_with_debugging handles injection, configure, make, and LLM debugging
         func_info = self.registry[target_function]
         modified_file = f"{new_solver_path}/{func_info.file}"
-
-        # try compile the solver
+        algorithm_dir = get_algorithm_dir(code_result.algorithm_id)
+        
         try:
-            logger.info(f"Compiling solver at {new_solver_path}")
-            configure_proc = subprocess.run(
-                ["./configure"],
-                cwd=new_solver_path,
-                capture_output=True,
-                text=True,
+            logger.info(f"Compiling solver at {new_solver_path} with debugging support")
+            build_success, final_code, all_logs = self._compile_with_debugging(
+                solver_path=new_solver_path,
+                current_code=new_code,
+                target_function=target_function,
+                max_debug_rounds=1,  # TODO: make configurable
+                debug_model="gpt-5.2",  # TODO: make configurable
             )
-            make_proc = None
-            if configure_proc.returncode == 0:
-                make_proc = subprocess.run(
-                    ["make", "-j1"],
-                    cwd=new_solver_path,
-                    capture_output=True,
-                    text=True,
-                )
-                build_success = make_proc.returncode == 0
-            else:
-                build_success = False
-            # print(build_success)
-            # exit()
-            # Aggregate logs from both phases (always record)
-            logs = []
-            logs.append("=== ./configure stdout ===\n" + (configure_proc.stdout or ""))
-            logs.append("=== ./configure stderr ===\n" + (configure_proc.stderr or ""))
-            if make_proc is not None:
-                logs.append("=== make stdout ===\n" + (make_proc.stdout or ""))
-                logs.append("=== make stderr ===\n" + (make_proc.stderr or ""))
-            output = "\n".join(logs)
-
-            # Always write a full build log
-            algorithm_dir = get_algorithm_dir(code_result.algorithm_id)
+            
+            # Write build log
+            output = "\n".join(all_logs)
             build_log_path = f"{algorithm_dir}/code_{code_result.id}.build.log"
             with open(build_log_path, "w") as f:
                 f.write(output)
             logger.info(f"Wrote build log to {build_log_path}")
-            # also copy the modified source file to the algorithm directory
+            
+            # Copy the modified source file to the algorithm directory
             modified_file_name = os.path.basename(func_info.file)
             shutil.copy2(modified_file, f"{algorithm_dir}/code_{code_result.id}.{modified_file_name}")
             logger.info(f"Copied {modified_file_name} to {algorithm_dir}/code_{code_result.id}.{modified_file_name}")
-
+            
             if not build_success:
-                algorithm_dir = get_algorithm_dir(code_result.algorithm_id)
                 failed_log_path = f"{algorithm_dir}/code_{code_result.id}.build_failed.log"
                 with open(failed_log_path, "w") as f:
                     f.write(output)
                 logger.warning(f"Build failed for solver at {new_solver_path}, output saved to {failed_log_path}")
-            # if build_success remains True, proceed below
+                
         except Exception as e:
+            logger.error(f"Compilation with debugging failed: {e}")
             build_success = False
+            
         if build_success:
             new_solver_bin_path = f"{new_solver_path}/build/kissat"
             os.makedirs(new_solver_path, exist_ok=True)
@@ -424,8 +533,7 @@ class EvaluationPipeline:
             return new_solver_path
         else:
             logger.warning(f"Build failed for solver at {new_solver_path}")
-            return None
-        return 
+            return None 
 
     def slurm_run_evaluate(self, solver_path: str, benchmark_path: str, result_dir: str, max_jobs: int = 200) -> List[int]:
         """
@@ -568,6 +676,7 @@ exit $EXIT_CODE
         """Run evaluation for all configured components."""
         logger.info(f"Running evaluation for algorithm {algorithm_id}")
         algorithm = self.read_algorithm(algorithm_id)
+        # logger.info(f"algorithm: {algorithm}")
         os.makedirs(f"solvers/algorithm_{algorithm_id}", exist_ok=True)
         code_id_list = self.generate_or_read_code(algorithm) # actually should only read here, generation should be done in a separate process
         logger.info(f"Found {len(code_id_list)} code ids to evaluate for algorithm {algorithm_id}")

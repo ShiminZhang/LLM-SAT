@@ -6,6 +6,7 @@ data/benchmarks/*
 data/results/
 logs/
 *.pyc
+__pycache__/
 solvers/base
 solvers/test
 .env
