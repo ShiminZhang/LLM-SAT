@@ -1,20 +1,37 @@
 #!/usr/bin/env python3
-"""LLM-judge similarity sanity check.
+"""LLM-judge similarity sanity check (pair sampling + JSONL output).
 
-Purpose
-- Provide an alternative to cosine similarity by asking an LLM to judge whether
-  two strategies are "the same idea" vs materially different.
-- Intended as a cheap-ish spot check: sample a limited number of pairs.
+This script provides a qualitative check alongside cosine similarity.
+Instead of relying on embeddings, it asks an LLM whether two strategies are
+"the same idea" vs materially different, producing a score in [0, 1] plus a
+brief rationale.
 
-Input
-- strategies JSONL produced by scripts/generate_diverse_batch.py
+When to use:
+- Spot-check runs where cosine is high/compressed and you want a stronger signal.
+- Validate that "within-team" pairs look more similar than "cross-team" pairs.
+- Escalate suspicious near-duplicates before investing in compilation/evals.
 
-Output
-- JSONL of judged pairs with numeric score in [0,1] and short rationale.
+Prompt:
+Uses a template file (default: data/prompts/judge_similarity_prompt.txt) with
+placeholders like {{A_NAME}}, {{A_ALGORITHM}}, {{B_NAME}}, {{B_ALGORITHM}}.
 
-Notes
-- This is not meant to replace embedding-based metrics; it is a sanity check.
+Outputs:
+Writes JSONL where each line includes:
+- pair identifiers (pair_id / ids / kind)
+- judge fields: similarity in [0,1], same_family boolean, rationale
+
+Notes:
+- This is *not* a replacement for embedding-based metrics; treat it as a sanity check.
 - Keep temperature low (0.0–0.2) for consistency.
+- Use --resume to append new samples without duplicating previously judged pairs.
+
+Examples:
+Judge sampled pairs from a team batch directory:
+    python scripts/llm_judge_similarity.py \
+        --team-batch-dir outputs/controlled_mutation/batch_batch_<...> \
+        --out outputs/controlled_mutation/judge/judged_pairs.jsonl \
+        --per-kind 50 --seed 0 --resume \
+        --model gpt-5.2
 """
 
 from __future__ import annotations

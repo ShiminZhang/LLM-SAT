@@ -1,16 +1,44 @@
 #!/usr/bin/env python3
-"""Calibrate cosine-similarity thresholds on *leaders*.
+"""Calibrate leader–leader cosine similarity (optionally with LLM judging).
 
-- This script embeds leader strategies, finds (a) most-similar leader pair and
-  (b) most-different leader pair, and reports their cosine similarities.
-- Optionally escalates "suspiciously similar" pairs to an LLM judge (e.g. GPT-5.2).
+This script is a *leader-only* diagnostic:
+- Embed leader strategies with a chosen embedding model (typically Qwen3-Embedding-8B).
+- Compute leader–leader cosine similarities.
+- Report extrema (most similar / most different) and top-k lists.
+- Optionally send selected pairs to an LLM judge (recommended model: GPT-5.2) to
+    sanity-check whether high cosine actually means “same family”.
 
-Typical usage (Slurm recommended for 8B):
-  python scripts/calibrate_leader_similarity.py \
-    --team-batch-dir outputs/<tag>/batch_<leader_batch_id> \
-    --qwen-model Qwen/Qwen3-Embedding-8B \
-    --out outputs/<tag>/calibration/qwen8b_leaders.json
+Use this before (or alongside) diversity analysis to understand cosine
+"compression" for a run tag. It helps answer questions like:
+- Are leaders truly distinct, or just paraphrases?
+- For this embedding model, what cosine range is “meaningfully different”?
 
+How many judge rows should I expect?
+If there are N leaders, there are at most N*(N-1)/2 unique leader pairs.
+The number of judged rows depends on:
+- --judge (enabled/disabled)
+- --judge-scope (which pair sets to judge)
+- --top-k (how many pairs are included in the top lists)
+
+Example: N=5 leaders => 10 total pairs, so "scope=all" can only yield 10 rows.
+Example: N=10 leaders => 45 total pairs; with top-k=10, you may see ~20 judged
+pairs (10 most similar + 10 most different), not all 45.
+
+Usage:
+GPU (recommended for 8B, via Slurm wrapper):
+    sbatch scripts/slurm_calibrate_qwen8b_leaders.sh \
+        outputs/<tag>/batch_batch_<...> <tag> \
+        --include-distribution \
+        --judge --judge-model gpt-5.2 --judge-scope all --top-k 10
+
+CPU (slow for 8B; mainly for debugging):
+    python scripts/calibrate_leader_similarity.py \
+        --team-batch-dir outputs/<tag>/batch_batch_<...> \
+        --allow-cpu --top-k 5
+
+Output:
+Writes a JSON report (see --out) containing cosines, selected pairs, and any
+LLM judge results.
 """
 
 from __future__ import annotations
@@ -196,6 +224,23 @@ def _topk_pairs(sim: np.ndarray, k: int, largest: bool) -> List[tuple[int, int, 
     return pairs[:k]
 
 
+def _all_pairs(sim: np.ndarray) -> List[tuple[int, int, float]]:
+    n = sim.shape[0]
+    pairs: List[tuple[int, int, float]] = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            pairs.append((i, j, float(sim[i, j])))
+    return pairs
+
+
+def _cosine_percentiles(values: List[float], percentiles: List[float]) -> Dict[str, float]:
+    if not values:
+        return {str(p): float("nan") for p in percentiles}
+    arr = np.asarray(values, dtype=np.float64)
+    qs = np.quantile(arr, np.asarray(percentiles, dtype=np.float64) / 100.0, method="linear")
+    return {str(p): float(q) for p, q in zip(percentiles, qs)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -240,6 +285,22 @@ def main() -> int:
         type=int,
         default=5,
         help="Include top-k most similar and top-k most different leader pairs",
+    )
+    ap.add_argument(
+        "--include-distribution",
+        action="store_true",
+        help="Include full leader-leader cosine distribution summary (percentiles, mean/std) in the report",
+    )
+    ap.add_argument(
+        "--dump-all-pairs",
+        action="store_true",
+        help="Include every leader-leader pair (ids/names/cosine) in the report, sorted by cosine desc",
+    )
+    ap.add_argument(
+        "--dump-all-pairs-max",
+        type=int,
+        default=5000,
+        help="Safety limit: only dump all pairs if num_pairs <= this (default: 5000)",
     )
     ap.add_argument(
         "--pair",
@@ -345,6 +406,11 @@ def main() -> int:
             "most_different": [pack_pair(i, j, s) for (i, j, s) in top_diff],
         },
         "manual_pairs": [],
+        "distribution": {
+            "included": bool(args.include_distribution),
+            "dump_all_pairs": bool(args.dump_all_pairs),
+            "dump_all_pairs_max": int(args.dump_all_pairs_max),
+        },
         "judge": {
             "enabled": bool(args.judge),
             "model": str(args.judge_model),
@@ -352,6 +418,35 @@ def main() -> int:
             "escalate_above": float(args.escalate_above),
         },
     }
+
+    # Optional: include distribution summary and/or all pairs
+    if args.include_distribution or args.dump_all_pairs:
+        all_pairs = _all_pairs(sim)
+        cosines = [s for (_, _, s) in all_pairs]
+
+        if args.include_distribution:
+            pct_list = [0, 1, 5, 10, 25, 50, 75, 90, 95, 99, 100]
+            report["distribution"].update(
+                {
+                    "pair_count": int(len(cosines)),
+                    "min": float(np.min(cosines)) if cosines else float("nan"),
+                    "max": float(np.max(cosines)) if cosines else float("nan"),
+                    "mean": float(np.mean(cosines)) if cosines else float("nan"),
+                    "std": float(np.std(cosines)) if cosines else float("nan"),
+                    "percentiles": _cosine_percentiles(cosines, pct_list),
+                }
+            )
+
+        if args.dump_all_pairs:
+            if len(cosines) <= int(args.dump_all_pairs_max):
+                packed = [pack_pair(i, j, s) for (i, j, s) in all_pairs]
+                packed.sort(key=lambda p: float(p.get("cosine", 0.0)), reverse=True)
+                report["distribution"]["all_pairs_sorted_by_cosine_desc"] = packed
+            else:
+                report["distribution"]["all_pairs_skipped"] = True
+                report["distribution"]["all_pairs_skip_reason"] = (
+                    f"pair_count={len(cosines)} exceeds dump_all_pairs_max={int(args.dump_all_pairs_max)}"
+                )
 
     if args.pair:
         for a_id, b_id in args.pair:
@@ -446,6 +541,14 @@ def main() -> int:
     print(f"Wrote calibration report to: {out}")
     print(f"Most similar leaders cosine: {report['extrema']['most_similar']['cosine']:.4f}")
     print(f"Most different leaders cosine: {report['extrema']['most_different']['cosine']:.4f}")
+
+    if report.get("distribution", {}).get("included"):
+        p = report["distribution"].get("percentiles") or {}
+        if "50" in p and "90" in p and "99" in p:
+            print(
+                "Leader-leader cosine percentiles: "
+                f"p50={float(p['50']):.4f} p90={float(p['90']):.4f} p99={float(p['99']):.4f}"
+            )
 
     return 0
 

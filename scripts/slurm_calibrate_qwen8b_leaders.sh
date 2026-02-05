@@ -11,6 +11,8 @@
 #SBATCH --time=01:00:00
 #SBATCH --mail-user=pnguyen337@gatech.edu
 #SBATCH --mail-type=ALL
+#SBATCH --export=ALL
+
 
 set -euo pipefail
 cd "$SLURM_SUBMIT_DIR"

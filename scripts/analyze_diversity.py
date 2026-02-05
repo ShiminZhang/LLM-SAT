@@ -1,17 +1,48 @@
 #!/usr/bin/env python3
-"""Analyze diversity of generated strategies.
+"""Analyze embedding/cosine diversity of generated strategies.
 
-Reads a JSONL file produced by scripts/generate_diverse_batch.py and computes:
-- Embeddings for each strategy_text (Qwen3 / sentence-transformers / TF-IDF)
-- Cosine similarity distributions:
-  - leader-leader
-  - leader-member (within the same team)
-  - member-member (cross-team)
-- Near-duplicate pairs above a similarity threshold
+Use this when you have a set of generated strategies (leaders + members) and you
+want to quantify how similar they are under an embedding model.
 
-Writes:
-- outputs: diversity_report.json
-- outputs: strategy_summary.csv
+Inputs:
+Exactly one of:
+- --team-batch-dir: a directory like outputs/<tag>/batch_<batch_id>/ produced by
+    the team generation pipeline (leaders_output.txt / member_output_batch_*.txt).
+- --in: a JSONL file of strategy rows (legacy mode).
+
+Embeddings:
+--embedding chooses the backend:
+- auto: prefer sentence-transformers, fall back to TF-IDF
+- st: sentence-transformers (fast on CPU)
+- tfidf: TF-IDF baseline (fast on CPU; good smoke test)
+- qwen3: Hugging Face Qwen3 embedding model (Qwen3-Embedding-8B typically needs GPU)
+
+Metrics produced:
+Computes cosine similarity distributions for:
+- leader_leader
+- leader_member_within_team
+- member_member_within_team
+- member_member_cross_team
+- member_member_all
+and reports near-duplicate pairs above --duplicate-threshold.
+
+Outputs:
+Writes two files under --out-dir:
+- diversity_report.json : summary stats + duplicate pairs
+- strategy_summary.csv  : one row per strategy (without full text)
+
+Examples:
+CPU smoke test (fast, no GPU):
+    python scripts/analyze_diversity.py \
+        --team-batch-dir outputs/controlled_mutation/batch_batch_<...> \
+        --out-dir outputs/controlled_mutation/diversity_tfidf \
+        --embedding tfidf
+
+GPU run (Qwen3-Embedding-8B) on Slurm:
+    sbatch scripts/slurm_analyze_diversity_qwen8b.sh \
+        outputs/controlled_mutation/batch_batch_<...> \
+        outputs/controlled_mutation/diversity_qwen8b \
+        --duplicate-threshold 0.97
 """
 
 from __future__ import annotations
@@ -104,6 +135,8 @@ def _embed_qwen3(
     batch_size: int = 16,
     max_length: int = 512,
     trust_remote_code: bool = False,
+    dtype: str = "float32",
+    require_cuda: bool = False,
 ) -> EmbeddingResult:
     """Embed texts using a Qwen3 embedding model via Hugging Face transformers.
 
@@ -113,15 +146,28 @@ def _embed_qwen3(
     import torch
     from transformers import AutoModel, AutoTokenizer
 
+    if require_cuda and not torch.cuda.is_available():
+        raise RuntimeError("CUDA not available. Run on a GPU node or omit --qwen-require-cuda.")
+
+    torch_dtype: Any
+    if dtype == "float16":
+        torch_dtype = torch.float16
+    elif dtype == "bfloat16":
+        torch_dtype = torch.bfloat16
+    elif dtype == "float32":
+        torch_dtype = torch.float32
+    else:
+        raise ValueError(f"Unsupported dtype: {dtype}")
+
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=trust_remote_code)
-    model = AutoModel.from_pretrained(model_id, trust_remote_code=trust_remote_code)
+    model = AutoModel.from_pretrained(model_id, trust_remote_code=trust_remote_code, torch_dtype=torch_dtype)
     model.eval()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
     all_vecs: List[np.ndarray] = []
-    with torch.no_grad():
+    with torch.inference_mode():
         for start in range(0, len(texts), batch_size):
             batch = texts[start : start + batch_size]
             enc = tokenizer(
@@ -211,6 +257,17 @@ def main() -> int:
     ap.add_argument("--qwen-batch-size", type=int, default=16)
     ap.add_argument("--qwen-max-length", type=int, default=512)
     ap.add_argument(
+        "--qwen-dtype",
+        choices=["float16", "bfloat16", "float32"],
+        default="float32",
+        help="Torch dtype for Qwen3 embeddings (use float16/bfloat16 for large models like 8B)",
+    )
+    ap.add_argument(
+        "--qwen-require-cuda",
+        action="store_true",
+        help="Fail fast if CUDA is not available (recommended for Qwen3-Embedding-8B)",
+    )
+    ap.add_argument(
         "--qwen-trust-remote-code",
         action="store_true",
         help="Pass trust_remote_code=True when loading the Qwen model",
@@ -273,6 +330,8 @@ def main() -> int:
             batch_size=int(args.qwen_batch_size),
             max_length=int(args.qwen_max_length),
             trust_remote_code=bool(args.qwen_trust_remote_code),
+            dtype=str(args.qwen_dtype),
+            require_cuda=bool(args.qwen_require_cuda),
         )
     else:
         # auto
@@ -329,6 +388,25 @@ def main() -> int:
                 continue
             member_member_cross_vals.append(float(sim_all[ia, ib]))
 
+    # member-member within the same team (same leader)
+    member_member_within_vals: List[float] = []
+    for lid, mids in members_by_leader.items():
+        idxs: List[int] = []
+        for mid in mids:
+            mi = idx_by_id.get(mid)
+            if mi is not None:
+                idxs.append(mi)
+        if len(idxs) < 2:
+            continue
+        sub = sim_all[np.ix_(idxs, idxs)]
+        member_member_within_vals.extend(_upper_triangle_pairs(sub))
+
+    # member-member overall (includes within + cross)
+    member_member_all_vals: List[float] = []
+    if member_idx and len(member_idx) >= 2:
+        member_sim = sim_all[np.ix_(member_idx, member_idx)]
+        member_member_all_vals = _upper_triangle_pairs(member_sim)
+
     # Duplicates on full set
     dup_pairs = _top_pairs(
         ids=id_list,
@@ -339,7 +417,8 @@ def main() -> int:
     )
 
     report = {
-        "input": str(args.in_path),
+        "input": str(args.in_path) if args.in_path is not None else None,
+        "team_batch_dir": str(args.team_batch_dir) if args.team_batch_dir is not None else None,
         "counts": {
             "total": int(len(rows)),
             "leaders": int(len(leaders)),
@@ -349,7 +428,9 @@ def main() -> int:
         "similarity": {
             "leader_leader": _describe(leader_leader_vals),
             "leader_member_within_team": _describe(leader_member_vals),
+            "member_member_within_team": _describe(member_member_within_vals),
             "member_member_cross_team": _describe(member_member_cross_vals),
+            "member_member_all": _describe(member_member_all_vals),
         },
         "duplicates": {
             "threshold": float(args.duplicate_threshold),
