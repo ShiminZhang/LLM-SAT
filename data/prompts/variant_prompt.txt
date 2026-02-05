@@ -4,8 +4,11 @@ Here is the given strategy that you are creating a variant of:
 
 {leader_algorithm}
 
-Generate a variant of this algorithm that slightly modifies the internal structure of the algorithm, making tweaks to a part of the algorithm that can be improved upon. Include in your reason the step of the original algorithm.
+You will be targeting a specific step within the leader algorithm. Your step will be: 
 
+{target_step_num}
+
+Generate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.
 
 ### Required Output JSON
 {
@@ -13,3 +16,5 @@ Generate a variant of this algorithm that slightly modifies the internal structu
        "algorithm": "Complete algorithmic description.",
        "reason": "Why this variant improves on the original."
 }
+
+IMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. 
