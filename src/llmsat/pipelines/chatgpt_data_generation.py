@@ -494,12 +494,12 @@ def print_generation_result(generation_tag: str):
 
 def main():
     generate_team_data(
-        generation_tag="controlled_mutation",
+        generation_tag="chatgpt_1",
         designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
         variant_prompt_path="./data/prompts/variant_prompt.txt",
-        code_prompt_template_path="./data/prompts/coder_prompt.txt",
-        n_leaders=5,
-        m_variants_per_leader=8,
+        code_prompt_template_path="./data/prompts/coder_prompt_testing.txt",
+        n_leaders=2,
+        m_variants_per_leader=5,
         model="gpt-5.2",
     )
 

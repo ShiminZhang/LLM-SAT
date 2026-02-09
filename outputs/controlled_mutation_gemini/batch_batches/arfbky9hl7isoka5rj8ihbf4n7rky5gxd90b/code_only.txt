@@ -1,0 +1,102 @@
+LEADER: Instantaneous Momentum Restarting
+=========================================
+
+bool kissat_restarting (kissat *solver) {
+  assert (solver->unassigned);
+  if (!GET_OPTION (restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered (&solver->reluctant);
+
+  const double fast_glue = AVERAGE (fast_glue);
+  const double slow_glue = AVERAGE (slow_glue);
+
+  const double last_lbd = fast_glue;
+
+  double T = 1.05;
+
+  if (last_lbd < (0.8 * fast_glue))
+    T = 1.25;
+
+  if (last_lbd > (1.2 * fast_glue))
+    T = 0.95;
+
+  return (fast_glue > T * slow_glue);
+}
+
+
+VARIANT: Smoothed Momentum Restarting
+=====================================
+
+bool kissat_restarting (kissat *solver) {
+  assert (solver->unassigned);
+  if (!GET_OPTION (restart))
+    return false;
+  if (!solver->level)
+    return false;
+  if (CONFLICTS < solver->limits.restart.conflicts)
+    return false;
+
+  if (solver->stable)
+    return kissat_reluctant_triggered (&solver->reluctant);
+
+  const double fast = AVERAGE (fast_glue);
+  const double slow = AVERAGE (slow_glue);
+
+  static uint64_t last_conflict_count = 0;
+  static unsigned lbd_history[3] = {0, 0, 0};
+  static int history_count = 0;
+
+  uint64_t current_conflicts = CONFLICTS;
+
+  if (current_conflicts < last_conflict_count) {
+      last_conflict_count = 0;
+      history_count = 0;
+  }
+
+  if (current_conflicts > last_conflict_count) {
+      lbd_history[2] = lbd_history[1];
+      lbd_history[1] = lbd_history[0];
+      lbd_history[0] = solver->lbd;
+
+      last_conflict_count = current_conflicts;
+      if (history_count < 3) history_count++;
+  }
+
+  double recent_lbd_trend = 0.0;
+  if (history_count > 0) {
+      double sum = 0.0;
+      for (int i = 0; i < history_count; i++) {
+          sum += lbd_history[i];
+      }
+      recent_lbd_trend = sum / history_count;
+  } else {
+      recent_lbd_trend = fast;
+  }
+
+  double T = 1.05;
+
+  if (recent_lbd_trend < (0.8 * fast)) {
+      T = 1.25;
+  }
+
+  if (recent_lbd_trend > (1.2 * fast)) {
+      T = 0.95;
+  }
+
+  if (slow == 0.0) return false;
+
+  bool trigger = (fast / slow) > T;
+
+  kissat_extremely_verbose (solver,
+                            "restart momentum T=%.2f trend=%.2f fast=%.2f slow=%.2f ratio=%.2f -> %s",
+                            T, recent_lbd_trend, fast, slow, fast / slow,
+                            trigger ? "restart" : "continue");
+
+  return trigger;
+}
