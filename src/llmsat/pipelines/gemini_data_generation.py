@@ -603,6 +603,101 @@ def generate_team_data(
     logger.info(f"Code generation complete for {len(all_algorithm_ids)} algorithms")
 
 
+def resume_code_collection(generation_tag: str, batch_map_path: str):
+    """
+    Resume code collection from a saved batch map after interruption.
+
+    Use this when the generation was interrupted during wait_for_all_batches()
+    but the batches have since completed on Gemini's side.
+
+    Args:
+        generation_tag: The generation tag used in the original run
+        batch_map_path: Path to the team_batch_map JSON file
+    """
+    logger.info(f"Resuming code collection for generation_tag={generation_tag}")
+
+    with open(batch_map_path, "r") as f:
+        batch_id_map = json.load(f)
+
+    leader_batch_name = batch_id_map["leader_batch_name"]
+    code_batch_names = batch_id_map.get("code_batch_names", [])
+    code_batch_to_algorithm = batch_id_map.get("code_batch_map", {})
+
+    if not code_batch_names:
+        logger.error("No code_batch_names found in batch map")
+        return
+
+    logger.info(f"Found {len(code_batch_names)} code batches to collect")
+
+    # Download and process all results
+    for i, batch_name in enumerate(code_batch_names):
+        algorithm_id = code_batch_to_algorithm.get(batch_name)
+        if not algorithm_id:
+            logger.warning(f"No algorithm_id found for batch {batch_name}")
+            continue
+
+        code_output_path = os.path.join(
+            get_batch_output_dir(generation_tag, batch_id=leader_batch_name),
+            "code_output_batches",
+            f"{batch_name.split('/')[-1]}.txt",
+        )
+
+        # Skip if already downloaded
+        if os.path.exists(code_output_path):
+            logger.info(f"[{i+1}/{len(code_batch_names)}] Already downloaded: {batch_name}")
+        else:
+            logger.info(f"[{i+1}/{len(code_batch_names)}] Downloading: {batch_name}")
+            try:
+                download_batch_outputs(batch_name, code_output_path)
+            except Exception as e:
+                logger.error(f"Failed to download {batch_name}: {e}")
+                continue
+
+        algorithm_result = get_algorithm_result(algorithm_id)
+        if algorithm_result is None:
+            logger.warning(f"Algorithm not found: {algorithm_id}")
+            continue
+
+        # Check if already processed
+        if algorithm_result.code_id_list and len(algorithm_result.code_id_list) > 0:
+            logger.info(f"Algorithm {algorithm_id[:16]}... already has code, skipping")
+            continue
+
+        with open(code_output_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    code_response = json.loads(line)
+                except Exception:
+                    continue
+
+                code_str = parse_code_response(code_response)
+                code_id = get_id(code_str)
+
+                code_result = CodeResult(
+                    id=code_id,
+                    algorithm_id=algorithm_id,
+                    code=code_str,
+                    status=CodeStatus.Generated,
+                    par2=None,
+                    last_updated=datetime.now(),
+                    build_success=NOT_INITIALIZED,
+                )
+                update_code_result(code_result)
+
+                if algorithm_result.code_id_list is None:
+                    algorithm_result.code_id_list = []
+                algorithm_result.code_id_list.append(code_id)
+
+        algorithm_result.status = AlgorithmStatus.CodeGenerated
+        update_algorithm_result(algorithm_result)
+        logger.info(f"Processed code for algorithm {algorithm_id[:16]}...")
+
+    logger.info(f"Code collection complete for {len(code_batch_names)} algorithms")
+
+
 def main():
     generate_team_data(
         generation_tag="gemini_trial1",
