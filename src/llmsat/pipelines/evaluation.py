@@ -58,9 +58,10 @@ def _get_activation_cmd() -> str:
 class EvaluationPipeline:
     """Evaluation pipeline for building and evaluating SAT solver variants."""
 
-    def __init__(self, registry_path: str = DEFAULT_REGISTRY_PATH):
+    def __init__(self, registry_path: str = DEFAULT_REGISTRY_PATH, generation_tag: str = None):
         self.registry = FunctionRegistry(registry_path)
         self.injector = FunctionInjector(self.registry, BASE_SOLVER_PATH)
+        self.generation_tag = generation_tag
         logger.info(f"Initialized FunctionRegistry with {len(self.registry)} functions: {self.registry.list_functions()}")
 
     def parse_solving_time(self, file_path: str) -> Optional[float]:
@@ -92,8 +93,12 @@ class EvaluationPipeline:
 
     def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> Optional[float]:
         """Collect evaluation results from solver logs and compute PAR2 score."""
-        solver_dir = get_solver_result_dir(algorithm_id, code_id)
-        result_path = get_solver_solving_times_path(algorithm_id, code_id)
+        algorithm = get_algorithm_result(algorithm_id)
+        parent_id = algorithm.parent_id if algorithm else None
+        solver_dir = get_solver_result_dir(algorithm_id, code_id,
+                                           generation_tag=self.generation_tag, parent_id=parent_id)
+        result_path = get_solver_solving_times_path(algorithm_id, code_id,
+                                                    generation_tag=self.generation_tag, parent_id=parent_id)
 
         if os.path.exists(result_path) and not force_recollect:
             logger.warning(f"Results already collected for algorithm {algorithm_id}, code {code_id}")
@@ -145,7 +150,10 @@ class EvaluationPipeline:
         activate_cmd = _get_activation_cmd()
         code_result = get_code_result(code_id)
         algorithm_id = code_result.algorithm_id
-        result_dir = get_solver_result_dir(algorithm_id, code_id)
+        algorithm = get_algorithm_result(algorithm_id)
+        parent_id = algorithm.parent_id if algorithm else None
+        result_dir = get_solver_result_dir(algorithm_id, code_id,
+                                           generation_tag=self.generation_tag, parent_id=parent_id)
 
         cmd = f"{activate_cmd} && python src/llmsat/pipelines/evaluation.py --algorithm_id {algorithm_id} --code_id {code_id} --collect_result"
         output_file = f"{result_dir}/00000000_collect_result.log"
@@ -312,8 +320,10 @@ class EvaluationPipeline:
             return None
 
         # Copy base solver to new location
-        new_solver_path = get_solver_dir(code_result.algorithm_id, code_result.id)
-        algorithm_dir = get_algorithm_dir(code_result.algorithm_id)
+        new_solver_path = get_solver_dir(code_result.algorithm_id, code_result.id,
+                                         generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+        algorithm_dir = get_algorithm_dir(code_result.algorithm_id,
+                                          generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
         os.makedirs(algorithm_dir, exist_ok=True)
 
         logger.info(f"Building solver at {new_solver_path}")
@@ -465,7 +475,10 @@ exit $EXIT_CODE
             if build_only:
                 logger.info(f"Build-only mode: skipping SLURM evaluation")
                 return
-            result_dir = get_solver_result_dir(code_result.algorithm_id, code_result.id)
+            algorithm = get_algorithm_result(code_result.algorithm_id)
+            parent_id = algorithm.parent_id if algorithm else None
+            result_dir = get_solver_result_dir(code_result.algorithm_id, code_result.id,
+                                               generation_tag=self.generation_tag, parent_id=parent_id)
             slurm_ids = self.slurm_run_evaluate(solver_path, SAT2025_BENCHMARK_PATH, result_dir)
             code_result.status = CodeStatus.Evaluating
             update_code_result(code_result)
@@ -484,7 +497,9 @@ exit $EXIT_CODE
             logger.error(f"Algorithm not found: {algorithm_id}")
             return
 
-        os.makedirs(f"solvers/algorithm_{algorithm_id}", exist_ok=True)
+        algorithm_dir = get_algorithm_dir(algorithm_id,
+                                          generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+        os.makedirs(algorithm_dir, exist_ok=True)
 
         code_id_list = algorithm.code_id_list or []
         logger.info(f"Found {len(code_id_list)} code ids to evaluate for algorithm {algorithm_id}")
@@ -511,7 +526,7 @@ def main():
     parser.add_argument("--build-only", action="store_true", help="Build solvers but skip SLURM evaluation")
     args = parser.parse_args()
 
-    evaluation_pipeline = EvaluationPipeline()
+    evaluation_pipeline = EvaluationPipeline(generation_tag=args.generation_tag)
 
     if args.collect_result:
         if not args.algorithm_id or not args.code_id:

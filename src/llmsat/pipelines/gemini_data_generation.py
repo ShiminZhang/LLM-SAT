@@ -51,8 +51,14 @@ def create_batch_input_file(
     output_path: str,
     n_requests: int = 10,
     model: str = DEFAULT_MODEL,
+    temperature_min: float = None,
+    temperature_max: float = None,
 ):
-    """Create a Gemini batch input JSONL file with identical prompts."""
+    """Create a Gemini batch input JSONL file with identical prompts.
+
+    If temperature_min and temperature_max are provided, temperature is linearly
+    interpolated across requests. Otherwise uses GEMINI_TEMPERATURE env var or 0.7.
+    """
     logger.info(f"Creating batch input file for {n_requests} requests")
 
     system_message = os.environ.get(
@@ -60,20 +66,32 @@ def create_batch_input_file(
         "You are an AI researcher specialising in SAT solver heuristics.",
     )
     model = os.environ.get("GEMINI_MODEL", model)
-    try:
-        temperature = float(os.environ.get("GEMINI_TEMPERATURE", "0.7"))
-    except Exception:
-        temperature = 0.7
+
+    # Determine temperature strategy
+    if temperature_min is not None and temperature_max is not None:
+        use_range = True
+    else:
+        use_range = False
+        try:
+            temperature = float(os.environ.get("GEMINI_TEMPERATURE", "0.7"))
+        except Exception:
+            temperature = 0.7
 
     requests = []
     for i in range(1, int(n_requests) + 1):
         custom_id = f"req-{i:04d}"
+        if use_range:
+            # Linear interpolation from min to max
+            t = (i - 1) / max(n_requests - 1, 1)
+            temp = temperature_min + (temperature_max - temperature_min) * t
+        else:
+            temp = temperature
         requests.append(
             build_gemini_batch_request(
                 prompt=prompt,
                 system_message=system_message,
                 model=model,
-                temperature=temperature,
+                temperature=temp,
                 custom_id=custom_id,
             )
         )
@@ -315,7 +333,12 @@ def generate_team_data(
         get_generation_output_dir(generation_tag), "leader_batch_input.txt"
     )
     create_batch_input_file(
-        designer_prompt, leader_batch_input_path, n_requests=n_leaders, model=model
+        designer_prompt,
+        leader_batch_input_path,
+        n_requests=n_leaders,
+        model=model,
+        temperature_min=0.5,
+        temperature_max=1.0,
     )
 
     leader_batch_name = submit_batch_input(leader_batch_input_path, model=model)
@@ -582,12 +605,12 @@ def generate_team_data(
 
 def main():
     generate_team_data(
-        generation_tag="gemini_test",
+        generation_tag="g",
         designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
         variant_prompt_path="./data/prompts/variant_prompt.txt",
         code_prompt_template_path="./data/prompts/coder_prompt_testing.txt",
-        n_leaders=2,
-        m_variants_per_leader=4,
+        n_leaders=1,
+        m_variants_per_leader=1,
         model="gemini-3-pro-preview",
     )
 
