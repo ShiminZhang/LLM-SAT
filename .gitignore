@@ -1,5 +1,6 @@
 credentials/
 models/
+solvers/*
 solvers/algorithm_*/
 data/benchmarks/*
 !data/benchmarks/**/*.uri
