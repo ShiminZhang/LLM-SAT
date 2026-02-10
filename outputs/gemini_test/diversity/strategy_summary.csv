@@ -1,0 +1,11 @@
+id,type,leader_id,target_function,name,temperature,model,created_at
+leader-req-0001,leader,,kissat_restarting,Binary-Weighted Dynamic Restarting,,models/gemini-3-pro-preview,
+leader-req-0002,leader,,kissat_restarting,Deviation-Modulated Focused Restarting,,models/gemini-3-pro-preview,
+member-qarieszn-req-0001,member,qarieszn21m4bqu8dzame1ff8grmzfjypg0g,,Momentum-Smoothed Binary Restarting,,models/gemini-3-pro-preview,
+member-qarieszn-req-0002,member,qarieszn21m4bqu8dzame1ff8grmzfjypg0g,,Quadratic Binary-Yield Tolerance,,models/gemini-3-pro-preview,
+member-qarieszn-req-0003,member,qarieszn21m4bqu8dzame1ff8grmzfjypg0g,,Global-Anchored Binary Restarting,,models/gemini-3-pro-preview,
+member-qarieszn-req-0004,member,qarieszn21m4bqu8dzame1ff8grmzfjypg0g,,Yield-Modulated Adaptive Restart Floor,,models/gemini-3-pro-preview,
+member-tqwdsb6h-req-0001,member,tqwdsb6hi8t7r24f88p6wxy1urqvzxj0ynll,,Adaptive-Alpha Deviation Restarting,,models/gemini-3-pro-preview,
+member-tqwdsb6h-req-0002,member,tqwdsb6hi8t7r24f88p6wxy1urqvzxj0ynll,,Clamped-Denominator Volatility Strategy,,models/gemini-3-pro-preview,
+member-tqwdsb6h-req-0003,member,tqwdsb6hi8t7r24f88p6wxy1urqvzxj0ynll,,Continuous Volatility-Scaled Restarting,,models/gemini-3-pro-preview,
+member-tqwdsb6h-req-0004,member,tqwdsb6hi8t7r24f88p6wxy1urqvzxj0ynll,,Noise-Gated Restart Thresholding,,models/gemini-3-pro-preview,

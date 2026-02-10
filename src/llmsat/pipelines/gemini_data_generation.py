@@ -582,12 +582,12 @@ def generate_team_data(
 
 def main():
     generate_team_data(
-        generation_tag="gemini_1",
+        generation_tag="gemini_test",
         designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
         variant_prompt_path="./data/prompts/variant_prompt.txt",
         code_prompt_template_path="./data/prompts/coder_prompt_testing.txt",
         n_leaders=2,
-        m_variants_per_leader=5,
+        m_variants_per_leader=4,
         model="gemini-3-pro-preview",
     )
 

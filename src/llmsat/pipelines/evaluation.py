@@ -336,7 +336,7 @@ class EvaluationPipeline:
 
             # Write build log
             output = "\n".join(all_logs)
-            build_log_path = f"{algorithm_dir}/code_{code_result.id}.build.log"
+            build_log_path = f"{algorithm_dir}code_{code_result.id}.build.log"
             with open(build_log_path, "w") as f:
                 f.write(output)
             logger.info(f"Wrote build log to {build_log_path}")
