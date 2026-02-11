@@ -108,7 +108,7 @@ python src/llmsat/pipelines/evaluation.py \
 usage: evaluation.py [-h] [--algorithm_id ALGORITHM_ID] [--code_id CODE_ID]
                      [--first_n FIRST_N] [--run_all] [--collect_result]
                      [--collect_all_results] [--generation_tag GENERATION_TAG]
-                     [--build-only] [--dry-run] [--timeout TIMEOUT]
+                     [--build-only] [--dry-run] [--skip-build] [--timeout TIMEOUT]
                      [--max-concurrent MAX_CONCURRENT] [--batch-mode]
 
 options:
@@ -121,6 +121,7 @@ options:
   --generation_tag TAG   Generation tag to evaluate
   --build-only           Build solvers but skip SLURM evaluation
   --dry-run, -n          Print SLURM commands without submitting
+  --skip-build           Skip build step, assume solvers are already built
   --timeout SECONDS      Timeout per CNF in seconds (default: 5000)
   --max-concurrent N     Max concurrent SLURM tasks per array (default: 100)
   --batch-mode           Use batch submission mode (unified arrays)
@@ -146,10 +147,10 @@ python src/llmsat/pipelines/evaluation.py \
     --run_all --generation_tag gemini_trial1 \
     --build-only
 
-# Step 2: Submit all evaluations in batch mode
+# Step 2: Submit evaluations using pre-built solvers (skip rebuild)
 python src/llmsat/pipelines/evaluation.py \
     --run_all --generation_tag gemini_trial1 \
-    --batch-mode
+    --batch-mode --skip-build
 
 # Step 3: Monitor jobs
 squeue -u $USER
@@ -157,6 +158,16 @@ squeue -u $USER
 # Step 4: After completion, collect results
 python src/llmsat/pipelines/evaluation.py \
     --collect_all_results --generation_tag gemini_trial1
+```
+
+### Dry-Run with Pre-Built Solvers
+
+Use `--skip-build` with `--dry-run` to preview SLURM commands without rebuilding:
+
+```bash
+python src/llmsat/pipelines/evaluation.py \
+    --run_all --generation_tag gemini_trial1 \
+    --dry-run --skip-build
 ```
 
 ## Output Structure

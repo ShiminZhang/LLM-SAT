@@ -641,7 +641,7 @@ exit $EXIT_CODE
 
         return job_ids
 
-    def run_single_solver(self, code_id: str, build_only: bool = False, dry_run: bool = False) -> Optional[Tuple[str, str, str]]:
+    def run_single_solver(self, code_id: str, build_only: bool = False, dry_run: bool = False, skip_build: bool = False) -> Optional[Tuple[str, str, str]]:
         """
         Build and evaluate a single code result.
 
@@ -649,6 +649,7 @@ exit $EXIT_CODE
             code_id: The code result ID to build and evaluate
             build_only: If True, build the solver but don't submit SLURM evaluation
             dry_run: If True, print SLURM commands without submitting
+            skip_build: If True, assume solver is already built and skip build step
 
         Returns:
             Tuple of (solver_path, result_dir, code_id) if build succeeded, None otherwise.
@@ -662,15 +663,29 @@ exit $EXIT_CODE
             logger.warning(f"Code result {code_id} is already evaluating, skipping")
             return None
 
-        logger.info(f"Building solver for code_id={code_id}, algorithm_id={code_result.algorithm_id}")
+        algorithm = get_algorithm_result(code_result.algorithm_id)
+        if algorithm is None:
+            logger.error(f"Algorithm not found: {code_result.algorithm_id}")
+            return None
 
-        solver_path = self.build_solver(code_result)
+        # Check if we can skip the build
+        if skip_build:
+            solver_path = get_solver_dir(code_result.algorithm_id, code_result.id,
+                                         generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+            solver_binary = os.path.join(solver_path, "kissat")
+            if os.path.exists(solver_binary):
+                logger.info(f"Skipping build, solver already exists: {solver_binary}")
+            else:
+                logger.warning(f"skip_build=True but solver not found at {solver_binary}, skipping this solver")
+                return None
+        else:
+            logger.info(f"Building solver for code_id={code_id}, algorithm_id={code_result.algorithm_id}")
+            solver_path = self.build_solver(code_result)
         if solver_path is not None:
-            logger.info(f"Solver built successfully: {solver_path}")
-            algorithm = get_algorithm_result(code_result.algorithm_id)
-            parent_id = algorithm.parent_id if algorithm else None
+            if not skip_build:
+                logger.info(f"Solver built successfully: {solver_path}")
             result_dir = get_solver_result_dir(code_result.algorithm_id, code_result.id,
-                                               generation_tag=self.generation_tag, parent_id=parent_id)
+                                               generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
 
             if build_only:
                 logger.info(f"Build-only mode: skipping SLURM evaluation")
@@ -692,7 +707,7 @@ exit $EXIT_CODE
             logger.error("Solver build failed")
             return None
 
-    def run_all_solvers(self, algorithm_id: str, build_only: bool = False, dry_run: bool = False) -> None:
+    def run_all_solvers(self, algorithm_id: str, build_only: bool = False, dry_run: bool = False, skip_build: bool = False) -> None:
         """Build and evaluate all code results for an algorithm."""
         logger.info(f"Running evaluation for algorithm {algorithm_id}")
         algorithm = get_algorithm_result(algorithm_id)
@@ -708,8 +723,8 @@ exit $EXIT_CODE
         logger.info(f"Found {len(code_id_list)} code ids to evaluate for algorithm {algorithm_id}")
 
         for code_id in code_id_list:
-            logger.info(f"Starting build for code_id={code_id}")
-            self.run_single_solver(code_id, build_only=build_only, dry_run=dry_run)
+            logger.info(f"Starting {'evaluation' if skip_build else 'build'} for code_id={code_id}")
+            self.run_single_solver(code_id, build_only=build_only, dry_run=dry_run, skip_build=skip_build)
 
         if not build_only and not dry_run:
             algorithm.status = AlgorithmStatus.Evaluating
@@ -720,6 +735,7 @@ exit $EXIT_CODE
         algorithms: List,
         build_only: bool = False,
         dry_run: bool = False,
+        skip_build: bool = False,
     ) -> None:
         """
         Build all solvers and submit evaluations in efficient batches.
@@ -731,6 +747,7 @@ exit $EXIT_CODE
             algorithms: List of algorithm results to evaluate
             build_only: If True, build solvers but skip SLURM evaluation
             dry_run: If True, print SLURM commands without submitting
+            skip_build: If True, assume solvers are already built and skip build step
         """
         # Collect CNF files from benchmark
         cnf_files = []
@@ -753,23 +770,35 @@ exit $EXIT_CODE
             logger.info(f"Found {len(code_id_list)} code ids for algorithm {algorithm_id}")
 
             for code_id in code_id_list:
-                logger.info(f"Building solver for code_id={code_id}")
                 code_result = get_code_result(code_id)
                 if code_result is None:
                     logger.error(f"Code result not found for code_id={code_id}")
                     continue
 
-                solver_path = self.build_solver(code_result)
-                if solver_path is not None:
-                    result_dir = get_solver_result_dir(algorithm_id, code_id,
-                                                       generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
-                    solver_tasks.append((solver_path, result_dir, code_id))
-                    logger.info(f"Solver built successfully: {solver_path}")
+                if skip_build:
+                    # Check if solver already exists
+                    solver_path = get_solver_dir(algorithm_id, code_id,
+                                                 generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+                    solver_binary = os.path.join(solver_path, "kissat")
+                    if os.path.exists(solver_binary):
+                        logger.info(f"Skipping build, solver already exists: {solver_binary}")
+                    else:
+                        logger.warning(f"skip_build=True but solver not found at {solver_binary}, skipping")
+                        continue
                 else:
-                    if not dry_run:
-                        code_result.status = CodeStatus.BuildFailed
-                        update_code_result(code_result)
-                    logger.error(f"Solver build failed for code_id={code_id}")
+                    logger.info(f"Building solver for code_id={code_id}")
+                    solver_path = self.build_solver(code_result)
+                    if solver_path is None:
+                        if not dry_run:
+                            code_result.status = CodeStatus.BuildFailed
+                            update_code_result(code_result)
+                        logger.error(f"Solver build failed for code_id={code_id}")
+                        continue
+                    logger.info(f"Solver built successfully: {solver_path}")
+
+                result_dir = get_solver_result_dir(algorithm_id, code_id,
+                                                   generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+                solver_tasks.append((solver_path, result_dir, code_id))
 
         logger.info(f"Built {len(solver_tasks)} solvers successfully")
 
@@ -824,6 +853,8 @@ def main():
                         help="Max concurrent SLURM tasks per array (default: 100)")
     parser.add_argument("--batch-mode", action="store_true",
                         help="Use batch submission mode (all solvers × CNFs in unified arrays)")
+    parser.add_argument("--skip-build", action="store_true",
+                        help="Skip build step, assume solvers are already built")
     args = parser.parse_args()
 
     evaluation_pipeline = EvaluationPipeline(generation_tag=args.generation_tag)
@@ -865,18 +896,25 @@ def main():
         logger.error("Must specify --run_all with --generation_tag, or --algorithm_id")
         return
 
-    mode_str = "build" if args.build_only else ("dry-run" if args.dry_run else "evaluation")
+    if args.build_only:
+        mode_str = "build"
+    elif args.skip_build:
+        mode_str = "evaluation (skip-build)"
+    elif args.dry_run:
+        mode_str = "dry-run"
+    else:
+        mode_str = "evaluation"
     logger.info(f"Running {mode_str} for {len(algorithms)} algorithms")
 
     if args.batch_mode and not args.build_only:
         # Use batch submission for efficiency
         logger.info("Using batch submission mode")
-        evaluation_pipeline.run_all_solvers_batch(algorithms, build_only=args.build_only, dry_run=args.dry_run)
+        evaluation_pipeline.run_all_solvers_batch(algorithms, build_only=args.build_only, dry_run=args.dry_run, skip_build=args.skip_build)
     else:
         # Use per-algorithm submission (original behavior)
         for algorithm in algorithms:
             logger.info(f"Processing algorithm: {algorithm.id}")
-            evaluation_pipeline.run_all_solvers(algorithm.id, build_only=args.build_only, dry_run=args.dry_run)
+            evaluation_pipeline.run_all_solvers(algorithm.id, build_only=args.build_only, dry_run=args.dry_run, skip_build=args.skip_build)
 
 
 if __name__ == "__main__":
