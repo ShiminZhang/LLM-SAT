@@ -1,0 +1,12 @@
+# Function registry for Kissat solver code injection
+# Maps function names to their source file locations
+
+version: "1.0"
+generated: "2025-02-06"
+
+functions:
+  kissat_restarting:
+    file: "src/restart.c"
+    start_line: 15
+    end_line: 38
+    signature: "bool kissat_restarting(kissat *solver)"

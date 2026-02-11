@@ -1,0 +1,5 @@
+#define VERSION "4.0.2"
+#define COMPILER "gcc (GCC) 15.2.1 20260103 -W -Wall -O3 -DNDEBUG"
+#define ID "unknown"
+#define BUILD "Tue Feb 10 02:17:22 EST 2026 Linux ARCHHAATH 6.18.7-arch1-1 x86_64"
+#define DIR "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_309f959db49a3c560722be4938d981c7af2dfaff4ae986fc4fa8db12bb0b1a00/code_c43aa67cf45b0e000cb05e3fb52983e32081b2e7877d5f9e5dccfcdaa1409a42/build"

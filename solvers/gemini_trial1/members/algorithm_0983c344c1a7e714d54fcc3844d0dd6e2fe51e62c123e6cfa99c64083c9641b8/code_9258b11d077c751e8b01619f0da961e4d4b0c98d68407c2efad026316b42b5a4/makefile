@@ -1,0 +1,18 @@
+all:
+	$(MAKE) -C "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_0983c344c1a7e714d54fcc3844d0dd6e2fe51e62c123e6cfa99c64083c9641b8/code_9258b11d077c751e8b01619f0da961e4d4b0c98d68407c2efad026316b42b5a4/build"
+kissat:
+	$(MAKE) -C "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_0983c344c1a7e714d54fcc3844d0dd6e2fe51e62c123e6cfa99c64083c9641b8/code_9258b11d077c751e8b01619f0da961e4d4b0c98d68407c2efad026316b42b5a4/build" kissat
+tissat:
+	$(MAKE) -C "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_0983c344c1a7e714d54fcc3844d0dd6e2fe51e62c123e6cfa99c64083c9641b8/code_9258b11d077c751e8b01619f0da961e4d4b0c98d68407c2efad026316b42b5a4/build" tissat
+clean:
+	rm -f "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_0983c344c1a7e714d54fcc3844d0dd6e2fe51e62c123e6cfa99c64083c9641b8/code_9258b11d077c751e8b01619f0da961e4d4b0c98d68407c2efad026316b42b5a4"/makefile
+	rm -f "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_0983c344c1a7e714d54fcc3844d0dd6e2fe51e62c123e6cfa99c64083c9641b8/code_9258b11d077c751e8b01619f0da961e4d4b0c98d68407c2efad026316b42b5a4"/src/makefile
+	-$(MAKE) -C "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_0983c344c1a7e714d54fcc3844d0dd6e2fe51e62c123e6cfa99c64083c9641b8/code_9258b11d077c751e8b01619f0da961e4d4b0c98d68407c2efad026316b42b5a4/build" clean
+	rm -rf "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_0983c344c1a7e714d54fcc3844d0dd6e2fe51e62c123e6cfa99c64083c9641b8/code_9258b11d077c751e8b01619f0da961e4d4b0c98d68407c2efad026316b42b5a4/build"
+coverage:
+	$(MAKE) -C "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_0983c344c1a7e714d54fcc3844d0dd6e2fe51e62c123e6cfa99c64083c9641b8/code_9258b11d077c751e8b01619f0da961e4d4b0c98d68407c2efad026316b42b5a4/build" coverage
+format:
+	$(MAKE) -C "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_0983c344c1a7e714d54fcc3844d0dd6e2fe51e62c123e6cfa99c64083c9641b8/code_9258b11d077c751e8b01619f0da961e4d4b0c98d68407c2efad026316b42b5a4/build" format
+test:
+	$(MAKE) -C "/home/meru/scratch/LLM-SAT/solvers/gemini_trial1/members/algorithm_0983c344c1a7e714d54fcc3844d0dd6e2fe51e62c123e6cfa99c64083c9641b8/code_9258b11d077c751e8b01619f0da961e4d4b0c98d68407c2efad026316b42b5a4/build" test
+.PHONY: all clean coverage format kissat test tissat
