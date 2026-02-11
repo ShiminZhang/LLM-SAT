@@ -71,8 +71,9 @@ def atomic_append(file_path: str, content: str) -> None:
 def wrap_command_to_slurm_array(
     script_path: str,
     array_range: str,
-    mem: str = "8G",
-    time: str = "00:30:00",
+    account: str = "def-vganesh",
+    mem: str = "4G",
+    time: str = "01:30:00",
     nodes: int = 1,
     ntasks: int = 1,
     cpus_per_task: int = 1,
@@ -83,22 +84,24 @@ def wrap_command_to_slurm_array(
 ) -> str:
     """
     Create an sbatch command for a job array.
-    
+
     Args:
         script_path: Path to the bash script to run for each array task
         array_range: SLURM array range (e.g., "0-199" or "0-199%50" for max 50 concurrent)
+        account: Compute Canada account (required)
         max_concurrent: Maximum number of concurrent array tasks (optional)
     """
     job_name_parameter = f"--job-name={job_name}" if job_name else ""
     output_parameter = f"--output={output_file}" if output_file else ""
     error_parameter = f"--error={error_file}" if error_file else ""
-    
+
     # Add max concurrent limit to array spec if provided
     array_spec = array_range
     if max_concurrent:
         array_spec = f"{array_range}%{max_concurrent}"
-    
+
     return f"sbatch \
+        --account={account} \
         {job_name_parameter} \
         {output_parameter} \
         {error_parameter} \
@@ -112,17 +115,27 @@ def wrap_command_to_slurm_array(
 
 def wrap_command_to_slurm(
     command: str,
-    mem: str="8G",
-    time: str="00:00:5000",
-    nodes: int=1,
-    ntasks: int=1,
-    cpus_per_task: int=1,
-    job_name: str=None,
-    output_file: str=None,
-    error_file: str=None,
-    dependencies: list[str]=None,
-    dependency_type: str="afterok",
+    account: str = "def-vganesh",
+    mem: str = "4G",
+    time: str = "00:30:00",
+    nodes: int = 1,
+    ntasks: int = 1,
+    cpus_per_task: int = 1,
+    job_name: str = None,
+    output_file: str = None,
+    error_file: str = None,
+    dependencies: list[str] = None,
+    dependency_type: str = "afterok",
 ) -> str:
+    """
+    Create an sbatch command for a single job.
+
+    Args:
+        command: The command to run
+        account: Compute Canada account (required)
+        mem: Memory allocation (default: 4G)
+        time: Wall time in HH:MM:SS format (default: 00:30:00)
+    """
     dependencies_parameter = ""
     if dependencies is not None and len(dependencies) > 0:
         dependencies_parameter = f"--dependency={dependency_type}:{':'.join(dependencies)}"
@@ -136,6 +149,7 @@ def wrap_command_to_slurm(
     if error_file is not None:
         error_parameter = f"--error={error_file}"
     return f"sbatch \
+        --account={account} \
         {job_name_parameter} \
         {output_parameter} \
         {error_parameter} \
