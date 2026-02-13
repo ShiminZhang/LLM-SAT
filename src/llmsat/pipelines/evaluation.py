@@ -45,7 +45,7 @@ SLURM_ACCOUNT = "def-vganesh"
 SLURM_TIMEOUT_SECONDS = 5000           # 83 min 20 sec per CNF
 SLURM_WALL_TIME = "01:30:00"           # 90 min (timeout + buffer)
 SLURM_MEMORY = "4G"
-SLURM_MAX_CONCURRENT = 100
+SLURM_MAX_CONCURRENT = 1000 
 SLURM_MAX_ARRAY_SIZE = 1000
 PAR2_PENALTY = 10000                   # 2× timeout for unsolved
 
@@ -87,7 +87,7 @@ class EvaluationPipeline:
 
         for line in reversed(lines):
             if "process-time" in line:
-                match = re.search(r'(\d+\.?\d*)\s+seconds', line)
+                match = re.search(r'(\d*\.?\d+)\s+seconds', line)
                 if match:
                     return float(match.group(1))
             if "error" in line.lower():
@@ -439,7 +439,7 @@ class EvaluationPipeline:
         script_path = f"{result_dir}/run_solver_array.sh"
         script_content = f"""#!/bin/bash
 CNF_LIST="{cnf_list_path}"
-SOLVER="{solver_path}/build/kissat"
+SOLVER="{solver_path}/kissat"
 BENCHMARK_PATH="{benchmark_path}"
 RESULT_DIR="{result_dir}"
 TIMEOUT={timeout}
@@ -460,12 +460,17 @@ fi
 
 echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
-# Run solver with timeout
+# Run solver with timeout, capturing wall-clock time
+START_TIME=$(date +%s.%N)
 timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
+END_TIME=$(date +%s.%N)
+ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
 
 if [ $EXIT_CODE -eq 124 ]; then
     echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+else
+    echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
 fi
 
 echo "Solver finished with exit code $EXIT_CODE"
@@ -555,8 +560,9 @@ exit $EXIT_CODE
             chunk_tasks = all_tasks[chunk_start:chunk_end]
             chunk_num = chunk_start // SLURM_MAX_ARRAY_SIZE
 
-            # Create a directory for this batch
-            batch_dir = f"/tmp/slurm_batch_{chunk_num}"
+            # Create a directory for this batch on shared filesystem
+            # /tmp is node-local and not visible to compute nodes
+            batch_dir = f"solvers/{self.generation_tag}/slurm_batches/batch_{chunk_num}"
             os.makedirs(batch_dir, exist_ok=True)
 
             # Write task list file
@@ -578,7 +584,7 @@ SOLVER_PATH=$(echo "$TASK_LINE" | cut -f1)
 RESULT_DIR=$(echo "$TASK_LINE" | cut -f2)
 CNF_FILE=$(echo "$TASK_LINE" | cut -f3)
 
-SOLVER="${{SOLVER_PATH}}/build/kissat"
+SOLVER="${{SOLVER_PATH}}/kissat"
 OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
 
 if [ -z "$CNF_FILE" ]; then
@@ -594,12 +600,17 @@ fi
 
 echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
-# Run solver with timeout
+# Run solver with timeout, capturing wall-clock time
+START_TIME=$(date +%s.%N)
 timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
+END_TIME=$(date +%s.%N)
+ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
 
 if [ $EXIT_CODE -eq 124 ]; then
     echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+else
+    echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
 fi
 
 echo "Solver finished with exit code $EXIT_CODE"
