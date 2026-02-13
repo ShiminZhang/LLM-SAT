@@ -1,10 +1,17 @@
 You are designing a novel and diverse heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).
 
-This algorithm (conceptual, not code) should modify the target function below. Your algorithm should demonstrate the same level of innovation and diversity as past SAT competition winners. Your algorithm does not need to be incredibly long, just intelligent, innovative, and effective.
+This algorithm (conceptual, not code) should modify the target function below. Your algorithm should demonstrate the same level of innovation and diversity as past SAT competition winners.
+
+Be specific about the mechanism and logic flow. Include concrete thresholds
+and parameters where necessary, but prioritize describing a structurally
+unique decision process over tuning constants. 
+
+Your algorithm does not need to be long, just intelligent,. innovative, and
+mechanistically distinct from standard approaches.
 
 ### Target Function
 
-kissat_restarting
+restart_mab
 
 ### Output Format (JSON only)
 
@@ -22,4 +29,4 @@ kissat_restarting
 IMPORTANT: target_function must exactly match the target function name listed above (no parens).
 IMPORTANT: algorithm must specifically split substeps by Step markers "Step 1: ... Step 2: ... "
 
-Your algorithm will be implemented by a coder model. Make sure they have the requisite information in your algorithmic description to be able to implement it faithfully.
+Your algorithm will be implemented by a coder model. Make sure they generally have the requisite information in your algorithmic description to be able to implement it faithfully.

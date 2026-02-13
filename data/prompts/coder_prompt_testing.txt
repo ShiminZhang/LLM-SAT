@@ -346,7 +346,7 @@ Wrap your complete function in `<code>` tags (no other text outside tags):
 
 EXAMPLE:
 <code>
-bool kissat_restarting(kissat *solver) {
+void restart_mab(kissat *solver) {
 
      // Your implementation here
 
