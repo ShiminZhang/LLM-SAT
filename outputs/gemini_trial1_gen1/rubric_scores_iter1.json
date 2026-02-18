@@ -1,0 +1,42 @@
+[
+  {
+    "offspring_id": "0386696e295391fa3376b484bb89be28d1aa08fb033213a8a56858e3643e494d",
+    "parent_a_id": "790231b11c5bb8867d4c191f78254aee059f8513bb78dd5294e02dfd4b0b7dde",
+    "parent_b_id": "e9ccb4989a9c6c9777abe65910ef28b862a1d4d1ef4e612077c9543aafbba2de",
+    "scores": {
+      "improvement_over_parents": 9.0,
+      "algorithmic_novelty": 8.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 10.0
+    },
+    "weighted_total": 8.85,
+    "justifications": {
+      "improvement_over_parents": "The offspring algorithm effectively combines the dynamic margin adjustment from Parent A with the EMA tracking and momentum ratio from Parent B, resulting in a more responsive and nuanced restart strategy that addresses weaknesses in both parents.",
+      "algorithmic_novelty": "While the offspring introduces unique mechanisms like the combination of EMA and gradient-based adjustments, its core ideas are derived from existing strategies, preventing it from being entirely original.",
+      "mechanistic_soundness": "The design choices are well-justified and coherent, integrating established SAT-solving principles with adaptive mechanisms that enhance performance under varying conditions.",
+      "implementation_feasibility": "The algorithm description is concrete and specific, though some details regarding the handling of edge cases in the implementation could be further clarified for optimal coding.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, creating a harmonious blend of adaptive strategies without conflicting approaches."
+    }
+  },
+  {
+    "offspring_id": "6e31186f2e483dbea4b22cc9c62f43def27b324507a4bfaa71a67ec3a43ab7d9",
+    "parent_a_id": "790231b11c5bb8867d4c191f78254aee059f8513bb78dd5294e02dfd4b0b7dde",
+    "parent_b_id": "e3d0e540b7c924132a39e3e2d74c61b56779edd5ce9f5314bad8b96cb2a13dbb",
+    "scores": {
+      "improvement_over_parents": 8.0,
+      "algorithmic_novelty": 7.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 9.0
+    },
+    "weighted_total": 8.25,
+    "justifications": {
+      "improvement_over_parents": "The offspring algorithm effectively combines adaptive restart strategies and LBD variance tracking from both parents, enhancing responsiveness and stability in decision-making.",
+      "algorithmic_novelty": "While the offspring introduces a larger buffer size and dynamic thresholds, the core concepts remain rooted in the parents' strategies, limiting its originality.",
+      "mechanistic_soundness": "The design choices are well-justified, with clear logical coherence in the restart conditions and tracking mechanisms, making it a robust approach to SAT solving.",
+      "implementation_feasibility": "The algorithm description is concrete and specific, providing clear guidelines for implementation, though some minor details could enhance clarity.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, avoiding conflicts and creating a synergistic approach to managing restarts."
+    }
+  }
+]

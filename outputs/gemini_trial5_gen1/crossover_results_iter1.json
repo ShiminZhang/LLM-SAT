@@ -1,0 +1,39 @@
+[
+  {
+    "algorithm_id": "2a35e07d88e4068dd1d2938fcfc10cc4ab98190d74204f076705ea850fd2247a",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
+    "algorithm_json": "{\"name\": \"Adaptive Trend-Driven Boltzmann MAB\", \"algorithm\": \"Step 1: Maintain a circular buffer of the average LBD and conflict rate from the last N=10 restart phases to capture more historical performance data. Step 2: Compute the raw reward R for the just-completed phase as log2(conflicts_generated + 1) / (elapsed_ticks + 1). Step 3: Calculate the performance trend T = R - R_prev, updating R_prev to R. Step 4: Compute the linear regression slope S of the LBD history. Step 5: Update the Q-value for the current mode using a PD-like update rule with an adaptive learning rate based on performance variance. Step 6: Calculate the Selection Score S for both modes, using S = Q_new * (0.95 ^ consecutive_count) for the recently finished mode and S = Q_current for the inactive mode. Step 7: Introduce a stochastic component for mode selection, allowing a small probability of retaining the current mode even if S indicates a switch. Step 8: If performance drops below a predefined threshold, temporarily suspend the ineffective mode and explore alternatives.\", \"target_function\": \"restart_mab\"}",
+    "reason": "This offspring algorithm combines the adaptive performance trend tracking from Parent B with the momentum-driven heuristics of Parent A, while addressing the weaknesses of both parents through an adaptive learning rate, increased history tracking, and the introduction of stochastic selection mechanisms. This leads to improved responsiveness and exploration, ultimately enhancing overall SAT solving performance.",
+    "parent_a_strengths_used": [
+      "Momentum Override based on Linear Regression Slope (S)",
+      "Adaptive Boltzmann Selection with Temperature (T)",
+      "Circular Buffer for LBD and Conflict Rate"
+    ],
+    "parent_b_strengths_used": [
+      "Use of logarithmic reward calculation",
+      "Incorporation of performance trend",
+      "Weighted Q-value update",
+      "Decay of influence from consecutive selections"
+    ],
+    "target_function": "restart_mab"
+  },
+  {
+    "algorithm_id": "5a355a02248841611933c4c523e12d139b67c7f1e848709ec64bf89da9bfdf46",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
+    "algorithm_json": "{\"name\": \"Dynamic Mode Selection with Adaptive Metrics\", \"algorithm\": \"Step 1: Maintain a circular buffer of the average LBD and conflict rate from the last N=10 restart phases to track performance over a longer history. Compute the linear regression slope 'S' of the LBD history and the normalized standard deviation 'V' of the conflict rate history. \\nStep 2: Calculate the raw performance metric 'P' as P = 10000 / (average_LBD * sqrt(average_trail_level) + 1). Update the exponential moving average Score 'S' for each mode using a dynamic alpha value based on performance stability: S_new = alpha * S_old + (1 - alpha) * P, where alpha is higher when V is above a predefined threshold (e.g., 0.5) and lower otherwise. \\nStep 3: Compute the discrete derivative 'Delta' of the score: Delta = S_new - S_old. \\nStep 4: Execute Mode Selection based on Delta: If Delta > 0, keep the current mode; If Delta < 0, switch mode with a probability 'prob' = min(1.0, abs(Delta) * 5.0). If Delta is approximately 0, compare S_stable vs S_focused. \\nStep 5: Implement dynamic thresholds for S based on the average LBD and recent performance metrics, allowing for a more nuanced decision-making process. \\nStep 6: Introduce additional heuristics to the selection process for more diverse options, enhancing adaptability to various SAT problems.\", \"target_function\": \"restart_mab\"}",
+    "reason": "This offspring algorithm combines the adaptive momentum-driven approach of Parent A with the performance trajectory evaluation and probabilistic switching of Parent B. By implementing a dynamic alpha for the exponential moving average and expanding the circular buffer size, this algorithm can better capture performance trends and avoid premature mode switches. The incorporation of dynamic thresholds and additional heuristics further enhances flexibility and robustness.",
+    "parent_a_strengths_used": [
+      "Momentum Override based on Linear Regression Slope (S)",
+      "Adaptive Boltzmann Selection with Temperature (T)",
+      "Circular Buffer for LBD and Conflict Rate"
+    ],
+    "parent_b_strengths_used": [
+      "Use of raw performance metric 'P' based on LBD and trail level",
+      "Exponential moving average for score updates",
+      "Probabilistic mode switching based on performance degradation"
+    ],
+    "target_function": "restart_mab"
+  }
+]

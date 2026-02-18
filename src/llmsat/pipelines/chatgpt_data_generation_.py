@@ -1,7 +1,6 @@
 import os
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from llmsat.data.create_prompt import build_record, write_jsonl, render_custom_id
 from llmsat.data.algorithm_parse import parse_algorithm_spec_json, parse_kissat_restart_policy_json
 from llmsat.utils.chatgpt_helper import (
@@ -55,42 +54,6 @@ def create_batch_input_file(prompt: str, output_path: str, n_requests: int = 10,
             )
         )
     write_jsonl(records, Path(output_path))
-
-
-def count_steps(algorithm_text: str) -> int:
-    """Count the number of steps in an algorithm based on 'Step N:' markers."""
-    matches = re.findall(r'Step\s+\d+:', algorithm_text, re.IGNORECASE)
-    return len(matches)
-
-
-def create_batch_input_file_variant(prompts: List[str], output_path: str, model: str = "gpt-4.1"):
-    """Create batch input file with different prompts for each request."""
-    logger.info(f"Creating variant batch input file for {len(prompts)} requests")
-    system_message = os.environ.get("LLMSAT_SYSTEM_MESSAGE", "You are an AI researcher specialising in SAT solver heuristics.")
-    model = os.environ.get("OPENAI_MODEL", model)
-    try:
-        temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.7"))
-    except Exception:
-        temperature = 0.7
-    method = "POST"
-    url = "/v1/responses"
-
-    records = []
-    for i, prompt in enumerate(prompts, start=1):
-        custom_id = render_custom_id("req-{index:04d}", i, stem=None)
-        records.append(
-            build_record(
-                system_message=system_message,
-                user_prompt=prompt,
-                model=model,
-                temperature=temperature,
-                method=method,
-                url=url,
-                custom_id=custom_id,
-            )
-        )
-    write_jsonl(records, Path(output_path))
-
 
 def submit_batch_input(file_path: str, block: bool = False, poll_interval_seconds: int = 60, timeout_seconds: int = 24 * 60 * 60) -> str:
     batch_id = helper_submit_batch_input(file_path, block=block, poll_interval_seconds=poll_interval_seconds, timeout_seconds=timeout_seconds)
@@ -494,13 +457,13 @@ def print_generation_result(generation_tag: str):
 
 def main():
     generate_team_data(
-        generation_tag="chatgpt_1",
+        generation_tag="diversity_testing",
         designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
         variant_prompt_path="./data/prompts/variant_prompt.txt",
-        code_prompt_template_path="./data/prompts/coder_prompt_testing.txt",
-        n_leaders=2,
-        m_variants_per_leader=5,
-        model="gpt-5.2",
+        code_prompt_template_path="./data/prompts/coder_prompt.txt",
+        n_leaders=5,
+        m_variants_per_leader=8,
+        model="gpt-4o",
     )
 
 def generate_team_data(
@@ -580,52 +543,23 @@ def generate_team_data(
     
     logger.info(f"Generated {len(leader_ids)} Team Leaders")
     
-    # Step 2: Generate Team Members for each leader with controlled mutation
+    # Step 2: Generate Team Members for each leader
     logger.info(f"Generating {m_variants_per_leader} Team Members per leader")
-
+    
     waiting_batch_ids = []
     batch_id_to_leader_id = {}
-
+    
     for leader_id in leader_ids:
         leader_result = get_algorithm_result(leader_id)
-        leader_algorithm = leader_result.algorithm
-
-        # Count steps in leader algorithm
-        num_steps = count_steps(leader_algorithm)
-        if num_steps == 0:
-            raise ValueError(f"Leader {leader_id} has no step markers. Expected 'Step N:' format.")
-
-        # Calculate step assignments for each variant
-        # x = num_steps, m = m_variants_per_leader
-        # If x < m: variants 1..x target steps 1..x, variants x+1..m target step x
-        # If x >= m: variants 1..m target steps (x-m+1)..x (last m steps)
-        step_assignments = []
-        if num_steps < m_variants_per_leader:
-            for i in range(m_variants_per_leader):
-                if i < num_steps:
-                    step_assignments.append(i + 1)  # 1-indexed
-                else:
-                    step_assignments.append(num_steps)  # Target last step
-        else:
-            start_step = num_steps - m_variants_per_leader + 1
-            for i in range(m_variants_per_leader):
-                step_assignments.append(start_step + i)
-
-        logger.info(f"Leader {leader_id[:8]}... has {num_steps} steps, assigning variants to steps: {step_assignments}")
-
-        # Build variant prompts with step targets
-        variant_prompts = []
-        for target_step in step_assignments:
-            prompt = variant_prompt_template.replace("{leader_algorithm}", leader_algorithm)
-            prompt = prompt.replace("{target_step_num}", str(target_step))
-            variant_prompts.append(prompt)
-
+        # Substitute leader's algorithm JSON into variant prompt
+        variant_prompt = variant_prompt_template.replace("{leader_algorithm}", leader_result.algorithm)
+        
         member_batch_input_path = os.path.join(
             get_batch_output_dir(generation_tag, batch_id=leader_batch_id),
             f"member_batch_input_{leader_id}.txt"
         )
-        create_batch_input_file_variant(variant_prompts, member_batch_input_path, model=model)
-
+        create_batch_input_file(variant_prompt, member_batch_input_path, n_requests=m_variants_per_leader, model=model)
+        
         batch_id = submit_batch_input(member_batch_input_path)
         waiting_batch_ids.append(batch_id)
         batch_id_to_leader_id[batch_id] = leader_id
