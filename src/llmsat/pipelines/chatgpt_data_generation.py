@@ -34,11 +34,12 @@ def create_batch_input_file(prompt: str, output_path: str, n_requests: int = 10,
     system_message = os.environ.get("LLMSAT_SYSTEM_MESSAGE", "You are an AI researcher specialising in SAT solver heuristics.")
     model = os.environ.get("OPENAI_MODEL", "gpt-4.1")
     try:
-        temperature = float(os.environ.get("OPENAI_TEMPERATURE", "0.7"))
+        temperature = float(os.environ.get("OPENAI_TEMPERATURE", "1"))
     except Exception:
-        temperature = 0.7
+        temperature = 1
     method = "POST"
     url = "/v1/responses"
+    print(f"Using model: {model}, temperature: {temperature}", flush=True)
 
     records = []
     for i in range(1, int(n_requests) + 1):
@@ -494,12 +495,12 @@ def print_generation_result(generation_tag: str):
 
 def main():
     generate_team_data(
-        generation_tag="controlled_mutation",
+        generation_tag="mike_gpt5mini_test",
         designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
         variant_prompt_path="./data/prompts/variant_prompt.txt",
         code_prompt_template_path="./data/prompts/coder_prompt.txt",
         n_leaders=5,
-        m_variants_per_leader=8,
+        m_variants_per_leader=6,
         model="gpt-5.2",
     )
 

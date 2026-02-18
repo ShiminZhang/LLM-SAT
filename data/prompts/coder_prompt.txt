@@ -3,25 +3,340 @@ You are an expert in writing C code for Kissat-based SAT Solvers and your task i
 ### Requirements
 - Output complete function with signature and body
 - Must compile with existing Kissat codebase
-- Make sure not to use C code which doesn't compile (such as static unsigned, instead opt for #define macros).
+- Make sure not to use C code which doesn't compile. 
+- CRITICAL: Do NOT invent or hallucinate solver fields.
 
+### Kissat API Reference for Restart Heuristics
 
-### API Reference (Supplement to restart.c)
+This reference documents most of the fields, macros, and functions available in Kissat. Use what is documented here.
 
-CRITICAL: The kissat struct is FIXED. Do NOT invent new struct fields. Only use fields shown in restart.c or listed below.
+---
 
-Additional solver fields available:
-- solver->vars (total variables), solver->random (RNG state), solver->ticks, solver->scinc
+## 1. SOLVER STATE ACCESS (kissat *solver)
 
-Random number functions (use with &solver->random):
-- kissat_pick_random(&solver->random, low, high) - returns unsigned in [low, high)
-- kissat_pick_double(&solver->random) - returns double in [0, 1)
-- kissat_pick_bool(&solver->random) - returns random bool
+### Search State
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->level` | `unsigned` | Current decision level (0 = root) |
+| `solver->stable` | `bool` | Current mode: true=stable, false=focused |
+| `solver->vars` | `unsigned` | Total number of variables |
+| `solver->unassigned` | `unsigned` | Count of unassigned variables |
+| `solver->ticks` | `uint64_t` | Overall work counter |
 
-Statistics counters (use with INC/ADD): conflicts, decisions, propagations, restarts, stable_restarts, focused_restarts, clauses_learned, clauses_reduced
+### Multi-Armed Bandit (MAB) Fields
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->mab` | `bool` | MAB enabled flag |
+| `solver->heuristic` | `unsigned` | Current heuristic (0=VSIDS, 1=CHB) |
+| `solver->mabc` | `double` | MAB exploration constant |
+| `solver->mab_reward[2]` | `double[2]` | Cumulative rewards per heuristic |
+| `solver->mab_select[2]` | `unsigned[2]` | Selection count per heuristic |
+| `solver->mab_heuristics` | `unsigned` | Number of heuristics (typically 2) |
+| `solver->mab_decisions` | `double` | Decisions since last MAB update |
+| `solver->mab_conflicts` | `unsigned` | Conflicts since last MAB update |
+| `solver->mab_chosen_tot` | `unsigned` | Total choices made |
+| `solver->mab_chosen` | `unsigned*` | Per-variable chosen count array |
 
-Allowed includes: <math.h>, <stdbool.h>, <stdint.h>, <inttypes.h>
-Do NOT use: <stdlib.h>, <string.h>, <stdio.h>
+### Scoring Fields
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->scores` | `heap` | VSIDS score heap |
+| `solver->scores_chb` | `heap` | CHB score heap |
+| `solver->scinc` | `double` | Current score increment |
+
+### Limits
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->limits.restart.conflicts` | `uint64_t` | Next restart trigger (conflict count) |
+| `solver->limits.conflicts` | `uint64_t` | Global conflict limit |
+| `solver->limits.decisions` | `uint64_t` | Global decision limit |
+
+### Reluctant Doubling (solver->reluctant)
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->reluctant.trigger` | `bool` | Restart triggered flag |
+| `solver->reluctant.period` | `uint64_t` | Current period |
+| `solver->reluctant.limit` | `uint64_t` | Limit value |
+
+### Random Number Generator
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->random` | `generator` (uint64_t) | RNG state |
+
+---
+
+## 2. STATISTICS (solver->statistics)
+
+### Access Macros
+```c
+CONFLICTS              // solver->statistics.conflicts (uint64_t)
+DECISIONS              // solver->statistics.decisions (uint64_t)
+```
+
+### Increment/Add Macros
+```c
+INC(name)              // Increment statistic by 1
+ADD(name, n)           // Add n to statistic
+GET(name)              // Get statistic value (uint64_t)
+```
+
+### Available Statistics Counters (partial list)
+| Counter | Description |
+|---------|-------------|
+| `conflicts` | Total conflicts |
+| `decisions` | Total decisions |
+| `propagations` | Total unit propagations |
+| `restarts` | Total restarts |
+| `stable_restarts` | Restarts in stable mode |
+| `focused_restarts` | Restarts in focused mode |
+| `clauses_learned` | Learned clauses added |
+| `clauses_irredundant` | Original clauses |
+| `clauses_redundant` | Redundant learned clauses |
+| `clauses_binary` | Binary clauses |
+| `restarts_levels` | Total backtrack levels on restart |
+| `restarts_reused_levels` | Levels reused from trail |
+| `restarts_reused_trails` | Restarts that reused trail |
+
+### Glue Distribution (LBD histogram)
+```c
+solver->statistics.used[mode].glue[lbd_value]  // uint64_t
+// mode: 0=focused, 1=stable
+// lbd_value: 0 to 127 (MAX_GLUE_USED)
+```
+
+---
+
+## 3. AVERAGES (Exponential Moving Averages)
+
+### Access Macros
+```c
+AVERAGE(fast_glue)     // Fast EMA of glue/LBD values (double)
+AVERAGE(slow_glue)     // Slow EMA of glue/LBD values (double)
+AVERAGE(level)         // EMA of decision levels (double) - only if !QUIET
+AVERAGE(trail)         // EMA of trail size (double) - only if !QUIET
+AVERAGE(decision_rate) // EMA of decision rate (double)
+```
+
+### EMA Structure (for advanced use)
+```c
+EMA(name)              // Returns smooth struct for given average
+// smooth struct: { double value, biased, alpha, beta, exp; }
+```
+
+### Update Macro
+```c
+UPDATE_AVERAGE(name, value)  // Update EMA with new value
+// Equivalent to: kissat_update_smooth(solver, &EMA(name), value)
+```
+
+### Mode-Specific Averages
+Averages are maintained separately for focused and stable modes:
+```c
+AVERAGES               // solver->averages[solver->stable]
+// Automatically selects the correct mode's averages
+```
+
+---
+
+## 4. OPTIONS
+
+### Access Macro
+```c
+GET_OPTION(name)       // Returns int option value
+```
+
+### Restart-Related Options
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `restart` | 1 | 0-1 | Enable restarts |
+| `restartint` | 50 | 1-10000 | Base restart interval |
+| `restartmargin` | 10 | 0-25 | Fast/slow glue margin (percent) |
+| `restartreusetrail` | 1 | 0-1 | Reuse trail on restart |
+| `reluctant` | 1 | 0-1 | Enable reluctant doubling in stable mode |
+| `reluctantint` | 1024 | 2-32768 | Reluctant interval |
+| `reluctantlim` | 1048576 | 0-1073741824 | Reluctant limit (0=unlimited) |
+
+### EMA Options
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `emafast` | 33 | 10-1000000 | Fast EMA window size |
+| `emaslow` | 100000 | 100-1000000 | Slow EMA window size |
+
+### Scoring Options
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `decay` | 50 | 1-200 | Per mille scores decay |
+| `tier1` | 2 | 1-100 | Tier 1 glue limit |
+| `tier2` | 6 | 1-1000 | Tier 2 glue limit |
+
+### MAB Options
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `mab` | 1 | 0-1 | Enable MAB |
+| `mabcint` | 4 | 0-10 | MAB constant integer part |
+| `mabcdecimal` | 0 | 0-9 | MAB constant decimal part |
+| `heuristic` | 0 | 0-1 | Scoring heuristic (0=VSIDS, 1=CHB) |
+
+### Mode Options
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `modeinit` | 1000 | 10-100000000 | Initial focused conflicts limit |
+| `modeint` | 1000 | 10-100000000 | Focused conflicts interval |
+
+---
+
+## 5. CLAUSE STRUCTURE
+
+### Clause Fields
+```c
+struct clause {
+  unsigned glue : 19;      // LBD (Literal Block Distance) value
+  bool garbage : 1;        // Marked for deletion
+  bool reason : 1;         // Used as reason clause
+  bool redundant : 1;      // Learned clause (vs original)
+  bool shrunken : 1;       // Clause was minimized
+  unsigned used : 5;       // Usage count (0-31)
+  unsigned searched;       // Search counter
+  unsigned size;           // Number of literals
+  unsigned lits[3];        // Literal array (flexible)
+};
+```
+
+### Clause Access
+```c
+c->glue          // LBD value (unsigned, 0-524287)
+c->size          // Number of literals
+c->redundant     // true if learned clause
+c->used          // Usage count
+```
+
+### Clause Iteration
+```c
+for (all_clauses(c)) {
+  unsigned lbd = c->glue;
+  unsigned size = c->size;
+  // Process clause
+}
+
+for (all_literals_in_clause(lit, c)) {
+  unsigned idx = IDX(lit);
+  // Process literal
+}
+```
+
+---
+
+## 6. AVAILABLE FUNCTIONS
+
+### Random Number Generation
+```c
+kissat_pick_random(&solver->random, low, high)  // Returns unsigned in [low, high)
+kissat_pick_double(&solver->random)             // Returns double in [0, 1)
+kissat_pick_bool(&solver->random)               // Returns random bool
+kissat_next_random32(&solver->random)           // Returns unsigned (32-bit)
+```
+
+### Heap/Score Functions
+```c
+kissat_get_scores(solver)                       // Returns heap* for current heuristic
+kissat_get_heap_score(heap, idx)                // Returns double score for variable
+kissat_next_decision_variable(solver)           // Returns next variable index
+kissat_update_scores(solver)                    // Recalculate scores
+```
+
+### Reluctant Doubling
+```c
+kissat_reluctant_triggered(&solver->reluctant)  // Check if triggered (bool)
+kissat_tick_reluctant(&solver->reluctant)       // Advance reluctant state
+```
+
+### Scaling/Math Functions
+```c
+kissat_logn(count)                              // Returns double: log_n(count)
+kissat_sqrt(count)                              // Returns double: sqrt(count)
+kissat_nlogpown(count, p)                       // Returns double: n * (log_n)^p
+```
+
+### Memory Management
+```c
+kissat_calloc(solver, n, size)                  // Allocate n*size zeroed bytes
+kissat_malloc(solver, bytes)                    // Allocate bytes
+kissat_realloc(solver, ptr, old_size, new_size) // Reallocate
+kissat_free(solver, ptr, bytes)                 // Free memory
+```
+
+### Logging (only use for debugging)
+```c
+kissat_extremely_verbose(solver, fmt, ...)      // Max verbose output
+kissat_very_verbose(solver, fmt, ...)           // Very verbose output
+LOG(fmt, ...)                                   // Debug log (if LOGGING defined)
+```
+
+---
+
+## 7. UTILITY MACROS
+
+### Variable/Literal Macros
+```c
+IDX(lit)               // Extract variable index from literal
+LIT(idx)               // Create positive literal from index
+NOT(lit)               // Negate literal
+VALUE(lit)             // Current truth value (-1, 0, 1)
+VARS                   // solver->vars
+LITS                   // 2 * solver->vars
+```
+
+### Frame Access
+```c
+FRAME(level)           // Get frame at decision level
+// Frame structure: { bool promote, unsigned decision, unsigned trail, unsigned used }
+```
+
+### Stack/Array Macros
+```c
+SIZE_STACK(s)          // Get stack size
+EMPTY_STACK(s)         // Check if empty
+```
+
+### Iteration Macros
+```c
+for (all_variables(idx)) { ... }   // Iterate all variable indices
+for (all_clauses(c)) { ... }       // Iterate all clauses
+```
+
+---
+
+## 8. ALLOWED INCLUDES
+
+```c
+#include <math.h>      // For sqrt(), log(), log2(), fabs(), etc.
+#include <stdbool.h>   // For bool, true, false
+#include <stdint.h>    // For uint64_t, int64_t, etc.
+#include <inttypes.h>  // For PRIu64, etc.
+```
+
+### DO NOT USE
+```c
+// These are NOT available:
+#include <stdlib.h>    // NO - use kissat_malloc/free instead
+#include <string.h>    // NO
+#include <stdio.h>     // NO - use kissat_verbose for output
+```
+
+---
+
+## 9. CRITICAL WARNINGS
+
+1. **DO NOT invent solver fields** - Only use fields documented above
+2. **NO `solver->lbd`** - LBD is stored per-clause as `clause->glue`
+3. **NO `solver->conflict`** - Use `CONFLICTS` macro for conflict count
+4. **NO `solver->clauses.size`** - Iterate clauses with `for (all_clauses(c))`
+5. **NO `solver->last_lbd`** - This field does not exist
+6. **NO `solver->last_involved`** - This field does not exist
+7. **NO `stdlib.h` functions** - Use kissat_malloc/calloc/free
+8. **NO `static unsigned` declarations** - Use `#define` for constants or `static int`
+
+---
 
 ### Algorithm to Implement
 ALGORITHM_PLACEHOLDER
@@ -31,17 +346,22 @@ Wrap your complete function in `<code>` tags (no other text outside tags):
 
 EXAMPLE:
 <code>
-bool kissat_restarting(kissat *solver) {
+void restart_mab(kissat *solver) {
 
      // Your implementation here
 
 }
 </code>
 
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed. 
+
 ### Baseline Reference
 
-Here is the entire restart.c file, where kissat_restarting lives. This is eventually where your generated code will replace kissat_restarting, so ensure that your faithful implementation of the given algorithm compiles with the rest of this code.
+Here is the entire restart.c file. Your generated kissat_restarting function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
 
+```c
 #include "restart.h"
 #include "backtrack.h"
 #include "bump.h"
@@ -158,7 +478,7 @@ void restart_mab(kissat *solver) {
     // Reset MAB tracking variables
     unsigned stable_restarts = 0;
     solver->mab_reward[solver->heuristic] += log2(solver->mab_decisions) / log2(solver->mab_conflicts);
-    
+
     // Clear per-variable MAB data
     for (all_variables(idx)) {
         solver->mab_chosen[idx] = 0;
@@ -166,7 +486,7 @@ void restart_mab(kissat *solver) {
     solver->mab_chosen_tot = 0;
     solver->mab_decisions = 0;
     solver->mab_conflicts = 0;
-    
+
     // Count stable restarts across all heuristics
     for (unsigned i = 0; i < solver->mab_heuristics; i++) {
         stable_restarts += solver->mab_select[i];
@@ -207,14 +527,14 @@ void restart_mab(kissat *solver) {
         double ucb[2];
         solver->heuristic = 0;
         for (unsigned i = 0; i < solver->mab_heuristics; i++) {
-            ucb[i] = solver->mab_reward[i] / solver->mab_select[i] 
+            ucb[i] = solver->mab_reward[i] / solver->mab_select[i]
                    + sqrt(adaptive_c * log(stable_restarts + 1) / solver->mab_select[i]);
             if (i != 0 && ucb[i] > ucb[solver->heuristic]) {
                 solver->heuristic = i;
             }
         }
     }
-    
+
     // Update selection count for chosen heuristic
     solver->mab_select[solver->heuristic]++;
 }
@@ -229,7 +549,7 @@ void kissat_restart (kissat *solver) {
     INC (focused_restarts);
 
   unsigned old_heuristic = solver->heuristic;
-  if (solver->stable && solver->mab) 
+  if (solver->stable && solver->mab)
       restart_mab(solver);
   unsigned new_heuristic = solver->heuristic;
 
@@ -245,10 +565,10 @@ void kissat_restart (kissat *solver) {
   if (solver->stable && solver->mab) solver->heuristic = new_heuristic;
   if (!solver->stable)
     kissat_update_focused_restart_limit (solver);
-  
+
   if (solver->stable && solver->mab && old_heuristic!=new_heuristic) kissat_update_scores(solver);
 
   REPORT (1, 'R');
   STOP (restart);
 }
-
+```
