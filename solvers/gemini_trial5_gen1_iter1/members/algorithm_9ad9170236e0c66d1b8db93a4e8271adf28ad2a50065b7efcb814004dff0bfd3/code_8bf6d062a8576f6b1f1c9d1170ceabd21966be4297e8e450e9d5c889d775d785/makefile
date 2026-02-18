@@ -1,0 +1,18 @@
+all:
+	$(MAKE) -C "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785/build"
+kissat:
+	$(MAKE) -C "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785/build" kissat
+tissat:
+	$(MAKE) -C "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785/build" tissat
+clean:
+	rm -f "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785"/makefile
+	rm -f "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785"/src/makefile
+	-$(MAKE) -C "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785/build" clean
+	rm -rf "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785/build"
+coverage:
+	$(MAKE) -C "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785/build" coverage
+format:
+	$(MAKE) -C "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785/build" format
+test:
+	$(MAKE) -C "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785/build" test
+.PHONY: all clean coverage format kissat test tissat

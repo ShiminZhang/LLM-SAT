@@ -106,9 +106,49 @@ def download_batch_outputs(batch_id: str, output_path: str) -> str:
 def read_code_prompt_template(path: str) -> str:
     return read_algorithm_prompt_file(path)
 
-def generate_code_prompt(template: str, algorithm: str) -> str:
-    """Substitute the algorithm into the coder prompt template."""
-    return template.replace("ALGORITHM_PLACEHOLDER", algorithm)
+def generate_code_prompt(
+    template: str,
+    algorithm: str,
+    parent_a_code: Optional[str] = None,
+    parent_b_code: Optional[str] = None,
+) -> str:
+    """Substitute the algorithm into the coder prompt template.
+
+    Optionally appends parent C code as reference implementations so the LLM
+    can use them as structural anchors (valid struct fields, includes, etc.)
+    without being forced to copy them.
+    """
+    prompt = template.replace("ALGORITHM_PLACEHOLDER", algorithm)
+
+    parent_section = ""
+    if parent_a_code and parent_b_code:
+        parent_section = f"""
+
+### Parent Reference Implementations (both compiled successfully)
+Use these as structural reference for valid API usage, struct fields, and includes.
+You must implement the algorithm described above — do NOT copy either parent directly.
+
+#### Parent A:
+<code>
+{parent_a_code}
+</code>
+
+#### Parent B:
+<code>
+{parent_b_code}
+</code>"""
+    elif parent_a_code:
+        parent_section = f"""
+
+### Parent Reference Implementation (compiled successfully)
+Use this as structural reference for valid API usage, struct fields, and includes.
+You must implement the algorithm described above — do NOT copy the parent directly.
+
+<code>
+{parent_a_code}
+</code>"""
+
+    return prompt + parent_section
 
 def parse_code_response(response: Dict[str, Any]) -> str:
     # Try to extract assistant text from OpenAI batch Responses output

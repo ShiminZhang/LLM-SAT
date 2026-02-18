@@ -1186,16 +1186,24 @@ def generate_offspring_code(
     offspring_list: List[OffspringResult],
     code_prompt_template_path: str,
     model: str = "gpt-4.1",
+    population: Optional[List[Individual]] = None,
 ) -> Dict[str, str]:
     """
     Stage 4: Generate C code for each offspring algorithm that passed rubric filter.
 
     Uses the same coder prompt template as the main pipeline.
+    If population is provided, parent C code is included in the prompt as a
+    structural reference to reduce hallucinated struct fields / bad includes.
     Returns dict mapping algorithm_id -> code string.
     """
     logger.info(f"Generating code for {len(offspring_list)} rubric-filtered offspring")
     code_prompt_template = read_code_prompt_template(code_prompt_template_path)
     offspring_codes: Dict[str, str] = {}
+
+    # Build a lookup map from algorithm_id -> Individual for parent code retrieval
+    pop_map: Dict[str, Individual] = {}
+    if population:
+        pop_map = {ind.algorithm_id: ind for ind in population}
 
     for i, offspring in enumerate(offspring_list):
         logger.info(
@@ -1208,7 +1216,24 @@ def generate_offspring_code(
         except json.JSONDecodeError:
             algorithm_text = offspring.algorithm_json
 
-        prompt = generate_code_prompt(code_prompt_template, algorithm_text)
+        # Look up parent codes (only include if they exist and are non-empty)
+        parent_a = pop_map.get(offspring.parent_a_id)
+        parent_b = pop_map.get(offspring.parent_b_id)
+        parent_a_code = parent_a.code if parent_a and parent_a.code else None
+        parent_b_code = parent_b.code if parent_b and parent_b.code else None
+
+        if parent_a_code or parent_b_code:
+            logger.info(
+                f"  Including parent code(s): A={'yes' if parent_a_code else 'no'}, "
+                f"B={'yes' if parent_b_code else 'no'}"
+            )
+
+        prompt = generate_code_prompt(
+            code_prompt_template,
+            algorithm_text,
+            parent_a_code=parent_a_code,
+            parent_b_code=parent_b_code,
+        )
         response = get_response_from_chatgpt(
             prompt=prompt,
             system_message="You are an expert in writing C code for Kissat-based SAT Solvers.",
@@ -1621,6 +1646,7 @@ def run_evolution(
     evaluate: bool = False,
     causal_only: bool = False,
     skip_causal: bool = False,
+    evaluate_only: bool = False,
     rubric_min: float = 6.0,
     rubric_keep_top_n: Optional[int] = None,
     par2_threshold: Optional[float] = None,
@@ -1681,6 +1707,45 @@ def run_evolution(
         "timestamp": datetime.now().isoformat(),
         "iterations": [],
     }
+
+    # ------------------------------------------------------------------
+    # evaluate_only: skip all LLM stages, re-run evaluation on offspring
+    # already stored in DB under output_tag (e.g. output_tag_iter1, ...)
+    # ------------------------------------------------------------------
+    if evaluate_only:
+        logger.info(f"evaluate_only mode: fetching stored offspring under '{output_tag}*'")
+        for iteration in range(max_iterations):
+            iter_output_tag = f"{output_tag}_iter{iteration + 1}"
+            algorithm_ids = get_ids_from_router_table(
+                CHATGPT_DATA_GENERATION_TABLE, iter_output_tag
+            )
+            if not algorithm_ids:
+                logger.info(f"No stored offspring found for tag '{iter_output_tag}', stopping")
+                break
+            stored_pairs: List[Tuple[str, str]] = []
+            for algo_id in algorithm_ids:
+                algo = get_algorithm_result(algo_id)
+                if algo and algo.code_id_list:
+                    for code_id in algo.code_id_list:
+                        stored_pairs.append((algo_id, code_id))
+            logger.info(
+                f"Iteration {iteration + 1}: found {len(stored_pairs)} "
+                f"(algorithm_id, code_id) pairs under '{iter_output_tag}'"
+            )
+            iter_summary: Dict[str, Any] = {
+                "iteration": iteration + 1,
+                "stored": len(stored_pairs),
+            }
+            if stored_pairs:
+                successful_pairs, failed_pairs = evaluate_offspring(
+                    stored_pairs, generation_tag=iter_output_tag
+                )
+                iter_summary["evaluation"] = {
+                    "build_success": len(successful_pairs),
+                    "build_failed": len(failed_pairs),
+                }
+            summary["iterations"].append(iter_summary)
+        return summary
 
     # ------------------------------------------------------------------
     # Stage 1: Load initial population
@@ -1753,6 +1818,21 @@ def run_evolution(
             "best_par2_entering": best_par2_so_far,
         }
 
+        # Generate causal reports for any new members of current_population
+        # that don't already have one (e.g. top-tier offspring from prior iterations)
+        missing_causal = [
+            ind for ind in current_population
+            if ind.algorithm_id not in causal_reports
+        ]
+        if missing_causal:
+            logger.info(
+                f"Generating causal reports for {len(missing_causal)} new population members "
+                f"(promoted from previous iteration)"
+            )
+            new_causal = generate_causal_reports(missing_causal, model=model, baseline_par2=baseline_par2)
+            causal_reports.update(new_causal)
+            save_causal_reports(causal_reports, output_dir)
+
         # Stage 3: Combination (crossover)
         pairs = select_pairs(current_population, top_k=top_k, max_pairs=max_pairs)
         if not pairs:
@@ -1809,7 +1889,10 @@ def run_evolution(
             break
 
         # Stage 4: Code generation (only for rubric-filtered offspring)
-        offspring_codes = generate_offspring_code(filtered_offspring, code_prompt_path, model=model)
+        # Pass current_population so parent C code can be included as reference
+        offspring_codes = generate_offspring_code(
+            filtered_offspring, code_prompt_path, model=model, population=current_population
+        )
         save_offspring_codes(offspring_codes, output_dir, iteration=iteration + 1)
 
         iter_summary["code_generation"] = {
@@ -2048,6 +2131,17 @@ def main():
         help="Skip causal analysis and load from existing file",
     )
     parser.add_argument(
+        "--evaluate_only",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip all LLM stages (causal, crossover, rubric, codegen) and directly "
+            "run evaluation on offspring already stored in DB under output_tag. "
+            "Requires --output_tag (or derives it as {generation_tag}_gen1). "
+            "Iterates over output_tag_iter1, output_tag_iter2, ... up to --max_iterations."
+        ),
+    )
+    parser.add_argument(
         "--rubric_min",
         type=float,
         default=6.0,
@@ -2116,6 +2210,7 @@ def main():
         evaluate=args.evaluate,
         causal_only=args.causal_only,
         skip_causal=args.skip_causal,
+        evaluate_only=args.evaluate_only,
         rubric_min=args.rubric_min,
         rubric_keep_top_n=args.rubric_keep_top_n,
         par2_threshold=args.par2_threshold,
