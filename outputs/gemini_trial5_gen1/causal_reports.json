@@ -3,66 +3,66 @@
     "algorithm_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
     "strengths": [
       {
-        "design_decision": "Use of logarithmic reward calculation (R = log2(conflicts_generated + 1) / (elapsed_ticks + 1))",
-        "reason": "This choice normalizes the reward based on both the number of conflicts generated and the time taken, allowing for a fair comparison between modes regardless of their execution duration. It helps to prioritize modes that are effective in generating solutions quickly."
+        "design_decision": "Use of logarithmic scaling for reward calculation (R = log2(conflicts_generated + 1) / (elapsed_ticks + 1))",
+        "reason": "This approach normalizes the reward based on both the number of conflicts and the time taken, allowing for a more balanced evaluation of the solver's performance. It prevents skewing towards modes that generate many conflicts in a short time, promoting more sustainable solving strategies."
       },
       {
         "design_decision": "Incorporation of performance trend (T = R - R_prev)",
-        "reason": "By tracking the change in performance, the algorithm can adaptively respond to improvements or declines in mode effectiveness, allowing for timely adjustments in mode selection."
+        "reason": "By tracking the change in performance over time, the algorithm can adapt to improving or degrading conditions, allowing for more dynamic mode selection that responds to recent performance trends rather than static evaluations."
       },
       {
-        "design_decision": "Weighted Q-value update (Q_new = 0.85 * Q_old + 0.15 * (R + 2.0 * T))",
-        "reason": "This method balances historical performance with recent performance, allowing the algorithm to retain useful information while still being responsive to recent changes, which can be crucial in dynamic problem-solving environments."
+        "design_decision": "Weighted Q-value update with learning rate and trend gain (Q_new = 0.85 * Q_old + 0.15 * (R + 2.0 * T))",
+        "reason": "This blend of old and new rewards allows the algorithm to retain historical performance data while still being responsive to recent changes, which can help stabilize mode selection and improve overall performance."
       },
       {
-        "design_decision": "Exponential decay on selection score for consecutive mode usage (S = Q_new * (0.95 ^ consecutive_count))",
-        "reason": "This mechanism discourages over-reliance on a single mode by reducing its selection score if it has been used consecutively, promoting exploration of alternative modes that may yield better results."
+        "design_decision": "Decay factor in selection score (S = Q_new * (0.95 ^ consecutive_count))",
+        "reason": "This mechanism discourages over-reliance on a mode that has been chosen repeatedly, promoting exploration of alternative modes. It helps prevent stagnation in performance by ensuring that modes are revisited periodically."
       }
     ],
     "weaknesses": [
       {
-        "design_decision": "Fixed learning rate (alpha = 0.15)",
-        "reason": "A static learning rate may not adapt well to varying problem complexities. For instance, in harder instances, a lower learning rate might hinder the algorithm's ability to quickly adjust to effective modes, while a higher rate could lead to erratic behavior."
+        "design_decision": "Static learning rate (alpha = 0.15)",
+        "reason": "A fixed learning rate may not be optimal across all phases of solving. In scenarios where performance fluctuates significantly, a dynamic learning rate could better adapt to changing conditions, potentially improving responsiveness and performance."
+      },
+      {
+        "design_decision": "Limited mode selection (only two modes)",
+        "reason": "Restricting the algorithm to only two modes may limit the diversity of strategies employed. A broader set of modes could capture a wider range of solving techniques, potentially leading to better performance in varied problem landscapes."
       },
       {
         "design_decision": "Consecutive count reset only on mode change",
-        "reason": "This design can lead to prolonged periods of suboptimal performance if a mode is not effective but continues to be chosen due to a lack of sufficient exploration of alternatives, especially in cases where the performance trend is not adequately captured."
-      },
-      {
-        "design_decision": "Use of static thresholds for mode selection (e.g., S comparison)",
-        "reason": "The binary selection based on a simple comparison of scores may overlook more nuanced performance metrics, such as variance in performance or the potential for a mode to excel in specific contexts, leading to suboptimal mode selection."
+        "reason": "This design may lead to prolonged periods of suboptimal performance if a mode is chosen repeatedly without sufficient exploration of alternatives. A more nuanced approach could involve resetting the count based on performance metrics rather than just mode changes."
       }
     ],
     "key_mechanisms": [
       {
-        "mechanism": "Adaptive mode selection based on performance trends",
-        "description": "The algorithm dynamically adjusts which mode to use based on the calculated rewards and trends, allowing it to adapt to the problem landscape effectively."
+        "mechanism": "Adaptive mode selection based on Q-values and performance trends",
+        "description": "The algorithm continuously evaluates the performance of each mode and selects the one with the highest score, allowing it to adapt to changing problem characteristics and solver performance."
       },
       {
-        "mechanism": "Decay of influence from consecutive selections",
-        "description": "The exponential decay applied to the selection score for modes used consecutively helps to ensure that the algorithm does not become stuck in a local optimum by encouraging exploration of other modes."
+        "mechanism": "Decay in selection score based on consecutive selections",
+        "description": "This mechanism encourages exploration by reducing the score of a mode that has been selected multiple times in a row, promoting diversity in solving strategies."
       },
       {
-        "mechanism": "Reward normalization through logarithmic scaling",
-        "description": "By using log scaling for rewards, the algorithm ensures that performance evaluations are more consistent across different execution times and conflict levels, facilitating better decision-making."
+        "mechanism": "Tracking of elapsed ticks and conflicts to compute rewards",
+        "description": "By monitoring these metrics, the algorithm can assess the efficiency of each mode, leading to more informed decisions about which mode to select next."
       }
     ],
     "improvement_suggestions": [
       {
-        "suggestion": "Implement an adaptive learning rate that adjusts based on performance variance.",
-        "reason": "This would allow the algorithm to respond more effectively to different problem complexities, improving convergence on effective modes."
+        "suggestion": "Implement a dynamic learning rate that adjusts based on performance variability",
+        "reason": "This could enhance responsiveness to changes in solver performance, allowing for more effective learning and adaptation over time."
       },
       {
-        "suggestion": "Introduce a mechanism for exploring modes based on a probability distribution rather than deterministic selection.",
-        "reason": "This could enhance exploration of potentially better modes, especially in cases where performance trends are not clearly defined."
+        "suggestion": "Expand the number of modes beyond two to incorporate a wider variety of solving strategies",
+        "reason": "This would allow the algorithm to explore a broader solution space, potentially leading to improved performance on diverse SAT instances."
       },
       {
-        "suggestion": "Incorporate a mechanism to track and evaluate the quality of clauses generated during solving.",
-        "reason": "By assessing clause quality, the algorithm could make more informed decisions about mode effectiveness, potentially leading to better performance in complex SAT instances."
+        "suggestion": "Introduce a mechanism to reset consecutive_count based on performance metrics, not just mode changes",
+        "reason": "This could prevent prolonged reliance on suboptimal modes and encourage timely exploration of alternatives when performance stagnates."
       },
       {
-        "suggestion": "Add a mechanism for temporary mode suspension if performance drops below a certain threshold.",
-        "reason": "This would prevent prolonged usage of ineffective modes and encourage quicker exploration of alternatives, enhancing overall solver performance."
+        "suggestion": "Experiment with different trend gain values (beta) to find an optimal balance for various problem types",
+        "reason": "Adjusting this parameter could lead to better responsiveness to performance trends, allowing the algorithm to adapt more effectively to different solving conditions."
       }
     ]
   },
@@ -70,62 +70,62 @@
     "algorithm_id": "92500611f8373de03bf570a7dacfc41fcd7dc11fe68251a1e11db160d0902602",
     "strengths": [
       {
-        "design_decision": "Use of Exponential Moving Averages (EMAs)",
-        "reason": "EMAs provide a smoothed representation of performance over time, allowing the algorithm to adapt to changes in solver efficiency without being overly sensitive to short-term fluctuations. This helps in maintaining a stable performance measure."
+        "design_decision": "Use of Exponential Moving Averages (EMAs) for performance tracking",
+        "reason": "EMAs provide a smoothed representation of performance over time, allowing the algorithm to adapt to trends in solver efficiency without being overly sensitive to noise or short-term fluctuations. This helps in identifying stable and focused modes effectively."
       },
       {
-        "design_decision": "Momentum Calculation (M = Fast_EMA - Slow_EMA)",
-        "reason": "Momentum quantifies the rate of change in performance, enabling the algorithm to identify whether a mode is improving or degrading. This allows for more informed decisions about mode switching, enhancing overall solver efficiency."
+        "design_decision": "Momentum calculation (M = Fast_EMA - Slow_EMA)",
+        "reason": "This metric captures the rate of change in performance, allowing the algorithm to react to improving or degrading performance. It helps in making informed decisions about switching heuristics based on recent trends."
       },
       {
-        "design_decision": "Projected Score Calculation (P = Fast_EMA + (1.5 * M))",
-        "reason": "This scoring mechanism rewards modes that are improving while penalizing those that are declining. By emphasizing positive momentum, the algorithm can effectively prioritize heuristics that are likely to yield better results."
+        "design_decision": "Projected Score (P = Fast_EMA + (1.5 * M))",
+        "reason": "By boosting modes with rising performance and penalizing those that are declining, this scoring mechanism encourages exploration of potentially more effective heuristics while avoiding prolonged use of underperforming ones."
       },
       {
-        "design_decision": "Stop-loss Mechanism",
-        "reason": "The condition to switch modes when negative momentum is detected after a set number of intervals (5) prevents prolonged engagement with a poorly performing heuristic. This helps in avoiding wasted computational resources on ineffective strategies."
+        "design_decision": "Stop-loss mechanism (switching heuristics on negative momentum after 5 intervals)",
+        "reason": "This mechanism prevents the solver from getting stuck in a poor-performing mode for too long, allowing it to explore alternative strategies sooner, which can lead to better overall performance."
       }
     ],
     "weaknesses": [
       {
-        "design_decision": "Fixed Alpha Values for EMAs (0.20 for Fast, 0.05 for Slow)",
-        "reason": "These fixed values may not be optimal for all problem instances. For example, a faster decay in the slow EMA could lead to quicker adaptation to changing problem characteristics, potentially improving performance in dynamic scenarios."
+        "design_decision": "Fixed alpha values for EMAs (0.20 for Fast and 0.05 for Slow)",
+        "reason": "These fixed values may not be optimal for all problem instances. A static approach can lead to suboptimal responsiveness in different contexts, potentially hindering the solver's ability to adapt quickly to changing performance dynamics."
       },
       {
-        "design_decision": "Consecutive Active Counter",
-        "reason": "The reliance on a fixed threshold of 5 intervals before switching can lead to suboptimal performance if the heuristic is still improving but not rapidly enough. This rigidity may prevent the solver from capitalizing on gradual improvements."
+        "design_decision": "Consecutive active counter reset on heuristic switch",
+        "reason": "While this mechanism tracks performance continuity, it may lead to premature switching if a heuristic is still improving but not consistently. This could result in losing potentially beneficial exploration of a heuristic that is beginning to stabilize."
       },
       {
-        "design_decision": "Single Mode Selection Based on Projected Score",
-        "reason": "Selecting only one mode based on the highest projected score may neglect the potential benefits of hybrid strategies or simultaneous exploration of both heuristics, which could lead to better overall performance."
+        "design_decision": "Use of log(conflicts) for yield calculation",
+        "reason": "While logarithmic scaling helps manage large ranges of conflicts, it may obscure the true performance dynamics in cases of very low conflict counts. This can lead to misleading yield values that do not accurately reflect the solver's efficiency."
       }
     ],
     "key_mechanisms": [
       {
-        "description": "Adaptive Restart Frequency",
-        "mechanism": "The algorithm dynamically adjusts the frequency of heuristic switches based on performance metrics, allowing it to respond to changes in the problem landscape effectively."
+        "description": "Adaptive heuristic selection based on performance trends",
+        "reason": "The algorithm continuously evaluates the performance of two heuristics and selects the one with the highest projected score, allowing it to adaptively switch strategies based on real-time performance data."
       },
       {
-        "description": "Performance Tracking via Yield Calculation",
-        "mechanism": "Yield is calculated as log(conflicts) / seconds, providing a robust measure of heuristic effectiveness. This allows for real-time performance assessment and timely adjustments."
+        "description": "Performance tracking through yield and EMAs",
+        "reason": "The tracking of yield and its smoothing through EMAs allows the solver to maintain a historical perspective on performance, which is crucial for making informed decisions about heuristic switching."
       },
       {
-        "description": "Heuristic Selection via Projected Scores",
-        "mechanism": "The projected scores guide the selection of heuristics, ensuring that the solver is always utilizing the most promising strategy based on recent performance trends."
+        "description": "Momentum as a performance indicator",
+        "reason": "Momentum serves as a key indicator of whether a heuristic is improving or degrading, influencing the decision-making process for heuristic selection and ensuring that the solver does not remain in a suboptimal state."
       }
     ],
     "improvement_suggestions": [
       {
-        "suggestion": "Experiment with Adaptive Alpha Values for EMAs",
-        "change": "Implement a mechanism to dynamically adjust the alpha values based on the problem characteristics or historical performance data, allowing for more responsive adaptation."
+        "suggestion": "Implement dynamic alpha values for EMAs based on problem characteristics",
+        "reason": "Allowing the alpha values to adapt based on the specific problem instance could enhance responsiveness and performance, making the algorithm more robust across diverse SAT problems."
       },
       {
-        "suggestion": "Introduce a Hybrid Mode Selection Strategy",
-        "change": "Instead of selecting a single mode, consider a weighted approach that allows for simultaneous exploration of both heuristics, potentially leveraging their strengths in different contexts."
+        "suggestion": "Introduce a decay mechanism for the consecutive active counter",
+        "reason": "Instead of resetting the counter on heuristic switch, a decay mechanism could allow for gradual adjustment, enabling the solver to retain some continuity in performance assessment while still allowing for exploration."
       },
       {
-        "suggestion": "Refine the Stop-loss Mechanism",
-        "change": "Instead of a fixed threshold of 5 intervals, implement a more flexible mechanism that considers the rate of performance decline and allows for earlier switches if momentum is significantly negative."
+        "suggestion": "Consider alternative yield calculations that incorporate additional metrics",
+        "reason": "Incorporating other performance metrics (e.g., decisions made, propagation efficiency) alongside log(conflicts) could provide a more comprehensive view of solver performance, leading to better-informed heuristic selections."
       }
     ]
   },
@@ -133,66 +133,74 @@
     "algorithm_id": "ba6b0d7174167982999ec7e65aebca7667bdefba917abe058ee4be8f5c35a83a",
     "strengths": [
       {
-        "design_decision": "Hybrid cost metric K with negative reward for structural learning phases",
-        "reason": "By subtracting 4.0 from K when the global glue clause ratio exceeds 0.1, the algorithm incentivizes the solver to enter phases where it can learn from structural properties of the problem, leading to improved performance in subsequent solving."
+        "design_decision": "Hybrid cost metric K based on average LBD",
+        "reason": "Using average LBD as a proxy for clause quality allows the solver to dynamically assess the effectiveness of its current state, promoting better decision-making regarding mode selection."
       },
       {
-        "design_decision": "Use of fast and slow exponential moving averages (EMAs)",
-        "reason": "The dual EMA approach allows the algorithm to capture both short-term and long-term trends in performance. This helps in accurately assessing whether the current mode is effective, thus enabling timely mode switching."
+        "design_decision": "Negative cost adjustment for structural learning phases",
+        "reason": "Subtracting 4.0 from K when the global glue clause ratio exceeds 0.1 incentivizes the solver to remain in phases where it is learning effectively, thus improving overall performance."
+      },
+      {
+        "design_decision": "Exponential Moving Averages (EMAs) for state tracking",
+        "reason": "Using fast and slow EMAs allows the solver to adapt to recent performance trends while smoothing out noise, leading to more stable and informed mode switching."
       },
       {
         "design_decision": "Performance Velocity V calculation",
-        "reason": "By calculating V as the difference between fast and slow EMAs, the algorithm can detect performance trends. A negative V indicates improvement, prompting the solver to remain in the current mode, which can help maintain effective solving strategies."
+        "reason": "Calculating V as the difference between fast and slow EMAs provides a clear indicator of performance trends, allowing the solver to anticipate future performance and make proactive adjustments."
       },
       {
         "design_decision": "Hysteresis in mode switching",
-        "reason": "The condition to switch modes only if F_candidate < 0.9 * F_current prevents thrashing between modes. This stability allows the solver to exploit effective strategies without frequent disruptions."
+        "reason": "The 0.9 threshold for switching modes prevents thrashing between modes, ensuring that the solver remains stable and only switches when there is a significant indication of performance improvement."
       }
     ],
     "weaknesses": [
       {
-        "design_decision": "Fixed thresholds for mode switching and cost adjustments",
-        "reason": "The threshold of 0.1 for the glue clause ratio and the fixed subtraction of 4.0 from K may not be optimal across all problem instances. This rigidity can lead to suboptimal mode selections in scenarios where the dynamics of the problem change rapidly."
+        "design_decision": "Fixed alpha values for EMAs (0.05 and 0.005)",
+        "reason": "These fixed values may not be optimal for all problem instances, potentially leading to slow adaptation in some scenarios where a more dynamic adjustment could yield better results."
       },
       {
-        "design_decision": "Dependence on past performance metrics",
-        "reason": "The reliance on historical data (last_glue2_count and last_conflict_count) can lead to stale decisions if the problem characteristics change. This could cause the solver to continue in a less effective mode longer than necessary."
+        "design_decision": "Single threshold for glue clause ratio (0.1)",
+        "reason": "This threshold may not be universally applicable; different problem instances may require different thresholds, which could lead to suboptimal performance in certain cases."
       },
       {
-        "design_decision": "Initialization of EMAs only on the first run",
-        "reason": "If the solver switches modes frequently, the initial values of fast_ema and slow_ema may not accurately reflect the current performance characteristics, leading to poor decision-making in early iterations."
+        "design_decision": "Resetting delta counters on mode switch",
+        "reason": "Resetting counters can lead to a loss of valuable historical data that could inform the solver about the effectiveness of the previous mode, potentially leading to poor decision-making in the new mode."
+      },
+      {
+        "design_decision": "Dependence on LBD as a sole quality metric",
+        "reason": "Relying exclusively on LBD may overlook other important aspects of clause quality, such as clause activity or redundancy, which could provide a more comprehensive view of performance."
       }
     ],
     "key_mechanisms": [
       {
-        "description": "Adaptive restart frequency based on performance metrics",
-        "details": "The algorithm dynamically adjusts its mode based on the forecasted cost F, which is influenced by the calculated performance velocity V. This allows the solver to adapt its strategy based on real-time performance."
+        "mechanism": "Dynamic mode selection based on forecasted cost",
+        "description": "The algorithm evaluates the performance of both Stable and Focused modes using the forecasted cost F, allowing it to adaptively choose the mode that is expected to yield better results."
       },
       {
-        "description": "Tracking of clause quality through LBD metrics",
-        "details": "The use of average LBD as a proxy for clause quality allows the solver to gauge the effectiveness of its current state. This informs the cost metric K and ultimately influences mode selection."
+        "mechanism": "Performance tracking through EMAs",
+        "description": "Fast and slow EMAs provide a mechanism for tracking performance trends over time, enabling the solver to make informed decisions based on recent performance changes."
       },
       {
-        "description": "Mode persistence with historical tracking",
-        "details": "The persistent state variables for both modes allow the solver to maintain a history of performance, which is crucial for making informed decisions about mode switching."
+        "mechanism": "Hysteresis to prevent thrashing",
+        "description": "The hysteresis buffer ensures that mode switching occurs only when there is a significant performance difference, stabilizing the solver's behavior and improving overall efficiency."
       }
     ],
     "improvement_suggestions": [
       {
-        "suggestion": "Implement adaptive thresholds for K adjustments based on problem characteristics",
-        "reason": "Instead of a fixed subtraction of 4.0 from K, consider a dynamic adjustment based on the variance of LBD values in recent conflicts. This could enhance responsiveness to different problem types."
+        "suggestion": "Implement adaptive alpha values for EMAs",
+        "description": "Allow the alpha values for fast and slow EMAs to be adjusted based on the solver's performance characteristics, enabling quicker adaptation to varying problem instances."
       },
       {
-        "suggestion": "Introduce a decay mechanism for historical performance metrics",
-        "reason": "To mitigate the impact of stale data, implement a decay factor for last_glue2_count and last_conflict_count, allowing the solver to prioritize more recent performance data over older metrics."
+        "suggestion": "Introduce multiple thresholds for glue clause ratio",
+        "description": "Implement a mechanism to dynamically adjust the threshold for the glue clause ratio based on historical performance data, allowing for more tailored decision-making."
       },
       {
-        "suggestion": "Enhance initialization strategy for EMAs",
-        "reason": "Instead of initializing EMAs to K only on the first run, consider initializing them based on a rolling average of recent K values. This could provide a more accurate starting point for performance tracking."
+        "suggestion": "Maintain historical performance data across mode switches",
+        "description": "Instead of resetting delta counters on mode switches, retain historical data to inform decisions in the new mode, potentially leading to better performance outcomes."
       },
       {
-        "suggestion": "Experiment with different EMA alpha values",
-        "reason": "The current fixed alpha values (0.05 for fast and 0.005 for slow) may not be optimal. Conducting empirical tests to find the best values for different problem instances could improve responsiveness to changes in performance."
+        "suggestion": "Incorporate additional clause quality metrics",
+        "description": "Integrate other metrics such as clause activity or redundancy alongside LBD to provide a more holistic view of clause quality, improving the decision-making process."
       }
     ]
   },
@@ -200,58 +208,58 @@
     "algorithm_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
     "strengths": [
       {
-        "design_decision": "Momentum Override based on Linear Regression Slope (S)",
-        "reason": "This decision allows the solver to adaptively switch between heuristics based on recent performance trends. When S < -0.25, it indicates improving performance, leading to stability in the current mode. Conversely, S > 0.25 signals degrading performance, prompting a switch. This dynamic adjustment helps maintain efficiency in solving SAT problems."
+        "design_decision": "Momentum Override based on slope 'S'",
+        "reason": "This decision allows the solver to adaptively choose between heuristics based on performance trends. By deterministically selecting the current mode when S < -0.25, the algorithm capitalizes on improving performance, while switching modes when S > 0.25 helps escape local optima."
       },
       {
-        "design_decision": "Adaptive Boltzmann Selection with Temperature (T)",
-        "reason": "The use of Boltzmann selection allows for a probabilistic approach to heuristic selection, which can explore different strategies without being overly deterministic. The temperature T = 0.1 + V (where V is the normalized standard deviation of conflict rates) provides a mechanism to control exploration versus exploitation, adapting to the variability in performance across heuristics."
+        "design_decision": "Adaptive Boltzmann Selection with temperature 'T'",
+        "reason": "This probabilistic approach allows for exploration of different heuristics while still favoring those that have performed well. The temperature parameter, which is influenced by the normalized standard deviation 'V' of the conflict rate, helps balance exploration and exploitation, improving overall adaptability."
       },
       {
-        "design_decision": "Circular Buffer for LBD and Conflict Rate",
-        "reason": "Maintaining a circular buffer for the last N=5 restart phases allows the algorithm to track recent performance metrics effectively. This history aids in calculating S and V, which are critical for determining the current state of the solver and making informed decisions about heuristic selection."
+        "design_decision": "Circular buffer for LBD and conflict rate history",
+        "reason": "Maintaining a circular buffer allows for efficient tracking of recent performance metrics without excessive memory usage. This enables timely adjustments to the heuristic selection based on the most relevant data, enhancing responsiveness to changes in problem structure."
       }
     ],
     "weaknesses": [
       {
-        "design_decision": "Fixed Thresholds for S (-0.25 and 0.25)",
-        "reason": "The choice of fixed thresholds for S may not be optimal across all problem instances. Different SAT problems may exhibit varying characteristics, and a one-size-fits-all threshold could lead to suboptimal heuristic switches, potentially causing unnecessary restarts or stagnation."
+        "design_decision": "Fixed thresholds for slope 'S'",
+        "reason": "The thresholds of -0.25 and 0.25 for S may not be optimal for all problem instances. This rigidity can lead to premature mode switching or stagnation in certain scenarios, potentially hurting performance when the solver is close to finding a solution."
       },
       {
-        "design_decision": "Limited History Size (N=5)",
-        "reason": "The choice of a small circular buffer size (N=5) may not capture enough historical data to make robust decisions. This could lead to premature conclusions about performance trends, especially in cases where the performance fluctuates significantly over longer periods."
+        "design_decision": "Limited history size (N=5)",
+        "reason": "A small history size may not capture sufficient variability in LBD and conflict rates, leading to decisions based on insufficient data. This can result in suboptimal heuristic selections, especially in cases where longer-term trends are more indicative of performance."
       },
       {
-        "design_decision": "Deterministic Switch in Binary Heuristic Case",
-        "reason": "In cases where only two heuristics are available, the deterministic switch may lead to oscillation between the two modes, especially if they are close in performance. This could result in wasted computational resources and increased solving time."
+        "design_decision": "Binary choice for heuristics",
+        "reason": "Assuming only two heuristics (VSIDS and CHB) limits the solver's ability to leverage a broader range of strategies. This can restrict performance on diverse SAT instances where other heuristics may be more effective."
       }
     ],
     "key_mechanisms": [
       {
-        "description": "Momentum Override Mechanism",
-        "function": "This mechanism uses the slope S of the LBD history to determine whether to continue with the current heuristic or switch to another. It effectively captures the recent trend in performance, allowing for timely adjustments."
+        "mechanism": "Dynamic adjustment of heuristic selection",
+        "description": "The algorithm uses performance metrics (LBD and conflict rates) to dynamically adjust which heuristic is selected, allowing it to respond to changing problem characteristics and improve solving efficiency."
       },
       {
-        "description": "Adaptive Temperature Control",
-        "function": "The temperature T adjusts the exploration-exploitation balance based on the variability of the conflict rate. A higher V leads to a higher T, promoting exploration when performance is unstable, which can help discover better heuristics."
+        "mechanism": "Performance tracking through MAB (Multi-Armed Bandit) approach",
+        "description": "The MAB framework allows the solver to treat each heuristic as an 'arm' to pull, using historical performance data to inform future selections. This probabilistic approach helps balance exploration of new heuristics with exploitation of known good ones."
       },
       {
-        "description": "Quality Calculation for Heuristics",
-        "function": "The quality Q of each heuristic is calculated based on accumulated scores and selections. This allows the algorithm to evaluate which heuristic has performed better over time, guiding the selection process."
+        "mechanism": "Stagnation detection via slope 'S'",
+        "description": "By monitoring the slope of LBD history, the algorithm can detect stagnation and trigger heuristic changes, which helps avoid getting stuck in unproductive search patterns."
       }
     ],
     "improvement_suggestions": [
       {
-        "suggestion": "Implement Dynamic Thresholds for S",
-        "details": "Instead of fixed thresholds, consider using adaptive thresholds based on the characteristics of the problem instance or historical performance metrics. This could enhance the responsiveness of the heuristic switching mechanism."
+        "suggestion": "Experiment with adaptive thresholds for slope 'S'",
+        "reason": "Implementing adaptive thresholds based on the problem instance characteristics could allow for more nuanced decision-making, reducing unnecessary mode switches and improving performance."
       },
       {
-        "suggestion": "Increase Circular Buffer Size",
-        "details": "Expand the circular buffer size from N=5 to a larger value (e.g., N=10 or N=15) to capture more historical data. This could provide a more stable basis for calculating S and V, leading to better-informed decisions."
+        "suggestion": "Increase the size of the circular buffer for LBD and conflict rates",
+        "reason": "Expanding the history size beyond N=5 could provide a more comprehensive view of performance trends, leading to better-informed heuristic selections and improved overall performance."
       },
       {
-        "suggestion": "Introduce a Stochastic Component to Heuristic Switching",
-        "details": "In the binary heuristic case, introduce a small probability of retaining the current heuristic even when S > 0.25. This could reduce oscillation and allow for longer exploration of potentially beneficial heuristics."
+        "suggestion": "Incorporate additional heuristics into the selection process",
+        "reason": "Allowing for more than two heuristics would enable the solver to leverage a wider range of strategies, potentially improving performance on diverse SAT instances and enhancing adaptability."
       }
     ]
   },
@@ -260,65 +268,61 @@
     "strengths": [
       {
         "design_decision": "Use of Exponential Moving Averages (EMAs) for reward tracking",
-        "reason": "Fast and slow EMAs allow the algorithm to adaptively track the quality of different restart modes over time, smoothing out noise from individual intervals. This helps in identifying which mode is performing better in a more stable manner."
+        "reason": "The Fast_EMA and Slow_EMA allow the algorithm to adaptively track the performance of different restart modes over time. This helps in identifying which mode is currently performing better based on recent trends, thus improving the overall search quality."
       },
       {
-        "design_decision": "Calculation of reward R based on conflicts and LBD",
-        "reason": "By using the ratio of conflicts to the sum of LBDs, the algorithm effectively captures the efficiency of the search process. A higher R indicates better search quality, which directly informs the choice of restart mode."
+        "design_decision": "Reward calculation based on conflicts and LBDs",
+        "reason": "The reward R is calculated as the ratio of conflicts to the sum of LBDs, which effectively measures the quality of the search. A higher reward indicates a more effective search strategy, allowing the solver to prioritize modes that yield better results."
       },
       {
         "design_decision": "Stagnation counter to track learning progress",
-        "reason": "The stagnation counter provides a mechanism to penalize modes that are not contributing to learning (i.e., not generating new glue clauses). This encourages exploration of other modes when a mode is underperforming."
+        "reason": "The Stagnation_Counter helps in identifying when the solver is not learning new useful clauses (LBD <= 2). This mechanism allows the algorithm to penalize modes that are not contributing to progress, thus encouraging exploration of potentially better modes."
       },
       {
-        "design_decision": "Penalty mechanism for prolonged stagnation",
-        "reason": "Applying a penalty when stagnation exceeds a threshold (6 intervals) prevents the solver from getting stuck in a suboptimal mode, thereby promoting exploration of potentially better modes."
+        "design_decision": "Penalty application after multiple stagnation intervals",
+        "reason": "Applying a penalty to the priority of the currently active mode after 6 bad intervals (stagnation) prevents the solver from getting stuck in a poor-performing mode. This encourages exploration of other modes, which can lead to better performance."
       }
     ],
     "weaknesses": [
       {
         "design_decision": "Fixed thresholds for stagnation and penalties",
-        "reason": "The choice of a stagnation threshold of 6 may not be optimal for all problem instances. This rigid threshold could lead to premature switching from a mode that might still be effective in certain contexts, potentially hurting performance."
-      },
-      {
-        "design_decision": "Use of a static alpha value for EMAs",
-        "reason": "The fixed alpha values (0.3 for Fast_EMA and 0.05 for Slow_EMA) may not adapt well to different problem characteristics. A more dynamic adjustment of these values based on the solver's performance could yield better tracking of trends."
+        "reason": "The choice of a fixed threshold of 6 for the Stagnation_Counter may not be optimal for all problem instances. This rigidity can lead to premature penalties or insufficient exploration in cases where the solver might need more time to recover."
       },
       {
         "design_decision": "Limited number of heuristics (only 2)",
-        "reason": "Restricting the algorithm to only two heuristics may limit the solver's ability to explore a broader search space. More heuristics could provide a richer set of strategies to adapt to varying problem landscapes."
+        "reason": "Restricting the algorithm to only two heuristics may limit the solver's ability to explore a wider range of strategies. This can hinder performance on diverse problem sets where different heuristics may be more effective."
+      },
+      {
+        "design_decision": "Potentially low initial values for EMAs",
+        "reason": "If the initial values for Fast_EMA and Slow_EMA are not representative of the actual performance, the algorithm may take too long to converge to the best-performing mode, leading to suboptimal decisions in early iterations."
       }
     ],
     "key_mechanisms": [
       {
-        "description": "Adaptive restart frequency based on performance metrics",
-        "details": "The algorithm adjusts the restart frequency based on the calculated rewards and the stagnation counter, allowing it to dynamically adapt to the solver's performance."
+        "mechanism": "Adaptive restart frequency",
+        "description": "The algorithm adapts the frequency of restarts based on the performance of the current mode, as indicated by the calculated reward R. This allows the solver to dynamically adjust its strategy based on real-time performance metrics."
       },
       {
-        "description": "Tracking of clause quality through LBD",
-        "details": "The use of LBD as a proxy for clause quality allows the algorithm to assess the effectiveness of learned clauses and adjust strategies accordingly, promoting the learning of high-quality clauses."
+        "mechanism": "Clause quality tracking via LBD",
+        "description": "The use of LBD as a proxy for clause quality allows the solver to focus on learning high-quality clauses. By tracking the number of new glue clauses learned, the algorithm can assess the effectiveness of its search strategy."
       },
       {
-        "description": "Momentum-driven decision-making",
-        "details": "The priority calculation incorporates both fast and slow EMAs, which rewards modes that show positive momentum, thus encouraging the solver to stick with successful strategies while still allowing for exploration."
+        "mechanism": "Momentum-based priority calculation",
+        "description": "The priority P calculation incorporates both fast and slow EMAs, which enables the algorithm to reward modes that show improving trends. This momentum-based approach helps in maintaining exploration while still capitalizing on recent successes."
       }
     ],
     "improvement_suggestions": [
       {
-        "suggestion": "Introduce dynamic thresholds for stagnation and penalties",
-        "reason": "Allowing thresholds to adapt based on the characteristics of the problem instance could prevent premature mode switching and improve overall performance."
+        "suggestion": "Introduce dynamic thresholds for stagnation penalties",
+        "detail": "Instead of a fixed threshold of 6 for the Stagnation_Counter, implement a dynamic threshold based on the problem instance characteristics or historical performance data. This could allow for more tailored responses to stagnation."
       },
       {
-        "suggestion": "Implement adaptive alpha values for EMAs",
-        "reason": "Using a mechanism to adjust alpha values based on the solver's performance could enhance the responsiveness of the EMAs, leading to better tracking of trends."
+        "suggestion": "Expand the number of heuristics beyond 2",
+        "detail": "Incorporate additional heuristics to provide a broader search space. This could help the solver adapt to a wider variety of problem instances and improve performance on diverse SAT problems."
       },
       {
-        "suggestion": "Expand the number of heuristics beyond two",
-        "reason": "Incorporating additional heuristics could provide the solver with more strategies to explore, potentially leading to better performance on a wider variety of SAT instances."
-      },
-      {
-        "suggestion": "Incorporate a decay mechanism for the stagnation counter",
-        "reason": "Implementing a decay mechanism that gradually reduces the stagnation counter over time could allow modes to recover from temporary poor performance without immediate penalties."
+        "suggestion": "Implement a more nuanced initialization strategy for EMAs",
+        "detail": "Instead of starting EMAs at zero, initialize them based on a small sample of initial performance metrics to provide a more realistic starting point. This could help in faster convergence to effective strategies."
       }
     ]
   },
@@ -326,140 +330,192 @@
     "algorithm_id": "c5490c7747b8a0343b06a2aad2f61addab5ba8f5a534945100c702f02853fb69",
     "strengths": [
       {
-        "design_decision": "Asymmetric Incentives for Stable Strategy",
-        "reason": "The algorithm rewards the 'Stable' strategy more when it achieves deeper search trees (d_ratio). This encourages exploration of deeper search paths, which can lead to discovering solutions that might be missed by a more shallow search."
+        "design_decision": "Asymmetric Incentives for Stable vs. Focused strategies",
+        "reason": "By rewarding the 'Stable' strategy with an increased reward based on the depth ratio (d_ratio), the algorithm encourages deeper search trees when stability is achieved, which can lead to more effective exploration of the solution space."
       },
       {
-        "design_decision": "Fatigue Penalty Mechanism",
-        "reason": "By implementing a fatigue penalty that reduces the reward for repeatedly selecting the same heuristic, the algorithm promotes exploration of different strategies. This helps prevent local optima and encourages a more diverse search, which can be crucial in complex SAT instances."
+        "design_decision": "Fatigue Penalty mechanism",
+        "reason": "The fatigue penalty prevents the solver from sticking to a single heuristic for too long, which can help avoid local optima and encourage exploration of alternative strategies, thus improving overall performance."
       },
       {
-        "design_decision": "Thompson Sampling for Heuristic Selection",
-        "reason": "Using Thompson Sampling allows the algorithm to balance exploration and exploitation effectively. This probabilistic approach helps in dynamically adapting to the performance of different heuristics based on their observed success rates, leading to potentially better choices over time."
+        "design_decision": "Thompson Sampling for heuristic selection",
+        "reason": "Using Thompson Sampling allows the algorithm to balance exploration and exploitation effectively, adapting to the changing landscape of the problem space by sampling from the Beta distributions of each heuristic's performance."
       },
       {
-        "design_decision": "Normalization of Depth Ratio",
-        "reason": "Normalizing the average decision level by the number of variables (d_ratio) ensures that the depth reward is contextually relevant, making it more adaptable to different problem sizes and structures."
+        "design_decision": "Dynamic reward calculation based on phase metrics",
+        "reason": "Calculating the reward based on average LBD (L) and average decision level (D) allows the algorithm to adaptively respond to the solver's performance, ensuring that the reward reflects the actual quality of the search."
       }
     ],
     "weaknesses": [
       {
-        "design_decision": "Static Variables for Consecutive Modes",
-        "reason": "Using static variables for tracking consecutive modes can lead to unintended side effects, such as not resetting correctly across different solver instances or phases, which may cause the algorithm to prematurely decay rewards and limit exploration."
+        "design_decision": "Static variable for consecutive_modes tracking",
+        "reason": "Using static variables can lead to unintended consequences in multi-threaded environments or when the solver is reused across different problem instances, potentially skewing the fatigue penalty and affecting performance negatively."
       },
       {
-        "design_decision": "Clamping Reward to [0, 1]",
-        "reason": "Clamping the reward can limit the algorithm's ability to differentiate between varying levels of success. This may lead to a loss of granularity in the reward signal, potentially hindering the learning process of the Multi-Armed Bandit (MAB) and affecting heuristic selection."
+        "design_decision": "Clamping R to [0, 1]",
+        "reason": "While clamping ensures compatibility with Beta distribution, it may limit the reward signal's expressiveness, particularly in cases where the solver could benefit from a more nuanced reward structure that reflects varying levels of success."
       },
       {
-        "design_decision": "Single Phase Metrics for Reward Calculation",
-        "reason": "Calculating rewards based solely on the current phase's metrics (L and D) may not capture the long-term performance of heuristics. This can lead to suboptimal heuristic choices if a heuristic performs well in one phase but poorly in others."
+        "design_decision": "Fixed decay factor of 0.6 for fatigue penalty",
+        "reason": "A static decay factor may not be optimal across all problem instances. Different problem characteristics might require adaptive decay rates to better balance exploration and exploitation."
       }
     ],
     "key_mechanisms": [
       {
-        "description": "Dynamic Heuristic Selection via MAB",
-        "mechanism": "The algorithm maintains statistics on the performance of each heuristic and uses Thompson Sampling to select the next heuristic based on updated reward signals. This allows the solver to adaptively choose the most promising strategy based on historical performance."
+        "description": "Dynamic reward adjustment based on LBD and decision level",
+        "behavior": "The algorithm continuously evaluates its performance through LBD and decision levels, allowing it to adapt its strategy based on the effectiveness of previous phases."
       },
       {
-        "description": "Phase-Based Reward Calculation",
-        "mechanism": "At the end of each restart phase, the algorithm computes average metrics (L and D) to inform the reward signal. This phase-based approach helps in assessing the effectiveness of heuristics in the context of the current problem structure."
+        "description": "Periodic strategy switching enforced by fatigue penalties",
+        "behavior": "The consecutive_modes counter forces the solver to explore different heuristics, preventing stagnation and promoting a more diverse search strategy."
       },
       {
-        "description": "Incentive Structures to Encourage Exploration",
-        "mechanism": "The combination of asymmetric incentives and fatigue penalties creates a structured environment that encourages the solver to explore different strategies rather than getting stuck in a loop of suboptimal choices."
+        "description": "Beta distribution updates for heuristic performance",
+        "behavior": "The algorithm maintains a probabilistic model of heuristic performance, allowing it to make informed decisions about which heuristic to use next based on historical data."
       }
     ],
     "improvement_suggestions": [
       {
-        "suggestion": "Implement a Reset Mechanism for Static Variables",
-        "reason": "To avoid unintended consequences of static variables, implement a reset mechanism that clears the consecutive modes counter at the start of each new phase or solver instance."
+        "suggestion": "Implement a more adaptive fatigue penalty mechanism",
+        "detail": "Instead of a fixed decay factor, consider using a dynamic decay rate based on the problem instance characteristics or the performance trends of the heuristics."
       },
       {
-        "suggestion": "Use a More Granular Reward System",
-        "reason": "Instead of clamping rewards to [0, 1], consider using a broader scale that reflects varying degrees of success. This can enhance the learning capability of the MAB and improve heuristic selection over time."
+        "suggestion": "Introduce multi-threading support for consecutive_modes tracking",
+        "detail": "Refactor the tracking of consecutive modes to be thread-safe or instance-specific to prevent performance degradation in concurrent solving scenarios."
       },
       {
-        "suggestion": "Incorporate Long-Term Performance Metrics",
-        "reason": "Augment the reward calculation to include long-term performance metrics across multiple phases, rather than relying solely on phase-specific metrics. This can provide a more comprehensive view of heuristic effectiveness."
+        "suggestion": "Enhance reward signal expressiveness",
+        "detail": "Instead of clamping R to [0, 1], consider using a scaled reward system that reflects varying levels of success, allowing for a more nuanced approach to reward allocation."
       },
       {
-        "suggestion": "Explore Alternative Exploration Strategies",
-        "reason": "Consider integrating other exploration strategies, such as Upper Confidence Bound (UCB) or epsilon-greedy methods, alongside Thompson Sampling to compare their effectiveness in heuristic selection."
+        "suggestion": "Experiment with different sampling strategies for heuristic selection",
+        "detail": "Explore alternatives to Thompson Sampling, such as Upper Confidence Bound (UCB) or epsilon-greedy strategies, to see if they yield better performance in certain problem domains."
       }
     ]
   },
   "2b5ccc78ef02cdbac48c52609719d86ab61d796bdd15e1795cbf22f083e1248e": {
     "algorithm_id": "2b5ccc78ef02cdbac48c52609719d86ab61d796bdd15e1795cbf22f083e1248e",
-    "strengths": [],
-    "weaknesses": [],
-    "key_mechanisms": [],
-    "improvement_suggestions": []
+    "strengths": [
+      {
+        "design_decision": "Use of Phase Efficiency Metric P = log2(1 + conflicts) / average_LBD",
+        "reason": "This metric effectively balances the number of conflicts with the quality of the search (measured by average LBD). By rewarding high conflict throughput while penalizing poor LBD, the algorithm encourages efficient exploration of the search space."
+      },
+      {
+        "design_decision": "Global Progress Weight W with dynamic adjustment based on global bests",
+        "reason": "By adjusting W to 1.5 when global records are broken, the algorithm incentivizes significant breakthroughs in the search process, thus promoting exploration of new areas in the search space rather than getting stuck in local optima."
+      },
+      {
+        "design_decision": "Exponential Moving Average (EMA) for score updates",
+        "reason": "The fast-decaying EMA allows the algorithm to prioritize recent performance trends, making it responsive to changes in problem structure and solver efficacy. This adaptability can lead to improved performance in dynamic problem instances."
+      },
+      {
+        "design_decision": "Stagnation Override mechanism",
+        "reason": "Forcing a switch in heuristic mode after 10 intervals of stagnation prevents the solver from getting stuck in a suboptimal mode. This mechanism ensures that the solver explores different strategies, potentially discovering more effective solutions."
+      }
+    ],
+    "weaknesses": [
+      {
+        "design_decision": "Fixed stagnation threshold of 10 intervals",
+        "reason": "This arbitrary threshold may not be optimal for all problem instances. For some problems, 10 intervals may be too short or too long, leading to unnecessary mode switches or prolonged stagnation in a less effective mode."
+      },
+      {
+        "design_decision": "Use of average LBD as a proxy for clause quality",
+        "reason": "While average LBD is a useful metric, it may not capture the full complexity of clause interactions. Relying solely on this metric could lead to suboptimal decisions in cases where high LBD clauses are still beneficial for the overall search."
+      },
+      {
+        "design_decision": "Static initialization of global tracking variables",
+        "reason": "The static initialization could lead to issues in multi-threaded environments or when the solver is reused across multiple problem instances, potentially causing incorrect tracking of global bests."
+      }
+    ],
+    "key_mechanisms": [
+      {
+        "description": "Dynamic adjustment of heuristic mode based on performance scores",
+        "mechanism": "The algorithm continuously evaluates the effectiveness of the current heuristic mode (Stable vs. Focused) and adjusts based on the calculated scores, allowing for responsive adaptation to the problem structure."
+      },
+      {
+        "description": "Global best tracking for LBD and unassigned variables",
+        "mechanism": "By maintaining global bests, the algorithm can assess progress over time, ensuring that improvements are recognized and rewarded, which drives the solver towards more effective search strategies."
+      },
+      {
+        "description": "Fast decay in EMA score updates",
+        "mechanism": "The fast decay allows the algorithm to quickly adapt to recent performance changes, making it more sensitive to shifts in problem characteristics and solver effectiveness."
+      }
+    ],
+    "improvement_suggestions": [
+      {
+        "suggestion": "Introduce adaptive stagnation thresholds based on problem characteristics",
+        "reason": "Instead of a fixed threshold of 10 intervals, implement a dynamic threshold that adjusts based on the complexity of the problem or the solver's recent performance, allowing for more tailored responses to stagnation."
+      },
+      {
+        "suggestion": "Incorporate additional metrics for clause quality beyond average LBD",
+        "reason": "Integrating metrics such as clause activity or conflict analysis could provide a more nuanced understanding of clause effectiveness, leading to better heuristic decisions."
+      },
+      {
+        "suggestion": "Implement a reset mechanism for global tracking variables after each problem instance",
+        "reason": "To avoid issues in multi-threaded environments or when reusing the solver, ensure that global tracking variables are reset appropriately after each instance to maintain accurate performance tracking."
+      }
+    ]
   },
   "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd": {
     "algorithm_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
     "strengths": [
       {
-        "design_decision": "Use of raw performance metric 'P' based on LBD and trail level",
-        "reason": "This metric prioritizes low LBD (Literal Block Distance) conflicts, which are indicative of high-quality conflicts. By dampening the penalty for deeper searches (using sqrt), the algorithm can effectively balance exploration and exploitation, leading to improved performance in complex SAT instances."
+        "design_decision": "Use of raw performance metric 'P' based on average LBD and trail level",
+        "reason": "This metric prioritizes low LBD (literal block distance) conflicts, which are indicative of high-quality conflicts. By dampening the penalty for deeper searches (using sqrt), the algorithm can adaptively balance exploration and exploitation, improving overall performance."
       },
       {
-        "design_decision": "Exponential moving average for score updates",
-        "reason": "The use of an EMA with a high alpha (0.8) allows the algorithm to adapt quickly to recent performance changes while still retaining some historical context. This helps in stabilizing the decision-making process and reduces the impact of noise in performance metrics."
+        "design_decision": "Exponential Moving Average (EMA) for score updates",
+        "reason": "The high alpha (0.8) in the EMA allows the algorithm to quickly adapt to recent performance changes, making it responsive to shifts in problem difficulty, which can enhance mode selection accuracy."
       },
       {
         "design_decision": "Mode selection based on the discrete derivative 'Delta'",
-        "reason": "By evaluating the trajectory of performance (Delta), the algorithm can make informed decisions about mode switching. This allows it to maintain a stable mode during performance acceleration and adaptively switch modes when performance declines, enhancing overall efficiency."
+        "reason": "This approach allows the algorithm to react to performance trends rather than absolute scores, enabling it to maintain effective heuristics during stable performance and switch heuristics when performance degrades, thus optimizing solving efficiency."
       },
       {
         "design_decision": "Probabilistic mode switching based on performance degradation",
-        "reason": "The probabilistic approach to switching modes when Delta is negative allows for a controlled exploration of different heuristics. This prevents unnecessary mode changes and stabilizes performance, as it only switches with a probability proportional to the rate of degradation."
+        "reason": "By introducing a probability of switching modes proportional to the degradation rate (Delta), the algorithm avoids unnecessary switches while still being flexible enough to adapt to changing conditions, reducing the risk of getting stuck in suboptimal modes."
       }
     ],
     "weaknesses": [
       {
-        "design_decision": "Fixed alpha value in EMA",
-        "reason": "While a high alpha allows for quick adaptation, it may also lead to overreacting to transient performance fluctuations. This could result in frequent mode switches that destabilize performance in scenarios where the solver is close to optimal."
+        "design_decision": "Fixed weight for EMA update (0.2 for P)",
+        "reason": "The choice of a fixed weight may not account for varying problem complexities. A more adaptive weight could provide better responsiveness to performance changes, particularly in cases of sudden shifts in problem structure."
       },
       {
         "design_decision": "Threshold for Delta comparison (epsilon = 1e-6)",
-        "reason": "The choice of a very small epsilon may lead to unnecessary comparisons and mode switches when performance is nearly stable. This could introduce overhead and reduce the efficiency of the solver in practice."
+        "reason": "This threshold may be too small, leading to unnecessary comparisons and mode switches when performance is marginally stable. A larger threshold could reduce fluctuations and improve stability in mode selection."
       },
       {
-        "design_decision": "Limited heuristic options (only two modes)",
-        "reason": "Restricting the solver to only two heuristics may limit its ability to adapt to a broader range of problem characteristics. More heuristics could provide a richer search space and potentially improve performance on diverse SAT instances."
+        "design_decision": "Deterministic mode retention when Delta > epsilon",
+        "reason": "While this prevents unnecessary switches, it may also hinder exploration of potentially better heuristics during prolonged stable performance, particularly if the current heuristic is not optimal."
       }
     ],
     "key_mechanisms": [
       {
-        "mechanism": "Adaptive mode selection based on performance trajectory",
-        "description": "The algorithm continuously evaluates the performance of the current mode and makes decisions based on whether performance is improving or degrading, allowing it to adapt dynamically to the problem landscape."
+        "mechanism": "Dynamic performance metric calculation",
+        "description": "The algorithm continuously evaluates the performance of the current heuristic based on LBD and trail levels, allowing it to adaptively respond to problem characteristics."
       },
       {
-        "mechanism": "Performance metric calculation using LBD and trail level",
-        "description": "The calculation of the performance metric 'P' incorporates both the quality of conflicts (LBD) and the depth of the search (trail level), providing a nuanced view of solver performance that informs mode selection."
+        "mechanism": "Adaptive mode selection based on performance trajectory",
+        "description": "By focusing on the trajectory of performance scores rather than absolute values, the algorithm can make more informed decisions about when to switch heuristics, enhancing overall solving efficiency."
       },
       {
         "mechanism": "Probabilistic decision-making for mode switching",
-        "description": "The use of a probabilistic approach to mode switching introduces a level of exploration that can prevent the solver from getting stuck in suboptimal modes, allowing for a more robust search process."
+        "description": "The algorithm incorporates randomness in mode switching based on performance degradation, which helps to avoid local optima and encourages exploration of alternative heuristics."
       }
     ],
     "improvement_suggestions": [
       {
-        "suggestion": "Introduce a dynamic alpha for the EMA based on performance stability",
-        "rationale": "By adjusting the alpha value based on recent performance stability, the solver can become more responsive when performance is volatile and more conservative when stable, potentially improving overall performance."
+        "suggestion": "Implement adaptive weights for EMA updates",
+        "detail": "Instead of a fixed weight of 0.2 for P, consider using a dynamic weight that adjusts based on the variance of recent performance metrics, allowing for more responsive updates in different problem contexts."
       },
       {
-        "suggestion": "Implement additional heuristics for more diverse mode options",
-        "rationale": "Adding more heuristics could allow the solver to better adapt to a wider variety of SAT problems, improving its ability to find solutions in different contexts and enhancing overall performance."
+        "suggestion": "Increase the threshold for Delta comparisons",
+        "detail": "Consider increasing epsilon to a value like 1e-3 or 1e-4 to reduce unnecessary mode switches during periods of marginal performance stability, thus enhancing overall stability."
       },
       {
-        "suggestion": "Optimize the epsilon threshold for Delta comparison based on empirical performance data",
-        "rationale": "Testing different epsilon values and adjusting based on empirical results could help minimize unnecessary mode switches and improve the efficiency of the solver."
-      },
-      {
-        "suggestion": "Incorporate additional performance metrics beyond LBD and trail level",
-        "rationale": "Including other metrics, such as the number of learned clauses or conflict rates, could provide a more comprehensive view of solver performance and improve decision-making in mode selection."
+        "suggestion": "Introduce a mechanism for exploring alternative heuristics during stable performance",
+        "detail": "Incorporate a periodic exploration phase where the algorithm tests alternative heuristics even when performance is stable, ensuring that it does not miss out on potentially better strategies."
       }
     ]
   }
