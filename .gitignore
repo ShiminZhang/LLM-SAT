@@ -1,15 +1,26 @@
 credentials/
 models/
-solvers/*
-solvers/algorithm_*/
 data/benchmarks/*
 !data/benchmarks/**/*.uri
 data/results/
 logs/
 *.pyc
 __pycache__/
-solvers/base
-solvers/test
 .env
 *.md
+
+# Log files globally, except solver build logs
 *.log
+!solvers/**/code_*.build.log
+
+# Solver directories - ignore base/legacy/tooling
+solvers/base
+solvers/baseline
+solvers/test
+solvers/kissat
+solvers/algorithm_*/
+
+# Heavy solver content - ignore full solver copies, raw eval logs, SLURM batches
+solvers/*/slurm_batches/
+solvers/**/code_*/
+solvers/**/result/
