@@ -1,25 +1,29 @@
 """
 Genetic Evolution Pipeline for LLM-SAT.
 
-Implements population-based evolution of SAT solver heuristics:
-  1. Causal Analysis: LLM analyzes what makes each solution perform well/poorly
-  2. Combination (Crossover): LLM combines strengths of parent pairs into offspring
-  3. Rubric Scoring (Filter): LLM scores offspring on a multi-dimensional rubric;
-     only high-scoring offspring proceed to code generation
-  4. Code Generation: LLM translates high-scoring offspring algorithms into C code
-  5. Evaluation: Build solver and evaluate on SAT benchmarks via SLURM
-  6. Selection (PAR2 only): Keep offspring whose PAR2 beats or matches best parent.
-     Preserve top-tier offspring with their PAR2 scores for the next loop iteration.
+Implements population-based evolution of SAT solver heuristics using leaders only:
+  1. Causal Analysis: LLM analyzes each leader to identify strengths, weaknesses,
+     key mechanisms, and improvement suggestions.
+  2. LLM-Proposed Combinations: Instead of enumerating all O(n²) pairs, a single LLM
+     call (per minibatch) receives all leaders + their causal analyses and proposes the
+     top-k most promising pairs for crossover. Pairs are scored 1-10; only pairs above
+     --rubric_min proceed. For large populations, the population is divided into
+     minibatches of --minibatch_size leaders; proposals are merged and deduplicated.
+  3. Crossover: LLM combines each proposed pair of parents into an offspring algorithm.
+  4. Code Generation: LLM translates offspring algorithms into C code.
+  5. Evaluation: Build solver and evaluate on SAT benchmarks via SLURM.
+  6. Selection (PAR2 only): Keep offspring whose PAR2 beats the best parent.
+     Top-tier offspring are promoted back into the population for the next iteration.
 
-The pipeline from combination to selection is a loop:
-  - Top-tier selected offspring are added back to the population
-  - The loop continues until PAR2 cannot be improved or max_iterations reached
+The pipeline from step 2 onward is a loop until PAR2 stops improving or
+max_iterations is reached.
 
 Usage:
     python src/llmsat/pipelines/genetic_evolution.py \
         --folder outputs/gemini_trial1 \
         --code_prompt_path data/prompts/coder_prompt.txt \
-        --top_k 10 \
+        --top_k 5 \
+        --minibatch_size 10 \
         --model gpt-4.1 \
         --rubric_min 6.0 \
         --rubric_keep_top_n 10 \
@@ -58,7 +62,7 @@ from llmsat.utils.aws import (
     update_code_result,
     update_router_table,
 )
-from llmsat.utils.chatgpt_helper import get_response_from_chatgpt
+from llmsat.utils.chatgpt_helper import get_llm_response
 from llmsat.utils.paths import get_generation_output_dir, get_solver_solving_times_path
 from llmsat.pipelines.gemini_data_generation import (
     parse_algorithm_response,
@@ -114,6 +118,9 @@ class OffspringResult:
     parent_b_strengths_used: List[str] = field(default_factory=list)
     target_function: str = "kissat_restarting"
 
+
+# Max leaders per LLM call when proposing combinations (minibatch threshold)
+DEFAULT_MINIBATCH_SIZE = 10
 
 # Rubric dimensions for LLM-based offspring quality evaluation
 RUBRIC_DIMENSIONS = {
@@ -191,6 +198,16 @@ class RubricScore:
             total += w * getattr(self, dim, 0.0)
         self.weighted_total = total
         return total
+
+
+@dataclass
+class CombinationProposal:
+    """A proposed pairwise combination of two leaders, scored by the LLM."""
+    parent_a_id: str
+    parent_b_id: str
+    score: float  # 1-10, higher = more promising combination
+    justification: str
+    complementary_strengths: List[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -744,7 +761,7 @@ def generate_causal_reports(
             f"(PAR2={individual.par2:.2f})"
         )
         prompt = build_causal_prompt(individual, baseline_par2)
-        response = get_response_from_chatgpt(
+        response = get_llm_response(
             prompt=prompt,
             system_message=CAUSAL_ANALYSIS_SYSTEM_MESSAGE,
             model=model,
@@ -762,7 +779,243 @@ def generate_causal_reports(
 
 
 # ---------------------------------------------------------------------------
-# Stage 3: Combination (Crossover)
+# Stage 3: LLM-Proposed Combinations (replaces exhaustive pair selection + rubric filter)
+# ---------------------------------------------------------------------------
+
+COMBINATION_PROPOSAL_SYSTEM_MESSAGE = (
+    "You are an expert SAT solver researcher. You analyze multiple solver algorithms "
+    "and their causal analyses to identify the most promising pairwise combinations "
+    "for genetic crossover. Your goal is to propose combinations that maximize "
+    "the potential for producing superior offspring algorithms with lower PAR2 scores."
+)
+
+
+def build_combination_proposal_prompt(
+    batch: List[Individual],
+    causal_reports: Dict[str, CausalReport],
+    top_k: int = 5,
+) -> str:
+    """Build a prompt asking the LLM to propose top-k combinations from a batch of leaders."""
+    leaders_text = ""
+    for idx, ind in enumerate(batch):
+        report = causal_reports.get(ind.algorithm_id)
+        if report is None:
+            continue
+        par2_str = f"{ind.par2:.2f}" if ind.par2 != float("inf") else "N/A (not evaluated yet)"
+        leaders_text += f"""
+[Index {idx}] Algorithm ID: {ind.algorithm_id[:16]}...
+PAR2: {par2_str}
+Algorithm:
+{ind.algorithm_json}
+
+Causal Analysis:
+- Strengths: {json.dumps(report.strengths, indent=2)}
+- Weaknesses: {json.dumps(report.weaknesses, indent=2)}
+- Key Mechanisms: {json.dumps(report.key_mechanisms, indent=2)}
+- Improvement Suggestions: {json.dumps(report.improvement_suggestions, indent=2)}
+"""
+
+    return f"""You are selecting the most promising pairs of SAT solver algorithms to combine via genetic crossover.
+
+Below are {len(batch)} solver algorithms with their causal performance analyses.
+Goal: lower PAR2 (lower is better). Ignore PAR2 in your scoring if shown as N/A.
+
+Your task: Propose the top {top_k} most promising pairwise combinations for crossover.
+For each proposed pair, assess:
+- How well the two algorithms' strengths complement each other
+- Whether combining them would address each other's weaknesses
+- The potential for creating a superior hybrid
+
+### Algorithms:
+{leaders_text}
+---
+
+Propose the top {top_k} combinations. Score each 1-10 (10 = highest potential).
+Rank by score descending (best combination first).
+
+Requirements:
+- index_a and index_b must be different indices from the list above
+- Enforce index_a < index_b to avoid duplicates
+- Base scores on causal analysis (strengths, weaknesses, mechanisms)
+
+Output as JSON only:
+```json
+{{
+    "proposed_combinations": [
+        {{
+            "index_a": <integer index of first parent>,
+            "index_b": <integer index of second parent>,
+            "score": <1.0-10.0>,
+            "justification": "Why this pair is promising for crossover",
+            "complementary_strengths": ["strength from A that pairs with B", "..."]
+        }}
+    ]
+}}
+```"""
+
+
+def parse_combination_proposals(
+    response: str,
+    batch: List[Individual],
+) -> List[CombinationProposal]:
+    """Parse LLM response into a list of CombinationProposal objects."""
+    json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", response, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1).strip()
+    else:
+        json_str = response.strip()
+
+    proposals: List[CombinationProposal] = []
+    try:
+        data = json.loads(json_str)
+        for entry in data.get("proposed_combinations", []):
+            idx_a = entry.get("index_a")
+            idx_b = entry.get("index_b")
+            if idx_a is None or idx_b is None:
+                logger.debug("Proposal missing index_a or index_b, skipping")
+                continue
+            if not (0 <= idx_a < len(batch)) or not (0 <= idx_b < len(batch)):
+                logger.warning(f"Proposal indices ({idx_a}, {idx_b}) out of range for batch size {len(batch)}, skipping")
+                continue
+            if idx_a == idx_b:
+                logger.debug("Proposal has index_a == index_b, skipping")
+                continue
+            score = float(entry.get("score", 5.0))
+            score = max(1.0, min(10.0, score))
+            proposals.append(CombinationProposal(
+                parent_a_id=batch[idx_a].algorithm_id,
+                parent_b_id=batch[idx_b].algorithm_id,
+                score=score,
+                justification=entry.get("justification", ""),
+                complementary_strengths=entry.get("complementary_strengths", []),
+            ))
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse combination proposals JSON")
+    return proposals
+
+
+def propose_combinations_llm(
+    population: List[Individual],
+    causal_reports: Dict[str, CausalReport],
+    top_k: int = 5,
+    minibatch_size: int = DEFAULT_MINIBATCH_SIZE,
+    combination_score_min: float = 0.0,
+    model: str = "gpt-4.1",
+) -> List[Tuple["CombinationProposal", Individual, Individual]]:
+    """
+    Ask the LLM to propose top-k pairwise combinations from the population.
+
+    For populations larger than minibatch_size, splits into minibatches and
+    aggregates proposals across all batches before returning the top results.
+
+    Args:
+        population: All current individuals (leaders) to consider.
+        causal_reports: Causal analysis for each individual.
+        top_k: Number of combinations to request per minibatch.
+        minibatch_size: Max leaders per LLM call (threshold for splitting).
+        combination_score_min: Minimum score (1-10) to keep a proposal.
+        model: LLM model name.
+
+    Returns:
+        List of (CombinationProposal, parent_a, parent_b), sorted by score desc.
+    """
+    pop_lookup: Dict[str, Individual] = {ind.algorithm_id: ind for ind in population}
+
+    # Split into minibatches if needed
+    if len(population) <= minibatch_size:
+        batches = [population]
+    else:
+        batches = [
+            population[i: i + minibatch_size]
+            for i in range(0, len(population), minibatch_size)
+        ]
+        logger.info(
+            f"Splitting {len(population)} leaders into {len(batches)} minibatch(es) "
+            f"of up to {minibatch_size}"
+        )
+
+    all_proposals: List[CombinationProposal] = []
+
+    for batch_idx, batch in enumerate(batches):
+        logger.info(
+            f"Minibatch {batch_idx + 1}/{len(batches)}: requesting top-{top_k} "
+            f"combinations from {len(batch)} leaders"
+        )
+        prompt = build_combination_proposal_prompt(batch, causal_reports, top_k=top_k)
+        response = get_llm_response(
+            prompt=prompt,
+            system_message=COMBINATION_PROPOSAL_SYSTEM_MESSAGE,
+            model=model,
+            temperature=0.5,
+        )
+        batch_proposals = parse_combination_proposals(response, batch)
+        logger.info(f"  Minibatch {batch_idx + 1}: received {len(batch_proposals)} proposals")
+        all_proposals.extend(batch_proposals)
+
+    # Sort by score descending
+    all_proposals.sort(key=lambda p: p.score, reverse=True)
+
+    # Filter by minimum score
+    if combination_score_min > 0:
+        before = len(all_proposals)
+        all_proposals = [p for p in all_proposals if p.score >= combination_score_min]
+        if before != len(all_proposals):
+            logger.info(
+                f"Score filter (min={combination_score_min}): "
+                f"{before} -> {len(all_proposals)} proposals"
+            )
+
+    # Deduplicate (same pair regardless of order)
+    seen: set = set()
+    deduped: List[CombinationProposal] = []
+    for p in all_proposals:
+        key = tuple(sorted([p.parent_a_id, p.parent_b_id]))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(p)
+    all_proposals = deduped
+
+    logger.info(f"Combination proposals: {len(all_proposals)} unique after dedup")
+
+    # Resolve Individual objects
+    result: List[Tuple[CombinationProposal, Individual, Individual]] = []
+    for proposal in all_proposals:
+        parent_a = pop_lookup.get(proposal.parent_a_id)
+        parent_b = pop_lookup.get(proposal.parent_b_id)
+        if parent_a is None or parent_b is None:
+            logger.warning(
+                f"Could not resolve individuals for proposal "
+                f"{proposal.parent_a_id[:8]}... x {proposal.parent_b_id[:8]}..."
+            )
+            continue
+        result.append((proposal, parent_a, parent_b))
+
+    return result
+
+
+def save_combination_proposals(
+    proposals: List[CombinationProposal], output_dir: str, iteration: int = 0
+) -> str:
+    """Save combination proposals to a JSON file (per iteration)."""
+    path = os.path.join(output_dir, f"combination_proposals_iter{iteration}.json")
+    data = [
+        {
+            "parent_a_id": p.parent_a_id,
+            "parent_b_id": p.parent_b_id,
+            "score": p.score,
+            "justification": p.justification,
+            "complementary_strengths": p.complementary_strengths,
+        }
+        for p in proposals
+    ]
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    logger.info(f"Saved {len(proposals)} combination proposals to {path}")
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Stage 4: Combination (Crossover) — executed only for LLM-proposed pairs
 # ---------------------------------------------------------------------------
 
 CROSSOVER_SYSTEM_MESSAGE = (
@@ -916,7 +1169,7 @@ def perform_crossover(
             continue
 
         prompt = build_crossover_prompt(parent_a, parent_b, causal_a, causal_b)
-        response = get_response_from_chatgpt(
+        response = get_llm_response(
             prompt=prompt,
             system_message=CROSSOVER_SYSTEM_MESSAGE,
             model=model,
@@ -1103,7 +1356,7 @@ def evaluate_offspring_rubric(
         )
 
         prompt = build_rubric_prompt(offspring, parent_a, parent_b, causal_a, causal_b)
-        response = get_response_from_chatgpt(
+        response = get_llm_response(
             prompt=prompt,
             system_message=RUBRIC_SYSTEM_MESSAGE,
             model=model,
@@ -1186,16 +1439,24 @@ def generate_offspring_code(
     offspring_list: List[OffspringResult],
     code_prompt_template_path: str,
     model: str = "gpt-4.1",
+    population: Optional[List[Individual]] = None,
 ) -> Dict[str, str]:
     """
     Stage 4: Generate C code for each offspring algorithm that passed rubric filter.
 
     Uses the same coder prompt template as the main pipeline.
+    If population is provided, parent C code is included in the prompt as a
+    structural reference to reduce hallucinated struct fields / bad includes.
     Returns dict mapping algorithm_id -> code string.
     """
     logger.info(f"Generating code for {len(offspring_list)} rubric-filtered offspring")
     code_prompt_template = read_code_prompt_template(code_prompt_template_path)
     offspring_codes: Dict[str, str] = {}
+
+    # Build a lookup map from algorithm_id -> Individual for parent code retrieval
+    pop_map: Dict[str, Individual] = {}
+    if population:
+        pop_map = {ind.algorithm_id: ind for ind in population}
 
     for i, offspring in enumerate(offspring_list):
         logger.info(
@@ -1208,8 +1469,25 @@ def generate_offspring_code(
         except json.JSONDecodeError:
             algorithm_text = offspring.algorithm_json
 
-        prompt = generate_code_prompt(code_prompt_template, algorithm_text)
-        response = get_response_from_chatgpt(
+        # Look up parent codes (only include if they exist and are non-empty)
+        parent_a = pop_map.get(offspring.parent_a_id)
+        parent_b = pop_map.get(offspring.parent_b_id)
+        parent_a_code = parent_a.code if parent_a and parent_a.code else None
+        parent_b_code = parent_b.code if parent_b and parent_b.code else None
+
+        if parent_a_code or parent_b_code:
+            logger.info(
+                f"  Including parent code(s): A={'yes' if parent_a_code else 'no'}, "
+                f"B={'yes' if parent_b_code else 'no'}"
+            )
+
+        prompt = generate_code_prompt(
+            code_prompt_template,
+            algorithm_text,
+            parent_a_code=parent_a_code,
+            parent_b_code=parent_b_code,
+        )
+        response = get_llm_response(
             prompt=prompt,
             system_message="You are an expert in writing C code for Kissat-based SAT Solvers.",
             model=model,
@@ -1615,31 +1893,38 @@ def run_evolution(
     output_tag: Optional[str] = None,
     folder: Optional[str] = None,
     top_k: Optional[int] = None,
-    max_pairs: Optional[int] = None,
+    max_pairs: Optional[int] = None,  # kept for CLI compat, no longer used
     model: str = "gpt-4.1",
     baseline_par2: Optional[float] = None,
     evaluate: bool = False,
     causal_only: bool = False,
     skip_causal: bool = False,
+    evaluate_only: bool = False,
     rubric_min: float = 6.0,
     rubric_keep_top_n: Optional[int] = None,
     par2_threshold: Optional[float] = None,
     par2_keep_top_n: Optional[int] = None,
-    rubric_weights: Optional[Dict[str, float]] = None,
+    rubric_weights: Optional[Dict[str, float]] = None,  # kept for compat, no longer used
     max_iterations: int = 5,
+    minibatch_size: int = DEFAULT_MINIBATCH_SIZE,
 ) -> Dict[str, Any]:
     """
     Run the full genetic evolution pipeline with an iterative loop.
 
     Pipeline (per iteration):
-      1. Load population (from DB or folder) — only on iteration 0
-      2. Causal analysis — only on iteration 0, or when population changes
-      3. Combination (crossover) — generate offspring pairs
-      4. Rubric scoring to filter — only high-scored offspring proceed to code gen
-      5. Code generation — for rubric-filtered offspring only
-      6. Evaluation with simulation (EvaluationPipeline) — build + SLURM
-      7. Selection by PAR2 only — keep offspring that improve over best parent
-         Preserve top-tier offspring with their PAR2 scores
+      1. Load population (leaders only, from DB or folder)
+      2. Causal analysis — once on initial population, then for newly promoted individuals
+      3. LLM-proposed combinations — single LLM call per minibatch proposes top-k pairs
+         (replaces exhaustive pair enumeration + per-offspring rubric scoring)
+      4. Crossover — generate offspring algorithm for each proposed pair
+      5. Code generation — translate offspring algorithms to C code
+      6. Evaluation — build solver and submit SLURM jobs (optional)
+      7. Selection by PAR2 — keep offspring that improve over best parent
+
+    Minibatching:
+      If the population exceeds minibatch_size, it is split into batches of that size.
+      Each batch gets its own LLM combination-proposal call; proposals are merged and
+      deduplicated, then sorted by score before crossover.
 
     Loop continues until:
       - PAR2 cannot be improved further (no new selected offspring), OR
@@ -1650,19 +1935,20 @@ def run_evolution(
         code_prompt_path: Path to the coder prompt template
         output_tag: Tag for offspring generation (default: {generation_tag}_gen1)
         folder: Path to outputs folder to load population from files instead of DB.
-        top_k: Number of top individuals for crossover selection
-        max_pairs: Maximum number of crossover pairs
+        top_k: Combinations to request per minibatch from the LLM (default: 5)
+        max_pairs: Deprecated — no longer used; pairs are controlled by top_k.
         model: OpenAI model for LLM calls
         baseline_par2: Baseline PAR2 for comparison in causal analysis
         evaluate: Whether to build and evaluate offspring via SLURM
-        causal_only: Only run causal analysis, skip crossover loop
+        causal_only: Only run causal analysis, skip combination loop
         skip_causal: Skip causal analysis, load from file
-        rubric_min: Minimum weighted rubric score to proceed to code generation (default 6.0)
-        rubric_keep_top_n: Keep at most N offspring after rubric ranking (default: all passing)
+        rubric_min: Minimum combination score (1-10) to accept a proposed pair (default 6.0)
+        rubric_keep_top_n: Keep at most N proposed combinations (default: all passing)
         par2_threshold: PAR2 hard gate for selection. If None, uses best parent PAR2.
         par2_keep_top_n: Keep at most N offspring in PAR2 selection (default: all selected)
-        rubric_weights: Custom weights for rubric dimensions
+        rubric_weights: Deprecated — no longer used.
         max_iterations: Maximum number of evolution loop iterations (default: 5)
+        minibatch_size: Max leaders per LLM combination-proposal call (default: 10)
 
     Returns:
         Summary dict with results from each stage and iteration.
@@ -1681,6 +1967,45 @@ def run_evolution(
         "timestamp": datetime.now().isoformat(),
         "iterations": [],
     }
+
+    # ------------------------------------------------------------------
+    # evaluate_only: skip all LLM stages, re-run evaluation on offspring
+    # already stored in DB under output_tag (e.g. output_tag_iter1, ...)
+    # ------------------------------------------------------------------
+    if evaluate_only:
+        logger.info(f"evaluate_only mode: fetching stored offspring under '{output_tag}*'")
+        for iteration in range(max_iterations):
+            iter_output_tag = f"{output_tag}_iter{iteration + 1}"
+            algorithm_ids = get_ids_from_router_table(
+                CHATGPT_DATA_GENERATION_TABLE, iter_output_tag
+            )
+            if not algorithm_ids:
+                logger.info(f"No stored offspring found for tag '{iter_output_tag}', stopping")
+                break
+            stored_pairs: List[Tuple[str, str]] = []
+            for algo_id in algorithm_ids:
+                algo = get_algorithm_result(algo_id)
+                if algo and algo.code_id_list:
+                    for code_id in algo.code_id_list:
+                        stored_pairs.append((algo_id, code_id))
+            logger.info(
+                f"Iteration {iteration + 1}: found {len(stored_pairs)} "
+                f"(algorithm_id, code_id) pairs under '{iter_output_tag}'"
+            )
+            iter_summary: Dict[str, Any] = {
+                "iteration": iteration + 1,
+                "stored": len(stored_pairs),
+            }
+            if stored_pairs:
+                successful_pairs, failed_pairs = evaluate_offspring(
+                    stored_pairs, generation_tag=iter_output_tag
+                )
+                iter_summary["evaluation"] = {
+                    "build_success": len(successful_pairs),
+                    "build_failed": len(failed_pairs),
+                }
+            summary["iterations"].append(iter_summary)
+        return summary
 
     # ------------------------------------------------------------------
     # Stage 1: Load initial population
@@ -1753,14 +2078,59 @@ def run_evolution(
             "best_par2_entering": best_par2_so_far,
         }
 
-        # Stage 3: Combination (crossover)
-        pairs = select_pairs(current_population, top_k=top_k, max_pairs=max_pairs)
+        # Generate causal reports for any new members of current_population
+        # that don't already have one (e.g. top-tier offspring from prior iterations)
+        missing_causal = [
+            ind for ind in current_population
+            if ind.algorithm_id not in causal_reports
+        ]
+        if missing_causal:
+            logger.info(
+                f"Generating causal reports for {len(missing_causal)} new population members "
+                f"(promoted from previous iteration)"
+            )
+            new_causal = generate_causal_reports(missing_causal, model=model, baseline_par2=baseline_par2)
+            causal_reports.update(new_causal)
+            save_causal_reports(causal_reports, output_dir)
+
+        # Stage 3: LLM-proposed combinations
+        # The LLM receives all leaders + their causal analyses and proposes the top-k
+        # most promising pairs. For large populations, minibatching is used.
+        effective_top_k = top_k if top_k is not None else 5
+        proposals_with_pairs = propose_combinations_llm(
+            current_population,
+            causal_reports,
+            top_k=effective_top_k,
+            minibatch_size=minibatch_size,
+            combination_score_min=rubric_min,
+            model=model,
+        )
+
+        # Apply keep_top_n cap after score filter
+        if rubric_keep_top_n is not None and len(proposals_with_pairs) > rubric_keep_top_n:
+            proposals_with_pairs = proposals_with_pairs[:rubric_keep_top_n]
+            logger.info(f"Capped proposals to top {rubric_keep_top_n}")
+
+        proposals = [p for p, _, _ in proposals_with_pairs]
+        pairs = [(pa, pb) for _, pa, pb in proposals_with_pairs]
+
+        save_combination_proposals(proposals, output_dir, iteration=iteration + 1)
+
+        iter_summary["combination_proposals"] = {
+            "proposals_count": len(proposals),
+            "combination_score_min": rubric_min,
+            "avg_score": (
+                sum(p.score for p in proposals) / len(proposals) if proposals else 0.0
+            ),
+        }
+
         if not pairs:
-            logger.warning("No pairs to combine, stopping loop")
-            iter_summary["status"] = "no_pairs"
+            logger.warning("No combination proposals generated, stopping loop")
+            iter_summary["status"] = "no_proposals"
             summary["iterations"].append(iter_summary)
             break
 
+        # Stage 4: Crossover — generate offspring algorithm for each proposed pair
         offspring_list = perform_crossover(pairs, causal_reports, model=model)
         save_crossover_results(offspring_list, output_dir, iteration=iteration + 1)
 
@@ -1775,41 +2145,12 @@ def run_evolution(
             summary["iterations"].append(iter_summary)
             break
 
-        # Stage 3b: Rubric scoring filter (before code generation)
-        rubric_scores = evaluate_offspring_rubric(
-            offspring_list,
-            current_population,
-            causal_reports,
-            model=model,
-            weights=rubric_weights,
+        # Stage 5: Code generation for all offspring (LLM already filtered via proposals)
+        # Pass current_population so parent C code can be included as reference
+        filtered_offspring = offspring_list  # all proposed offspring proceed to code gen
+        offspring_codes = generate_offspring_code(
+            filtered_offspring, code_prompt_path, model=model, population=current_population
         )
-        save_rubric_scores(rubric_scores, output_dir, iteration=iteration + 1)
-
-        filtered_offspring = filter_offspring_by_rubric(
-            offspring_list,
-            rubric_scores,
-            rubric_min=rubric_min,
-            keep_top_n=rubric_keep_top_n,
-        )
-
-        iter_summary["rubric_filter"] = {
-            "scored": len(rubric_scores),
-            "passed": len(filtered_offspring),
-            "rubric_min": rubric_min,
-            "avg_weighted_score": (
-                sum(s.weighted_total for s in rubric_scores) / len(rubric_scores)
-                if rubric_scores else 0.0
-            ),
-        }
-
-        if not filtered_offspring:
-            logger.warning("No offspring passed rubric filter, stopping loop")
-            iter_summary["status"] = "no_rubric_pass"
-            summary["iterations"].append(iter_summary)
-            break
-
-        # Stage 4: Code generation (only for rubric-filtered offspring)
-        offspring_codes = generate_offspring_code(filtered_offspring, code_prompt_path, model=model)
         save_offspring_codes(offspring_codes, output_dir, iteration=iteration + 1)
 
         iter_summary["code_generation"] = {
@@ -2009,13 +2350,26 @@ def main():
         "--top_k",
         type=int,
         default=None,
-        help="Number of top individuals to use for crossover (default: all)",
+        help=(
+            "Number of combinations to request per minibatch from the LLM (default: 5). "
+            "The LLM proposes this many pairs per batch; actual pairs used may be fewer "
+            "after score filtering."
+        ),
     )
     parser.add_argument(
         "--max_pairs",
         type=int,
         default=None,
-        help="Maximum number of crossover pairs (default: all combinations)",
+        help="Deprecated — no longer used. Pairs are controlled by --top_k.",
+    )
+    parser.add_argument(
+        "--minibatch_size",
+        type=int,
+        default=DEFAULT_MINIBATCH_SIZE,
+        help=(
+            f"Max leaders per LLM combination-proposal call (default: {DEFAULT_MINIBATCH_SIZE}). "
+            "If the population exceeds this, it is split into minibatches of this size."
+        ),
     )
     parser.add_argument(
         "--model",
@@ -2048,19 +2402,33 @@ def main():
         help="Skip causal analysis and load from existing file",
     )
     parser.add_argument(
+        "--evaluate_only",
+        action="store_true",
+        default=False,
+        help=(
+            "Skip all LLM stages (causal, crossover, rubric, codegen) and directly "
+            "run evaluation on offspring already stored in DB under output_tag. "
+            "Requires --output_tag (or derives it as {generation_tag}_gen1). "
+            "Iterates over output_tag_iter1, output_tag_iter2, ... up to --max_iterations."
+        ),
+    )
+    parser.add_argument(
         "--rubric_min",
         type=float,
         default=6.0,
         help=(
-            "Minimum weighted rubric score to proceed to code generation (default: 6.0). "
-            "Offspring below this are filtered out before code generation."
+            "Minimum combination score (1-10) for LLM-proposed pairs to proceed to crossover "
+            "(default: 6.0). Proposals below this score are discarded."
         ),
     )
     parser.add_argument(
         "--rubric_keep_top_n",
         type=int,
         default=None,
-        help="Keep at most N offspring after rubric ranking (default: all passing)",
+        help=(
+            "Keep at most N proposed combinations after score filtering (default: all passing). "
+            "Applied after --rubric_min filter, taking the highest-scored proposals."
+        ),
     )
     parser.add_argument(
         "--par2_threshold",
@@ -2116,11 +2484,13 @@ def main():
         evaluate=args.evaluate,
         causal_only=args.causal_only,
         skip_causal=args.skip_causal,
+        evaluate_only=args.evaluate_only,
         rubric_min=args.rubric_min,
         rubric_keep_top_n=args.rubric_keep_top_n,
         par2_threshold=args.par2_threshold,
         par2_keep_top_n=args.par2_keep_top_n,
         max_iterations=args.max_iterations,
+        minibatch_size=args.minibatch_size,
     )
 
     # Print summary
@@ -2140,15 +2510,15 @@ def main():
 
     for i, iter_info in enumerate(summary.get("iterations", [])):
         print(f"\n--- Iteration {i+1} ---")
+        proposals_info = iter_info.get("combination_proposals", {})
+        if isinstance(proposals_info, dict):
+            print(f"  Combination proposals: {proposals_info.get('proposals_count', 0)} "
+                  f"(score_min={proposals_info.get('combination_score_min', 'N/A')}, "
+                  f"avg_score={proposals_info.get('avg_score', 0):.2f})")
         crossover = iter_info.get("crossover", {})
         if isinstance(crossover, dict):
             print(f"  Crossover: {crossover.get('pairs_attempted', 0)} pairs -> "
                   f"{crossover.get('offspring_produced', 0)} offspring")
-        rubric = iter_info.get("rubric_filter", {})
-        if isinstance(rubric, dict):
-            print(f"  Rubric filter: {rubric.get('scored', 0)} scored -> "
-                  f"{rubric.get('passed', 0)} passed (min={rubric.get('rubric_min', 'N/A')}, "
-                  f"avg={rubric.get('avg_weighted_score', 0):.2f})")
         code_gen = iter_info.get("code_generation", {})
         if isinstance(code_gen, dict):
             print(f"  Code generation: {code_gen.get('codes_generated', 0)} codes")
