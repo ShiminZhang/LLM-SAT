@@ -231,14 +231,22 @@ class EvaluationPipeline:
                 all_logs.append(f"[ERROR] Failed to inject code: {e}")
                 return (False, None, all_logs)
 
+            # Build environment: inherit current env so module-loaded compilers
+            # (e.g. gcc loaded via 'module load gcc' on Compute Canada / ICE)
+            # are visible to configure and make.
+            build_env = os.environ.copy()
+
             # Run configure on first attempt only
             if attempt == 0:
                 all_logs.append("\n--- ./configure ---")
+                all_logs.append(f"[INFO] PATH={build_env.get('PATH', '(not set)')}")
+                all_logs.append(f"[INFO] CC={build_env.get('CC', '(not set)')}")
                 configure_proc = subprocess.run(
                     ["./configure"],
                     cwd=solver_path,
                     capture_output=True,
                     text=True,
+                    env=build_env,
                 )
                 all_logs.append(f"[stdout]\n{configure_proc.stdout or '(empty)'}")
                 all_logs.append(f"[stderr]\n{configure_proc.stderr or '(empty)'}")
@@ -256,6 +264,7 @@ class EvaluationPipeline:
                 cwd=solver_path,
                 capture_output=True,
                 text=True,
+                env=build_env,
             )
             all_logs.append(f"[stdout]\n{make_proc.stdout or '(empty)'}")
             all_logs.append(f"[stderr]\n{make_proc.stderr or '(empty)'}")
@@ -342,7 +351,12 @@ class EvaluationPipeline:
         logger.info(f"Building solver at {new_solver_path}")
         if os.path.exists(new_solver_path):
             shutil.rmtree(new_solver_path)
-        shutil.copytree(BASE_SOLVER_PATH, new_solver_path)
+        shutil.copytree(BASE_SOLVER_PATH, new_solver_path, symlinks=True)
+
+        # Ensure configure script is executable after copy (copytree may not preserve exec bit)
+        configure_script = os.path.join(new_solver_path, "configure")
+        if os.path.exists(configure_script):
+            os.chmod(configure_script, os.stat(configure_script).st_mode | 0o111)
 
         # Compile with debugging support
         func_info = self.registry[target_function]

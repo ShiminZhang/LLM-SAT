@@ -142,6 +142,14 @@ class FunctionInjector:
                 extracted = self._extract_function_from_raw(code, expected_function)
                 if extracted:
                     return ParsedCode(function_name=expected_function, code=extracted)
+                # Raw extraction also failed (e.g. already-cleaned bare function body
+                # stored in DB with unbalanced braces or non-standard signature).
+                # Fall back to using the raw string as-is with a warning.
+                logger.warning(
+                    f"Raw extraction failed for '{expected_function}', "
+                    "using full input as-is"
+                )
+                return ParsedCode(function_name=expected_function, code=code)
             raise ValueError("No <code>...</code> block found in LLM output")
 
         func_attr = code_match.group(1)  # May be None for legacy format
