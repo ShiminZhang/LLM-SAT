@@ -13,6 +13,7 @@ from llmsat.llmsat import (
     CHATGPT_DATA_GENERATION_TABLE,
     CodeResult,
     CodeStatus,
+    AlgorithmResult,
     AlgorithmStatus,
     BASE_SOLVER_PATH,
     SAT2025_BENCHMARK_PATH,
@@ -31,6 +32,7 @@ from llmsat.utils.paths import (
     get_solver_solving_times_path,
     get_algorithm_dir,
     get_solver_result_dir,
+    get_generation_output_dir,
 )
 from llmsat.utils.utils import wrap_command_to_slurm, wrap_command_to_slurm_array
 from llmsat.code_injection import FunctionRegistry, FunctionInjector
@@ -48,6 +50,12 @@ SLURM_MEMORY = "4G"
 SLURM_MAX_CONCURRENT = 1000 
 SLURM_MAX_ARRAY_SIZE = 1000
 PAR2_PENALTY = 10000                   # 2× timeout for unsolved
+
+# Quick-eval mode: 100 representative CNFs, reduced timeout
+QUICK_EVAL_TIMEOUT_SECONDS = 1000       # ~17 min per CNF
+QUICK_EVAL_WALL_TIME = "00:20:00"       # 20 min (timeout + buffer)
+QUICK_EVAL_PAR2_PENALTY = 2000          # 2× quick timeout
+QUICK_EVAL_BENCHMARK_LIST = "data/benchmarks/satcomp2025_quick100.txt"
 
 
 def _compute_average(values: List[float]) -> Optional[float]:
@@ -71,19 +79,25 @@ class EvaluationPipeline:
         self.registry = FunctionRegistry(registry_path)
         self.injector = FunctionInjector(self.registry, BASE_SOLVER_PATH)
         self.generation_tag = generation_tag
+        # Evaluation parameters (overridden by --quick-eval or --timeout)
+        self.timeout = SLURM_TIMEOUT_SECONDS
+        self.wall_time = SLURM_WALL_TIME
+        self.par2_penalty = PAR2_PENALTY
+        self.cnf_files = None  # None = scan benchmark directory; list = use specific files
         logger.info(f"Initialized FunctionRegistry with {len(self.registry)} functions: {self.registry.list_functions()}")
 
     def parse_solving_time(self, file_path: str) -> Optional[float]:
-        """Parse solving time from a log file. Returns PAR2_PENALTY on timeout/error."""
+        """Parse solving time from a log file. Returns self.par2_penalty on timeout/error."""
+        penalty = self.par2_penalty
         try:
             lines = open(file_path, "r").readlines()
         except Exception as e:
             logger.warning(f"Failed to read log file {file_path}: {e}")
-            return PAR2_PENALTY
+            return penalty
 
         if not lines:
             logger.warning(f"Empty log file (likely timeout or crash): {file_path}")
-            return PAR2_PENALTY
+            return penalty
 
         for line in reversed(lines):
             if "process-time" in line:
@@ -92,17 +106,17 @@ class EvaluationPipeline:
                     return float(match.group(1))
             if "error" in line.lower():
                 logger.warning(f"Error found in solving log: {file_path}")
-                return PAR2_PENALTY
+                return penalty
             # Detect timeout from our wrapper script or SLURM
             if "TIMEOUT" in line or "timeout" in line.lower():
                 logger.warning(f"Timeout detected: {file_path}")
-                return PAR2_PENALTY
+                return penalty
             if "CANCELLED" in line or "TIME LIMIT" in line:
                 logger.warning(f"SLURM timeout/cancellation detected: {file_path}")
-                return PAR2_PENALTY
+                return penalty
 
         logger.warning(f"No process-time found in log (incomplete run): {file_path}")
-        return PAR2_PENALTY
+        return penalty
 
     def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> Optional[float]:
         """Collect evaluation results from solver logs and compute PAR2 score."""
@@ -128,12 +142,12 @@ class EvaluationPipeline:
                     instance_time = self.parse_solving_time(f"{solver_dir}/{file}")
                     if instance_time is not None:
                         solving_times[instance_name] = instance_time
-                        if instance_time >= PAR2_PENALTY:
+                        if instance_time >= self.par2_penalty:
                             timeouts_or_errors.append(instance_name)
         else:
             logger.warning(f"Solver directory missing: {solver_dir}")
 
-        expected_benchmark_count = 400
+        expected_benchmark_count = len(self.cnf_files) if self.cnf_files else 400
         if len(solving_times) < expected_benchmark_count:
             missing_count = expected_benchmark_count - len(solving_times)
             logger.warning(f"Missing results for {missing_count} instances out of {expected_benchmark_count}")
@@ -391,7 +405,9 @@ class EvaluationPipeline:
         result_dir: str,
         max_jobs: int = 400,
         dry_run: bool = False,
-        timeout: int = SLURM_TIMEOUT_SECONDS,
+        timeout: int = None,
+        wall_time: str = None,
+        cnf_files: List[str] = None,
     ) -> List[int]:
         """
         Submit solver evaluation using a SLURM job array.
@@ -402,23 +418,41 @@ class EvaluationPipeline:
             result_dir: Directory to store evaluation results
             max_jobs: Maximum number of CNF files to evaluate
             dry_run: If True, print SLURM commands without submitting
-            timeout: Timeout per CNF in seconds (default: SLURM_TIMEOUT_SECONDS)
+            timeout: Timeout per CNF in seconds (default: self.timeout)
+            wall_time: SLURM wall time (default: self.wall_time)
+            cnf_files: Explicit list of CNF filenames to evaluate (default: scan benchmark_path)
 
         Returns:
             List containing the SLURM job array ID, or empty list on failure.
         """
+        if timeout is None:
+            timeout = self.timeout
+        if wall_time is None:
+            wall_time = self.wall_time
+
         logger.info(f"Submitting SLURM job array for solver {solver_path}")
         os.makedirs(result_dir, exist_ok=True)
 
         # Collect CNF files to evaluate (skip already completed ones)
-        cnf_files = []
+        source_cnf_files = cnf_files if cnf_files is not None else self.cnf_files
+        all_cnf_files = []
         jobs_skipped = 0
-        for benchmark_file in sorted(os.listdir(benchmark_path)):
-            if benchmark_file.endswith(".cnf"):
+        if source_cnf_files is not None:
+            # Use explicit file list
+            for benchmark_file in source_cnf_files:
                 if os.path.exists(f"{result_dir}/{benchmark_file}.solving.log"):
                     jobs_skipped += 1
                     continue
-                cnf_files.append(benchmark_file)
+                all_cnf_files.append(benchmark_file)
+        else:
+            # Scan benchmark directory
+            for benchmark_file in sorted(os.listdir(benchmark_path)):
+                if benchmark_file.endswith(".cnf"):
+                    if os.path.exists(f"{result_dir}/{benchmark_file}.solving.log"):
+                        jobs_skipped += 1
+                        continue
+                    all_cnf_files.append(benchmark_file)
+        cnf_files = all_cnf_files
 
         if not cnf_files:
             logger.info(f"All {jobs_skipped} benchmarks already evaluated")
@@ -444,6 +478,13 @@ BENCHMARK_PATH="{benchmark_path}"
 RESULT_DIR="{result_dir}"
 TIMEOUT={timeout}
 
+# Locate GNU time (path varies across systems; e.g. CVMFS on Compute Canada)
+GNU_TIME=$(which time 2>/dev/null)
+if [ -z "$GNU_TIME" ]; then
+    echo "ERROR: GNU time not found in PATH" >&2
+    exit 1
+fi
+
 CNF_FILE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$CNF_LIST")
 OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
 
@@ -460,17 +501,24 @@ fi
 
 echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
-# Run solver with timeout, capturing wall-clock time
-START_TIME=$(date +%s.%N)
-timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+# Run solver with timeout, measuring CPU time (user + system) via GNU time
+"$GNU_TIME" -f "%U %S" -o "${{OUTPUT_FILE}}.time" \
+    timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
-END_TIME=$(date +%s.%N)
-ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
+
+if [ -f "${{OUTPUT_FILE}}.time" ]; then
+    CPU_TIME=$(awk '{{printf "%.6f", $1 + $2}}' "${{OUTPUT_FILE}}.time")
+    rm -f "${{OUTPUT_FILE}}.time"
+else
+    CPU_TIME=""
+fi
 
 if [ $EXIT_CODE -eq 124 ]; then
     echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+elif [ -z "$CPU_TIME" ]; then
+    echo "ERROR: process killed (OOM or SLURM limit)" >> "$OUTPUT_FILE"
 else
-    echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
+    echo "c process-time: $CPU_TIME seconds" >> "$OUTPUT_FILE"
 fi
 
 echo "Solver finished with exit code $EXIT_CODE"
@@ -487,7 +535,7 @@ exit $EXIT_CODE
             array_range=array_range,
             account=SLURM_ACCOUNT,
             mem=SLURM_MEMORY,
-            time=SLURM_WALL_TIME,
+            time=wall_time,
             job_name=f"solve_array",
             output_file=f"{result_dir}/slurm_array_%a.log",
             max_concurrent=SLURM_MAX_CONCURRENT,
@@ -517,7 +565,8 @@ exit $EXIT_CODE
         benchmark_path: str,
         cnf_files: List[str],
         dry_run: bool = False,
-        timeout: int = SLURM_TIMEOUT_SECONDS,
+        timeout: int = None,
+        wall_time: str = None,
     ) -> List[int]:
         """
         Submit ALL (solver × CNF) pairs as unified job arrays.
@@ -528,11 +577,16 @@ exit $EXIT_CODE
             benchmark_path: Path to the benchmark CNF files
             cnf_files: List of CNF file names to evaluate
             dry_run: If True, print SLURM commands without submitting
-            timeout: Timeout per CNF in seconds
+            timeout: Timeout per CNF in seconds (default: self.timeout)
+            wall_time: SLURM wall time (default: self.wall_time)
 
         Returns:
             List of SLURM job array IDs
         """
+        if timeout is None:
+            timeout = self.timeout
+        if wall_time is None:
+            wall_time = self.wall_time
         if not solver_tasks or not cnf_files:
             logger.warning("No solver tasks or CNF files to evaluate")
             return []
@@ -578,6 +632,13 @@ TASK_LIST="{task_list_path}"
 BENCHMARK_PATH="{benchmark_path}"
 TIMEOUT={timeout}
 
+# Locate GNU time (path varies across systems; e.g. CVMFS on Compute Canada)
+GNU_TIME=$(which time 2>/dev/null)
+if [ -z "$GNU_TIME" ]; then
+    echo "ERROR: GNU time not found in PATH" >&2
+    exit 1
+fi
+
 # Read task info for this array index
 TASK_LINE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$TASK_LIST")
 SOLVER_PATH=$(echo "$TASK_LINE" | cut -f1)
@@ -600,17 +661,24 @@ fi
 
 echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
-# Run solver with timeout, capturing wall-clock time
-START_TIME=$(date +%s.%N)
-timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+# Run solver with timeout, measuring CPU time (user + system) via GNU time
+"$GNU_TIME" -f "%U %S" -o "${{OUTPUT_FILE}}.time" \
+    timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
-END_TIME=$(date +%s.%N)
-ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
+
+if [ -f "${{OUTPUT_FILE}}.time" ]; then
+    CPU_TIME=$(awk '{{printf "%.6f", $1 + $2}}' "${{OUTPUT_FILE}}.time")
+    rm -f "${{OUTPUT_FILE}}.time"
+else
+    CPU_TIME=""
+fi
 
 if [ $EXIT_CODE -eq 124 ]; then
     echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+elif [ -z "$CPU_TIME" ]; then
+    echo "ERROR: process killed (OOM or SLURM limit)" >> "$OUTPUT_FILE"
 else
-    echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
+    echo "c process-time: $CPU_TIME seconds" >> "$OUTPUT_FILE"
 fi
 
 echo "Solver finished with exit code $EXIT_CODE"
@@ -627,7 +695,7 @@ exit $EXIT_CODE
                 array_range=array_range,
                 account=SLURM_ACCOUNT,
                 mem=SLURM_MEMORY,
-                time=SLURM_WALL_TIME,
+                time=wall_time,
                 job_name=f"batch_{chunk_num}",
                 output_file=f"{batch_dir}/slurm_array_%a.log",
                 max_concurrent=SLURM_MAX_CONCURRENT,
@@ -702,7 +770,8 @@ exit $EXIT_CODE
                 logger.info(f"Build-only mode: skipping SLURM evaluation")
                 return (solver_path, result_dir, code_id)
 
-            slurm_ids = self.slurm_run_evaluate(solver_path, SAT2025_BENCHMARK_PATH, result_dir, dry_run=dry_run)
+            slurm_ids = self.slurm_run_evaluate(solver_path, SAT2025_BENCHMARK_PATH, result_dir, dry_run=dry_run,
+                                                   timeout=self.timeout, wall_time=self.wall_time, cnf_files=self.cnf_files)
 
             if not dry_run:
                 code_result.status = CodeStatus.Evaluating
@@ -761,11 +830,15 @@ exit $EXIT_CODE
             skip_build: If True, assume solvers are already built and skip build step
         """
         # Collect CNF files from benchmark
-        cnf_files = []
-        for benchmark_file in sorted(os.listdir(SAT2025_BENCHMARK_PATH)):
-            if benchmark_file.endswith(".cnf"):
-                cnf_files.append(benchmark_file)
-        logger.info(f"Found {len(cnf_files)} CNF files in benchmark")
+        if self.cnf_files is not None:
+            cnf_files = self.cnf_files
+            logger.info(f"Using {len(cnf_files)} CNF files from benchmark list")
+        else:
+            cnf_files = []
+            for benchmark_file in sorted(os.listdir(SAT2025_BENCHMARK_PATH)):
+                if benchmark_file.endswith(".cnf"):
+                    cnf_files.append(benchmark_file)
+            logger.info(f"Found {len(cnf_files)} CNF files in benchmark")
 
         # Build all solvers and collect successful ones
         solver_tasks = []
@@ -822,7 +895,8 @@ exit $EXIT_CODE
             return
 
         # Submit all evaluations in batch
-        job_ids = self.slurm_run_evaluate_batch(solver_tasks, SAT2025_BENCHMARK_PATH, cnf_files, dry_run=dry_run)
+        job_ids = self.slurm_run_evaluate_batch(solver_tasks, SAT2025_BENCHMARK_PATH, cnf_files, dry_run=dry_run,
+                                                timeout=self.timeout, wall_time=self.wall_time)
 
         if not dry_run:
             # Update status for all code results
@@ -843,6 +917,202 @@ exit $EXIT_CODE
                     self.slurm_collect_result(job_ids, code_id)
 
         logger.info(f"Batch submission complete. Job IDs: {job_ids}")
+
+    def promote_leaders(self, dry_run: bool = False) -> None:
+        """
+        Promote the best-performing algorithm in each team to be the new leader.
+
+        For each team (leader + members sharing that leader's parent_id),
+        compare PAR2 scores and swap if a member strictly beats the leader.
+
+        Args:
+            dry_run: If True, preview promotions without making changes.
+        """
+        if not self.generation_tag:
+            logger.error("promote_leaders requires a generation_tag")
+            return
+
+        # 1. Fetch all algorithm IDs for this generation
+        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, self.generation_tag)
+        algorithms: Dict[str, AlgorithmResult] = {}
+        for aid in algorithm_ids:
+            algo = get_algorithm_result(aid)
+            if algo is not None:
+                algorithms[aid] = algo
+
+        logger.info(f"Found {len(algorithms)} algorithms for generation '{self.generation_tag}'")
+
+        # 2. Partition into leaders and members grouped by parent_id
+        leaders: Dict[str, AlgorithmResult] = {}
+        members_by_leader: Dict[str, List[AlgorithmResult]] = {}
+        for algo in algorithms.values():
+            if algo.parent_id is None:
+                leaders[algo.id] = algo
+            else:
+                members_by_leader.setdefault(algo.parent_id, []).append(algo)
+
+        logger.info(f"Found {len(leaders)} leaders and {sum(len(m) for m in members_by_leader.values())} members")
+
+        # 3. Get PAR2 scores for all algorithms
+        def _get_par2(algo: AlgorithmResult) -> Optional[float]:
+            if not algo.code_id_list:
+                return None
+            code_result = get_code_result(algo.code_id_list[0])
+            if code_result is None:
+                return None
+            return code_result.par2
+
+        # Build team info for report and processing
+        teams = []  # list of (leader, members, leader_par2, member_par2s)
+        for leader_id, leader in leaders.items():
+            leader_par2 = _get_par2(leader)
+            team_members = members_by_leader.get(leader_id, [])
+            member_info = []
+            for member in team_members:
+                member_par2 = _get_par2(member)
+                member_info.append((member, member_par2))
+            teams.append((leader, team_members, leader_par2, member_info))
+
+        # 4. Write PAR2 summary report
+        output_dir = get_generation_output_dir(self.generation_tag)
+        report_path = os.path.join(output_dir, "par2_scores.txt")
+
+        def _trunc(s: str, n: int = 12) -> str:
+            return s[:n] if len(s) > n else s
+
+        # Sort teams by best PAR2 (best first)
+        def _team_best_par2(team_tuple):
+            leader, _, leader_par2, member_info = team_tuple
+            scores = []
+            if leader_par2 is not None:
+                scores.append(leader_par2)
+            for _, mp in member_info:
+                if mp is not None:
+                    scores.append(mp)
+            return min(scores) if scores else float('inf')
+
+        teams.sort(key=_team_best_par2)
+
+        promotion_count = 0
+        promotions = []  # collect (leader, best_member, best_member_par2, leader_par2) for execution
+
+        report_lines = [
+            f"PAR2 Scores - {self.generation_tag}",
+            "=" * 40,
+            "",
+        ]
+
+        for leader, team_members, leader_par2, member_info in teams:
+            # Find best in team
+            all_scores = []
+            if leader_par2 is not None:
+                all_scores.append(("leader", leader_par2))
+            for member, mp in member_info:
+                if mp is not None:
+                    all_scores.append((member.id, mp))
+
+            best_id = None
+            best_par2 = float('inf')
+            for tag, score in all_scores:
+                if score < best_par2:
+                    best_par2 = score
+                    best_id = tag
+
+            leader_code_id = leader.code_id_list[0] if leader.code_id_list else "N/A"
+            best_marker = "  <-- BEST" if best_id == "leader" else ""
+            par2_str = f"{leader_par2:.2f}" if leader_par2 is not None else "N/A"
+            report_lines.append(f"Team: {_trunc(leader.id)} (Leader)")
+            report_lines.append(f"  [L] {_trunc(leader.id)} {_trunc(leader_code_id)} PAR2: {par2_str}{best_marker}")
+
+            for member, mp in member_info:
+                member_code_id = member.code_id_list[0] if member.code_id_list else "N/A"
+                mp_str = f"{mp:.2f}" if mp is not None else "N/A"
+                marker = "  <-- BEST" if best_id == member.id else ""
+                report_lines.append(f"  [M] {_trunc(member.id)} {_trunc(member_code_id)} PAR2: {mp_str}{marker}")
+
+            report_lines.append("")
+
+            # Determine if promotion is needed
+            if leader_par2 is None:
+                logger.warning(f"Leader {leader.id} has no PAR2 score, skipping team")
+                continue
+
+            best_member = None
+            best_member_par2 = leader_par2
+            for member, mp in member_info:
+                if mp is not None and mp < best_member_par2:
+                    best_member = member
+                    best_member_par2 = mp
+
+            if best_member is not None:
+                promotion_count += 1
+                promotions.append((leader, best_member, best_member_par2, leader_par2, team_members))
+
+        report_lines.append(f"Summary: {len(teams)} teams, {promotion_count} promotion{'s' if promotion_count != 1 else ''}")
+
+        with open(report_path, "w") as f:
+            f.write("\n".join(report_lines) + "\n")
+        logger.info(f"Wrote PAR2 summary to {report_path}")
+
+        # 5. Execute promotions
+        for leader, best_member, best_member_par2, leader_par2, team_members in promotions:
+            logger.info(
+                f"{'[DRY-RUN] ' if dry_run else ''}"
+                f"Promoting {best_member.id[:12]}... (PAR2={best_member_par2:.2f}) "
+                f"over leader {leader.id[:12]}... (PAR2={leader_par2:.2f})"
+            )
+
+            if dry_run:
+                continue
+
+            # Filesystem: move promoted member from members/ to leaders/
+            member_old_dir = get_algorithm_dir(best_member.id,
+                                               generation_tag=self.generation_tag,
+                                               parent_id=best_member.parent_id)
+            member_new_dir = get_algorithm_dir(best_member.id,
+                                               generation_tag=self.generation_tag,
+                                               parent_id=None)
+
+            # Filesystem: move demoted leader from leaders/ to members/
+            leader_old_dir = get_algorithm_dir(leader.id,
+                                               generation_tag=self.generation_tag,
+                                               parent_id=leader.parent_id)
+            leader_new_dir = get_algorithm_dir(leader.id,
+                                               generation_tag=self.generation_tag,
+                                               parent_id=best_member.id)
+
+            if os.path.exists(member_old_dir):
+                os.makedirs(os.path.dirname(member_new_dir.rstrip("/")), exist_ok=True)
+                shutil.move(member_old_dir, member_new_dir)
+                logger.info(f"Moved {member_old_dir} -> {member_new_dir}")
+            else:
+                logger.warning(f"Member directory not found: {member_old_dir}")
+
+            if os.path.exists(leader_old_dir):
+                os.makedirs(os.path.dirname(leader_new_dir.rstrip("/")), exist_ok=True)
+                shutil.move(leader_old_dir, leader_new_dir)
+                logger.info(f"Moved {leader_old_dir} -> {leader_new_dir}")
+            else:
+                logger.warning(f"Leader directory not found: {leader_old_dir}")
+
+            # DB: update promoted member's parent_id to None
+            best_member.parent_id = None
+            update_algorithm_result(best_member)
+
+            # DB: update demoted leader's parent_id to new leader
+            leader.parent_id = best_member.id
+            update_algorithm_result(leader)
+
+            # DB: update remaining members' parent_id to point to new leader
+            for member in team_members:
+                if member.id != best_member.id:
+                    member.parent_id = best_member.id
+                    update_algorithm_result(member)
+
+        if dry_run:
+            logger.info(f"[DRY-RUN] {promotion_count} promotion(s) would be made")
+        else:
+            logger.info(f"Completed {promotion_count} promotion(s)")
 
 
 def main():
@@ -866,9 +1136,41 @@ def main():
                         help="Use batch submission mode (all solvers × CNFs in unified arrays)")
     parser.add_argument("--skip-build", action="store_true",
                         help="Skip build step, assume solvers are already built")
+    parser.add_argument("--promote-leaders", action="store_true",
+                        help="Promote best-performing member to leader in each team")
+    parser.add_argument("--quick-eval", action="store_true",
+                        help="Fast evaluation: 100 representative CNFs, 1000s timeout")
     args = parser.parse_args()
 
     evaluation_pipeline = EvaluationPipeline(generation_tag=args.generation_tag)
+
+    # Wire --timeout (fix: was defined but never used)
+    if args.timeout != SLURM_TIMEOUT_SECONDS:
+        evaluation_pipeline.timeout = args.timeout
+        evaluation_pipeline.par2_penalty = args.timeout * 2
+        logger.info(f"Custom timeout: {args.timeout}s, PAR2 penalty: {args.timeout * 2}")
+
+    # Wire --quick-eval (overrides --timeout if both set)
+    if args.quick_eval:
+        evaluation_pipeline.timeout = QUICK_EVAL_TIMEOUT_SECONDS
+        evaluation_pipeline.wall_time = QUICK_EVAL_WALL_TIME
+        evaluation_pipeline.par2_penalty = QUICK_EVAL_PAR2_PENALTY
+        if not os.path.exists(QUICK_EVAL_BENCHMARK_LIST):
+            logger.error(f"Quick-eval benchmark list not found: {QUICK_EVAL_BENCHMARK_LIST}")
+            logger.error("Generate it first: python scripts/generate_benchmark_subset.py")
+            return
+        with open(QUICK_EVAL_BENCHMARK_LIST) as f:
+            evaluation_pipeline.cnf_files = [line.strip() for line in f if line.strip()]
+        logger.info(f"Quick-eval mode: {len(evaluation_pipeline.cnf_files)} CNFs, "
+                     f"{QUICK_EVAL_TIMEOUT_SECONDS}s timeout, "
+                     f"{QUICK_EVAL_WALL_TIME} wall time")
+
+    if args.promote_leaders:
+        if not args.generation_tag:
+            logger.error("--promote-leaders requires --generation_tag")
+            return
+        evaluation_pipeline.promote_leaders(dry_run=args.dry_run)
+        return
 
     if args.collect_result:
         if not args.algorithm_id or not args.code_id:
