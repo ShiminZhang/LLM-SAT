@@ -1,0 +1,276 @@
+# Full Pipeline Workflow
+
+This document describes the end-to-end pipeline for evolving SAT solver
+heuristics using LLM-guided generation, evaluation, and genetic crossover.
+
+## Overview
+
+The pipeline has four major phases:
+
+  1. Data Generation — LLM creates leader algorithms and team member variants
+  2. Evaluation — Build solvers, run on benchmarks via SLURM, collect PAR2 scores
+  3. Promotion — Best-performing team member replaces leader within each team
+  4. Genetic Evolution — LLM-guided crossover of promoted leaders to create
+     improved offspring, followed by evaluation and selection
+
+Phases 1-3 use the original generation tag (e.g. "gemini_trial5").
+Phase 4 creates new offspring under a separate output tag (e.g.
+"gemini_trial5_gen1_v1") and can be iterated.
+
+All evaluation steps use --quick-eval (100 representative CNFs, 1000s timeout)
+for faster turnaround. See "Quick-Eval Mode" section for details.
+
+## Quick-Eval Mode
+
+All evaluation commands in this workflow use `--quick-eval`, which:
+  - Evaluates on 100 representative CNFs (from data/benchmarks/satcomp2025_quick100.txt)
+  - Uses 1000s timeout per CNF (~17 min) instead of the default 5000s
+  - Uses 20 min SLURM wall time instead of 90 min
+  - Uses PAR2 penalty of 2000 (2x quick timeout) instead of 10000
+
+To generate the quick-eval benchmark list:
+```bash
+python scripts/generate_benchmark_subset.py
+```
+
+The genetic evolution pipeline (Phase 4) also uses quick-eval by default
+when --evaluate is set (configured internally in evaluate_offspring()).
+
+## Phase 1: Data Generation
+
+### Script: `src/llmsat/pipelines/gemini_data_generation.py`
+
+Creates the initial population of SAT solver heuristics:
+
+  1. Generates N leader algorithms using the designer prompt
+     - Each leader gets `parent_id=None` in the database
+     - Temperatures interpolated from 0.5 to 1.0 for diversity
+
+  2. For each leader, generates M member variants
+     - Each member modifies a specific step of the leader's algorithm
+     - Members get `parent_id=<leader_algorithm_id>` in the database
+
+  3. Generates C code for ALL algorithms (leaders + members)
+
+Output structure:
+  outputs/<generation_tag>/batch_batches/<batch_id>/
+    leaders_output.txt                     # Leader algorithms (JSONL)
+    member_output_batches/<batch_id>.txt   # Member algorithms (JSONL)
+    code_output_batches/<batch_id>.txt     # C code (JSONL)
+    team_batch_map_<timestamp>.json        # Maps batch IDs to algorithm hashes
+
+Database state after this phase:
+  - AlgorithmResult entries for each leader (parent_id=None) and member
+    (parent_id=leader_id)
+  - CodeResult entries for each algorithm's generated code
+  - Router table entries linking all algorithm IDs to the generation tag
+
+## Phase 2: Evaluation
+
+### Script: `src/llmsat/pipelines/evaluation.py`
+
+Builds solvers and evaluates them on SAT benchmarks via SLURM.
+
+### Step 2a: Build and submit evaluation jobs
+
+```bash
+# Build all solvers first (local compilation)
+python src/llmsat/pipelines/evaluation.py \
+    --run_all --generation_tag gemini_trial5 \
+    --build-only
+
+# Submit SLURM quick-eval jobs (skip rebuild)
+python src/llmsat/pipelines/evaluation.py \
+    --run_all --generation_tag gemini_trial5 \
+    --quick-eval --batch-mode --skip-build
+```
+
+Or in one step (build + submit with quick-eval):
+```bash
+python src/llmsat/pipelines/evaluation.py \
+    --run_all --generation_tag gemini_trial5 \
+    --quick-eval --batch-mode
+```
+
+### Step 2b: Wait for SLURM jobs to complete
+
+```bash
+squeue -u $USER    # Monitor running jobs
+```
+
+### Step 2c: Collect PAR2 results
+
+```bash
+python src/llmsat/pipelines/evaluation.py \
+    --collect_all_results --generation_tag gemini_trial5
+```
+
+This reads solver output logs and computes PAR2 scores:
+  - Solved instances: actual CPU time in seconds
+  - Timeout/error instances: PAR2 penalty (2000 in quick-eval mode)
+  - PAR2 score: average across all instances
+
+## Phase 3: Promotion
+
+### Script: `src/llmsat/pipelines/evaluation.py --promote-leaders`
+
+After all PAR2 scores are collected, promote the best algorithm in each team:
+
+```bash
+# Preview promotions without making changes
+python src/llmsat/pipelines/evaluation.py \
+    --promote-leaders --generation_tag gemini_trial5 \
+    --dry-run
+
+# Execute promotions
+python src/llmsat/pipelines/evaluation.py \
+    --promote-leaders --generation_tag gemini_trial5
+```
+
+What promote-leaders does for each team:
+  1. Compares PAR2 scores of leader vs all members
+  2. If a member strictly beats the leader's PAR2:
+     - Swaps filesystem directories (member -> leaders/, leader -> members/)
+     - Updates database: promoted member gets parent_id=None,
+       demoted leader gets parent_id=new_leader_id,
+       remaining members point to new leader
+  3. Writes a PAR2 summary report to outputs/<tag>/par2_scores.txt
+
+After this phase, the database reflects the best algorithms as leaders
+(parent_id=None), ready for genetic evolution.
+
+## Phase 4: Genetic Evolution
+
+### Script: `src/llmsat/pipelines/genetic_evolution.py`
+
+Evolves the promoted leaders through LLM-guided crossover.
+
+### Loading: Leaders from DB
+
+The pipeline loads the population from the database using `load_population()`,
+which by default only loads leaders (algorithms with `parent_id=None`). This
+ensures that after promote-leaders has run, the genetic evolution operates on
+the best algorithms from each team.
+
+NOTE: The `--folder` flag can be used to load from output files instead, but
+this reads the ORIGINAL leaders_output.txt (before promotion) and is mainly
+useful for initial testing or when the DB is not available.
+
+### Evaluation mode
+
+When --evaluate is set, offspring are evaluated using quick-eval mode by
+default (100 CNFs, 1000s timeout). This is configured internally in the
+evaluate_offspring() function and does not require a CLI flag.
+
+### Evolution loop (per iteration):
+
+  1. Causal Analysis: LLM analyzes each leader's strengths, weaknesses,
+     key mechanisms, and improvement suggestions.
+
+  2. LLM-Proposed Combinations: A single LLM call per minibatch receives
+     all leaders + their causal analyses and proposes the top-k most
+     promising pairs for crossover. Pairs are scored 1-10; only pairs
+     above --rubric_min proceed.
+
+  3. Crossover: LLM combines each proposed pair of parents into an
+     offspring algorithm description.
+
+  4. Code Generation: LLM translates offspring algorithms into C code.
+     Parent C code is included as structural reference.
+
+  5. Evaluation: Build solver and submit SLURM quick-eval jobs.
+
+  6. Selection (PAR2): Keep offspring whose PAR2 beats the best parent.
+     Top-tier offspring are promoted into the population for the next
+     iteration.
+
+### Running genetic evolution:
+
+```bash
+# Iter 1: fresh start from promoted leaders
+python src/llmsat/pipelines/genetic_evolution.py \
+    --generation_tag gemini_trial5 \
+    --output_tag gemini_trial5_gen1_v1 \
+    --code_prompt_path data/prompts/coder_prompt.txt \
+    --evaluate \
+    --top_k 5 \
+    --minibatch_size 10 \
+    --rubric_min 6.0 \
+    --rubric_keep_top_n 10 \
+    --par2_keep_top_n 7 \
+    --model gemini-3-flash-preview
+```
+
+After SLURM jobs complete, collect results and run iter 2:
+
+```bash
+# Collect iter 1 results
+python src/llmsat/pipelines/evaluation.py \
+    --collect_all_results --generation_tag gemini_trial5_gen1_v1_iter1
+
+# Iter 2: carries forward improvements from iter 1
+python src/llmsat/pipelines/genetic_evolution.py \
+    --generation_tag gemini_trial5 \
+    --output_tag gemini_trial5_gen1_v2 \
+    --prev_output_tags gemini_trial5_gen1_v1 \
+    --code_prompt_path data/prompts/coder_prompt.txt \
+    --evaluate \
+    --top_k 5 --minibatch_size 10 \
+    --rubric_min 6.0 --rubric_keep_top_n 10 --par2_keep_top_n 7 \
+    --model gemini-3-flash-preview
+```
+
+The loop stops when:
+  - No offspring improve over the best parent PAR2, OR
+  - max_iterations is reached (hardcoded to 1 per invocation since SLURM
+    is async; multi-iteration is driven by re-running with --prev_output_tags)
+
+## Full Example (End-to-End)
+
+```bash
+TAG="gemini_trial5"
+
+# Phase 1: Generate leaders + members + code
+python src/llmsat/pipelines/gemini_data_generation.py
+
+# Phase 2: Build, evaluate (quick-eval), collect
+python src/llmsat/pipelines/evaluation.py \
+    --run_all --generation_tag $TAG \
+    --quick-eval --batch-mode
+# ... wait for SLURM ...
+python src/llmsat/pipelines/evaluation.py \
+    --collect_all_results --generation_tag $TAG
+
+# Phase 3: Promote best team members to leaders
+python src/llmsat/pipelines/evaluation.py \
+    --promote-leaders --generation_tag $TAG
+
+# Phase 4: Genetic evolution on promoted leaders (uses quick-eval internally)
+python src/llmsat/pipelines/genetic_evolution.py \
+    --generation_tag $TAG \
+    --output_tag ${TAG}_gen1_v1 \
+    --code_prompt_path data/prompts/coder_prompt.txt \
+    --evaluate \
+    --top_k 5 --minibatch_size 10 \
+    --rubric_min 6.0 --rubric_keep_top_n 10 --par2_keep_top_n 7 \
+    --model gemini-3-flash-preview
+# ... wait for SLURM ...
+python src/llmsat/pipelines/evaluation.py \
+    --collect_all_results --generation_tag ${TAG}_gen1_v1_iter1
+
+# Repeat phase 4 with --prev_output_tags for further iterations
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/llmsat/pipelines/gemini_data_generation.py` | Phase 1: Create leaders + members |
+| `src/llmsat/pipelines/evaluation.py` | Phase 2-3: Build, evaluate, promote |
+| `src/llmsat/pipelines/genetic_evolution.py` | Phase 4: Crossover evolution |
+| `src/llmsat/pipelines/chatgpt_data_generation.py` | Code generation prompts |
+| `src/llmsat/utils/chatgpt_helper.py` | Unified LLM dispatch (OpenAI/Gemini) |
+| `src/llmsat/utils/gemini_helper.py` | Gemini API helper |
+| `src/llmsat/code_injection.py` | Function registry + code injection |
+| `src/llmsat/debugging.py` | LLM-assisted compiler debugging |
+| `docs/evaluation.txt` | Evaluation pipeline details |
