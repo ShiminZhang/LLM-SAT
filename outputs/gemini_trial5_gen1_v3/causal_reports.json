@@ -1,0 +1,185 @@
+{
+  "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9": {
+    "algorithm_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "strengths": [
+      "LBD Slope as a Momentum Indicator: Using the linear regression slope 'S' of LBD history allows the solver to detect search 'convergence'. A negative slope (S < -0.25) indicates the solver is finding increasingly high-quality (shorter) clauses, justifying a deterministic 'stay' in the current mode to exploit the current search trajectory.",
+      "Volatility-Adjusted Exploration: Linking the Boltzmann temperature 'T' to the normalized standard deviation 'V' of the conflict rate is a sophisticated way to handle non-stationarity. High volatility in search performance triggers higher exploration (higher T), while a stable search environment leads to more greedy exploitation of the better-performing heuristic.",
+      "Hysteresis via Momentum Override: The deterministic thresholds (|S| > 0.25) act as a circuit breaker for the MAB. This prevents the solver from oscillating between heuristics due to minor noise in the reward signal when one mode is clearly trending toward better or worse performance.",
+      "Numerical Stability in Softmax: The implementation correctly uses 'max_exponent' subtraction before calculating 'exp(Q/T)', preventing floating-point overflow which is a common failure point in Boltzmann-based selection."
+    ],
+    "weaknesses": [
+      "Counter-Intuitive Reward Function: The formula 'log2(decisions) / log2(conflicts)' rewards a lower conflict-to-decision ratio. In modern SAT solving, a high conflict rate is usually indicative of a more efficient search (learning more per unit of work). This reward may inadvertently favor 'stable' modes that explore slowly over 'focused' modes that learn rapidly.",
+      "Small Sample Window (N=5): A circular buffer of size 5 is extremely sensitive to the high variance inherent in SAT solving. A single 'outlier' restart (e.g., hitting a very dense part of the search space) can drastically swing the slope 'S', causing premature mode switching.",
+      "Scale-Invariance Issues in Slope Thresholds: The threshold |S| > 0.25 is absolute, but LBD values vary significantly across different problem instances (e.g., an LBD drop from 40 to 39 is less significant than 4 to 3). This makes the momentum override behave inconsistently across different benchmarks.",
+      "Linearity Assumption: Linear regression assumes a linear trend in LBD/Conflict rates, but search performance in SAT is often step-wise or exponential. Forcing a linear fit on 5 points may lead to 'S' values that do not accurately represent the true search momentum."
+    ],
+    "key_mechanisms": [
+      "LBD-Driven State Detection: The solver uses the Literal Block Distance (LBD) as a proxy for 'search health'. By tracking the first derivative (slope) of LBD, it transitions from a probabilistic MAB to a deterministic state machine.",
+      "Adaptive Boltzmann Selection: When the search stagnates (|S| <= 0.25), the solver uses a softmax distribution to pick heuristics. The probability distribution is shaped by the historical 'Quality' (Q) of the modes, allowing for a 'soft' preference for the better mode.",
+      "Conflict Rate Volatility: The 'V' parameter (normalized std dev) measures how erratic the search is. This mechanism effectively detects when the solver is 'lost' in the search space, increasing the randomness of heuristic selection to escape local minima."
+    ],
+    "improvement_suggestions": [
+      "Invert and Normalize Reward: Change the reward to 'conflicts / decisions' or '1.0 / average_LBD'. This aligns the MAB's goals with the solver's objective of finding high-quality conflicts quickly.",
+      "Relative Slope Calculation: Use a normalized slope 'S_norm = S / mean_LBD' to ensure the 0.25 threshold is scale-invariant across different problem types.",
+      "Increase Window Size or Use EMA: Increase N to 10-15 or replace the circular buffer with an Exponential Moving Average (EMA). This would provide a smoother 'S' and 'V' signal, reducing the impact of noise.",
+      "Incorporate Clause Deletion Metrics: Add a metric for 'clause survival rate' (how many clauses from a specific mode survive the next reduction) to the Quality 'Q' calculation, as this is a strong indicator of long-term heuristic utility."
+    ]
+  },
+  "edfacce36d79fb599149746046917e09babcebb78e227d94734f00dd7a368dfd": {
+    "algorithm_id": "edfacce36d79fb599149746046917e09babcebb78e227d94734f00dd7a368dfd",
+    "strengths": [
+      "Multi-Objective Yield Metric: By defining Y as (conflicts/ticks) / (1.0 + LBD), the algorithm optimizes for both search throughput and clause quality. This prevents the solver from favoring 'cheap' but useless conflicts that don't contribute to logical pruning.",
+      "Volatility-Adjusted Momentum (k): The scaling factor k = 1.5 / (1.0 + V) is a sophisticated control mechanism. It reduces the weight of momentum (M) when the search signal is noisy (high V), preventing erratic switching, while amplifying the signal during stable 'hot streaks'.",
+      "MACD-based Trend Detection: Using the difference between Fast (alpha=0.20) and Slow (alpha=0.05) EMAs allows the solver to detect performance shifts (momentum) before they fully manifest in the raw averages, enabling more proactive heuristic switching.",
+      "Dynamic Boltzmann Temperature: Setting T = 0.1 + V ensures that the degree of randomness in selection is proportional to the uncertainty in the environment. This effectively balances exploration and exploitation based on the current search stability."
+    ],
+    "weaknesses": [
+      "Threshold Magnitude Mismatch: The 'Stop-Loss' threshold (M < -0.10) is likely too large for the scale of Y. Since Y is based on conflicts per tick (typically a very small decimal), M will rarely reach -0.10, rendering the deterministic switch logic effectively dead code.",
+      "Aggressive Inactive Decay: Multiplying inactive EMAs by 0.95 every interval creates a 'poverty trap'. If a mode is inactive for 50 intervals, its score decays to ~7% of its original value, making it nearly impossible for the mode to be re-selected unless the exploration bonus is massive.",
+      "Tick-Scale Sensitivity: solver->ticks is a non-linear measure of work. In instances with very large clauses, ticks per conflict increase significantly, which would cause Y to drop and trigger a switch not because the heuristic is bad, but because the problem structure changed.",
+      "Exploration Bonus Scaling: The sqrt(inactivity_age / total_intervals) term is added directly to P. Since P is derived from the tiny Y values, this bonus will likely dominate the selection logic, turning the 'Stagnant' state into a pure Round-Robin rather than a performance-weighted choice."
+    ],
+    "key_mechanisms": [
+      "Three-State Gating Logic: The algorithm partitions the decision space into 'Improving' (exploit), 'Degrading' (exit), and 'Stagnant' (explore). This prevents the overhead of probabilistic selection when a clear performance trend is visible.",
+      "Stale Data Correction: The algorithm acknowledges that old performance data becomes less relevant as the solver moves deeper into the search tree or learns more clauses, using decay and inactivity counters to refresh the MAB state.",
+      "Yield-LBD Coupling: The core driver of the reward signal is the inverse relationship between conflict density and LBD, forcing the MAB to find a 'sweet spot' where the solver is both fast and logically efficient."
+    ],
+    "improvement_suggestions": [
+      "Relative Stop-Loss: Change the hard threshold 'M < -0.10' to a relative threshold like 'M < -0.20 * slow_ema[h]'. This ensures the stop-loss triggers regardless of the absolute magnitude of the Yield.",
+      "Logarithmic Yield Scaling: Use Y = log10(1.0 + (conflicts / ticks) * 1e6) / (1.0 + average_lbd) to bring the performance metric into a more manageable range (0.1 to 10.0) for the Boltzmann exp() function.",
+      "Soft Decay for Inactive Modes: Replace the 0.95 multiplier with a mechanism that only decays the EMA toward the global average performance, rather than toward zero, to prevent the 'poverty trap'.",
+      "LBD Window Normalization: Instead of raw average_LBD, use the ratio of (current_interval_LBD / global_average_LBD) to make the Yield metric more sensitive to local improvements in clause quality."
+    ]
+  },
+  "14747fd180ef447582c5b32c571c56ed7dcdb36082f85aad7e0fdf12034f1494": {
+    "algorithm_id": "14747fd180ef447582c5b32c571c56ed7dcdb36082f85aad7e0fdf12034f1494",
+    "strengths": [
+      "Composite Performance Metric (P): By multiplying conflict density (conflicts/decisions) with inverse LBD (1/(LBD+1)), the solver rewards heuristics that find contradictions quickly while maintaining high-quality (low LBD) learned clauses, balancing search speed with long-term pruning power.",
+      "Dual-EMA Momentum Tracking: Using fast (alpha=0.2) and slow (alpha=0.05) EMAs allows the solver to detect the 'velocity' of heuristic performance. This enables the solver to distinguish between a heuristic that is currently best but declining and one that is currently worse but improving.",
+      "Trajectory Gating: The deterministic 'stay' condition (M > 0.05) prevents premature switching. This is crucial for SAT solvers because heuristics like VSIDS require a 'warm-up' period to build variable scores; gating protects this period from being interrupted by noise.",
+      "Volatility-Scaled Boltzmann Temperature: Scaling the temperature T by the volatility V (EMA of absolute error) creates an automated exploration/exploitation trade-off. High volatility (unreliable performance) increases T, leading to more exploration, while stable performance decreases T, favoring the currently superior heuristic."
+    ],
+    "weaknesses": [
+      "Scale Sensitivity of Metric P: The metric P is not normalized against problem size or variable count. In instances with very high unit propagation (low decisions), P can spike to extreme values, potentially saturating the EMAs and making the momentum calculation (M) erratic.",
+      "Stagnation Flip-Flopping: In the 'stagnant' state (|M| <= 0.05), if both heuristics have nearly identical E_fast values, the Boltzmann selection will approach a 50/50 probability. This can cause frequent switching every restart, which destroys search locality and reduces the effectiveness of the phase saving and cache-heavy data structures.",
+      "LBD Lag: The average_LBD is a trailing indicator of search quality. By the time the LBD average significantly shifts to reflect a poor search space, the solver may have already committed to a sub-optimal heuristic for several restart cycles.",
+      "Static State Vulnerability: The use of static arrays for EMA values prevents the solver from being used in multi-threaded contexts (like a portfolio solver) without modification, and prevents state resets if the solver were to be used as a sub-component in a larger system."
+    ],
+    "key_mechanisms": [
+      "Relative Momentum (M): Acts as a scale-invariant derivative of performance. By calculating (E_fast - E_slow) / E_slow, the solver measures percentage improvement rather than absolute change, allowing the same logic to work on both 'easy' and 'hard' sub-problems.",
+      "Probabilistic Exit: The switch probability (min(1.0, |M| * 2.5)) ensures that the more rapidly a heuristic's performance degrades, the faster the solver exits that mode, providing a 'fail-fast' mechanism.",
+      "Signal-to-Noise Temperature Control: The temperature formula T = 0.1 + (V / E_fast) treats volatility as noise. This ensures that the solver only becomes 'decisive' (low T) when the performance signal is stable relative to its magnitude."
+    ],
+    "improvement_suggestions": [
+      "Normalize Metric P: Divide the conflict/decision ratio by the log of the number of variables to make the reward signal more consistent across different problem sizes.",
+      "Implement a 'Switching Penalty': Add a small constant cost to the 'other' heuristic's E_fast during Boltzmann selection to favor the current mode and prevent thrashing when performance is nearly equal.",
+      "LBD Windowing: Replace the global average_LBD with a short-window EMA of LBDs from the current restart only. This would make the metric P more responsive to immediate changes in search space quality.",
+      "Dynamic Alpha Scaling: Reduce the EMA alpha values (learning rate) as the total conflict count increases. This would allow for rapid adaptation during the initial search phase and higher stability (exploitation) during the 'long tail' of hard instances."
+    ]
+  },
+  "c0532a9648ba38e046848c0e6238d45c188e006f437ceb6f95fcd9a2dc79e717": {
+    "algorithm_id": "c0532a9648ba38e046848c0e6238d45c188e006f437ceb6f95fcd9a2dc79e717",
+    "strengths": [
+      "Global Progress Coupling: The 1.5x/0.8x reward multiplier tied to 'best_lbd' and 'best_assigned_trail' prevents the MAB from optimizing for local metrics (like high conflict rates) that don't translate to global search progress.",
+      "Scale-Invariant Momentum: Normalizing the LBD delta by the mean LBD (S_norm) allows the 'improvement threshold' of 0.05 to remain effective across different problem types and solver stages, regardless of whether the average LBD is 3.0 or 30.0.",
+      "Volatility-Adjusted Exploration: Linking the Boltzmann temperature (T = 0.1 + V) to the conflict rate's absolute deviation ensures the solver explores more when the search is erratic and exploits known good modes when the search is stable.",
+      "Hysteresis and Cooldown: The 3-phase cooldown and momentum-based persistence (S_norm < -0.05) prevent 'heuristic thrashing,' ensuring that a chosen mode has enough time to populate the clause database and influence the search before being evaluated."
+    ],
+    "weaknesses": [
+      "Aggressive EMA Smoothing: An alpha of 0.2 gives a 50% weight to the last ~3 observations. This high sensitivity may cause the solver to abandon a robust heuristic due to a single 'noisy' phase where LBDs temporarily spiked.",
+      "Linear Stagnation Counter: The hardcoded 'stagnation_counter > 5' is independent of the problem size. In very large instances, 5 phases may be insufficient to see global progress, leading to premature forced switching.",
+      "Reward Sensitivity to Low LBD: Because avg_lbd is in the denominator of R, the reward becomes hyper-sensitive when avg_lbd is small (e.g., 2.0 vs 2.5 is a 25% reward swing), potentially over-rewarding modes that produce very few, very short clauses but fail to provide sufficient logical density.",
+      "Conflict Rate as Volatility Proxy: Using conflict rate deviation to calculate V assumes that a stable conflict rate equals a stable search. However, a solver can be stuck in a stable but useless local optimum, where low volatility would incorrectly suppress exploration."
+    ],
+    "key_mechanisms": [
+      "Decision Gating: A multi-tier logic gate that overrides the MAB. It prioritizes 'Persistence' (if improving), then 'Forced Exit' (if stagnating and degrading), and only defaults to 'Probabilistic Selection' (Boltzmann) when the search is in a steady state (|S_norm| <= 0.05).",
+      "Adaptive Boltzmann Selection: A probabilistic mechanism that uses max-exponent subtraction for numerical stability to pick the next heuristic based on the Gibbs distribution of their historical rewards.",
+      "Momentum-Based Persistence: The use of S_norm < -0.05 as a 'keep-alive' signal. This recognizes that the derivative of performance (improvement) is often more important than the absolute quality score (Q_m) in dynamic SAT landscapes."
+    ],
+    "improvement_suggestions": [
+      "Dynamic Alpha: Implement a dual-EMA or a decreasing alpha (e.g., starting at 0.2 and decaying to 0.05) to allow for rapid initial learning followed by long-term stability.",
+      "LBD-Smoothing in Reward: Change the reward denominator to (avg_lbd + k), where k is a small constant (e.g., 5), to dampen the extreme reward volatility when LBD values are very low.",
+      "Variable-Relative Stagnation: Scale the stagnation_counter threshold by log10(variables) to allow more 'patience' on massive industrial instances where progress is naturally slower.",
+      "Reward for Clause Deletion: Incorporate the quality of clauses *surviving* deletion into the reward. If a mode's clauses are consistently deleted by the solver's reduction logic, its reward should be penalized, as it is producing 'junk' that consumes memory without aiding the proof."
+    ]
+  },
+  "3f881cf37be568e49a63b9fc9fefa76e2e1530097d6e9dc0dbc5fbf32fec644a": {
+    "algorithm_id": "3f881cf37be568e49a63b9fc9fefa76e2e1530097d6e9dc0dbc5fbf32fec644a",
+    "strengths": [
+      "Multi-Dimensional Reward Signal: By incorporating log-scaled conflict counts, LBD (Literal Block Distance), and trail level, the reward R captures both quantity (throughput) and quality (clause usefulness and search depth). This prevents the MAB from being 'fooled' by high-frequency but low-quality conflicts.",
+      "Momentum-Based Trend Detection: The Dual-EMA (S_fast vs S_slow) acts as a MACD-style indicator. Calculating T = S_fast - S_slow allows the solver to detect not just current performance, but whether performance is accelerating or decelerating, enabling proactive switching before a mode completely stalls.",
+      "Fatigue-Driven Exploration: The S_adj calculation (0.998^consecutive_count) provides a deterministic pressure to switch modes. This solves the 'exploitation trap' where a mode with a high historical average stays active despite reaching a local plateau in the search space.",
+      "Computational Cost Normalization: Dividing by (elapsed_ticks + 1) ensures that the reward is normalized against the actual CPU effort (propagations/memory accesses), which is more accurate than wall-clock time in a multi-tasking environment."
+    ],
+    "weaknesses": [
+      "Stale Benchmark Problem: The switch condition S_adj < S_other_slow compares the current (fatigued) score against the 'slow' average of the inactive mode. If the inactive mode hasn't been run for millions of conflicts, its S_slow is a stale representation of its potential on the current, evolved clause database.",
+      "Aggressive Probabilistic Decay: The condition T < -0.1 * S_slow with a 4.0x multiplier on the probability (capped at 0.6) makes the solver highly volatile. A minor 5% dip in performance relative to the trend can trigger a 20% chance of switching, potentially interrupting a productive search phase prematurely.",
+      "Fixed Fatigue Constant: The 0.998 decay factor is static. In very large industrial instances where restart phases are long, this factor may trigger 'fatigue' switches before the solver has had enough time to propagate through the variable dependencies of a specific component.",
+      "Square Root Trail Bias: Using sqrt(avg_trail_level) heavily penalizes deep search. While this favors 'focused' search, it may inadvertently handicap the 'stable' mode (which naturally operates at higher trail levels), leading to an imbalance in the MAB's preference."
+    ],
+    "key_mechanisms": [
+      "Performance Momentum (T): The core driver of switching is the divergence between a short-term (alpha=0.2) and long-term (alpha=0.05) EMA, allowing the solver to react to the derivative of performance rather than just the absolute value.",
+      "Search Efficiency Metric: The reward R functions as an 'efficiency' score (Quality * Throughput / Effort). It specifically targets the maximization of 'Glue' clauses (low LBD) per unit of computational tick.",
+      "Stochastic Thresholding: Step 5(b) uses a ratio-based probability (abs(T)/S_slow) to decide on switches, meaning the more 'surprising' the performance drop, the more likely the solver is to abandon the current strategy."
+    ],
+    "improvement_suggestions": [
+      "Implement 'Benchmark Decay': Gradually decay the S_slow of the inactive mode over time. This would reflect the increasing uncertainty of how that mode would perform on the current formula, preventing the solver from being 'scared' to switch back to a mode that performed poorly in the distant past.",
+      "Dynamic Fatigue Scaling: Replace the constant 0.998 with a value scaled by the number of variables or the current restart interval (e.g., 1.0 - (1.0 / (num_vars * 0.1))). This would allow for longer exploration on harder instances.",
+      "LBD-Trail Interaction Term: Instead of multiplying LBD and sqrt(trail), use a weighted sum or a more complex interaction. High LBD is acceptable at very high depths in some 'stable' configurations; the current product-based denominator might be too punitive for deep-search strategies.",
+      "Hysteresis Buffer: Add a minimum consecutive_count (e.g., 50) before any switch can be triggered to ensure the EMAs have stabilized and to prevent 'thrashing' between modes."
+    ]
+  },
+  "56a0452fe1d4f612e009f7fb458f53937631f2d1f3cd4c1bab82ab31ea4185bb": {
+    "algorithm_id": "56a0452fe1d4f612e009f7fb458f53937631f2d1f3cd4c1bab82ab31ea4185bb",
+    "strengths": [
+      "LBD-Weighted Throughput Reward: By placing both 'ticks' (computational effort) and 'avg_LBD' (clause quality) in the denominator of the reward R, the algorithm creates a balanced pressure that favors modes producing high-quality clauses efficiently, rather than just maximizing raw conflict counts.",
+      "Volatility-Aware Selection: Dividing the selection score S by (1.0 + V) acts as a risk-adjustment mechanism. This prevents the solver from switching to a mode that occasionally yields high rewards but is inconsistent, favoring 'reliable' search progress.",
+      "Momentum Gating: The use of LBD momentum (M) as a bypass (Step 4) allows the solver to override historical MAB data when a mode is currently 'hot' (improving LBD > 5%). This captures short-term search dynamics that EMA-based averages might lag behind.",
+      "Logarithmic Conflict Scaling: Using log2(conflicts + 1) prevents the reward from being dominated by rare, extremely long phases, ensuring that the MAB remains sensitive to the quality of typical search bursts."
+    ],
+    "weaknesses": [
+      "Aggressive EMA Smoothing: An alpha of 0.2 (80/20 split) creates a very short memory. This high sensitivity can lead to 'thrashing' where the solver switches modes based on stochastic noise in a single restart phase rather than structural problem properties.",
+      "Fixed Momentum Thresholds: The hardcoded 5% and 10% thresholds for LBD improvement/worsening are scale-invariant but may be inappropriate for problems where LBD variance is naturally high, leading to premature mode switching or unnecessary stagnation.",
+      "Fatigue Monotonicity: The fatigue factor (0.98^consecutive_count) is strictly monotonic. In very difficult instances where one mode is objectively superior, the fatigue will eventually force a switch to a sub-optimal mode, potentially losing significant search progress.",
+      "Tick-LBD Coupling: Multiplying ticks by avg_LBD in the denominator assumes a linear trade-off between computational cost and clause quality, which is rarely true in practice; a mode that is 2x slower but produces 1.5x better LBDs might be unfairly penalized."
+    ],
+    "key_mechanisms": [
+      "Phase Reward (R): The core signal generator that translates raw solver metrics (conflicts, ticks, LBD) into a single scalar value used for reinforcement learning.",
+      "Exponential Moving Average (EMA) Tracking: Maintains a running estimate of both the expected performance (Q) and the instability (V) of each heuristic mode.",
+      "Momentum Gating Logic: A derivative-based control loop that monitors the rate of change in LBD to provide immediate feedback-driven overrides to the MAB's selection.",
+      "Fatigue-Induced Exploration: A mechanism that artificially degrades the score of the active mode over time to ensure the solver does not get stuck in a local search optimum and continues to explore the alternative heuristic."
+    ],
+    "improvement_suggestions": [
+      "Implement UCB1 Exploration: Replace the exponential fatigue (0.98^n) with an Upper Confidence Bound (UCB1) term: S = Q + sqrt(2 * ln(total_conflicts) / mode_conflicts). This provides a more mathematically sound balance between exploration and exploitation.",
+      "Dynamic Momentum Thresholds: Instead of fixed 5%/10% gates, use the standard deviation of the LBD (tracked via another EMA) to trigger a switch only when the LBD change is statistically significant (e.g., > 1.5 sigma).",
+      "Reward Normalization: Normalize the reward R by the global average reward seen so far. This would make the Quality (Q) values more interpretable and prevent the EMA from becoming stagnant if rewards are consistently very small.",
+      "Adaptive Alpha: Scale the EMA alpha parameter based on the 'consecutive_count'. Use a higher alpha (faster learning) when a mode is first selected and a lower alpha (more stability) once a mode has proven effective over several restarts."
+    ]
+  },
+  "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143": {
+    "algorithm_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
+    "strengths": [
+      "Trend Amplification (PD-Control): The inclusion of the trend term T = R - R_prev with a gain of 2.0 allows the solver to react aggressively to improvements in search efficiency. This 'momentum' detection helps the solver stay in a productive heuristic mode longer when it hits a 'fertile' area of the search space.",
+      "Geometric Fatigue Mechanism: The use of 0.95^consecutive_count prevents the Multi-Armed Bandit (MAB) from getting stuck in a local optimum. By decaying the selection score of the active mode, it naturally forces exploration of the alternative heuristic even if the current one is performing well, which is crucial for escaping 'plateaus' in SAT solving.",
+      "Logarithmic Conflict Scaling: Using log2(conflicts + 1) in the reward R dampens the impact of outlier restart cycles. This prevents a single, unusually long restart with many conflicts from disproportionately inflating the Q-value, leading to more stable and representative performance metrics.",
+      "Efficiency-Based Reward: Normalizing the reward by elapsed_ticks ensures that the solver prioritizes 'cheap' conflicts. This aligns with the goal of maximizing the conflict rate per unit of computational effort, which is a strong proxy for search progress in CDCL solvers."
+    ],
+    "weaknesses": [
+      "Static Fatigue Rate: The 0.95 decay factor is independent of the problem's hardness or the solver's current state. On very large instances, this may force a heuristic switch too early, disrupting the internal state (like VSIDS scores or phase saving) before the heuristic has had time to 'warm up'.",
+      "Stale Inactive Q-values: The selection score for the inactive mode (S_other = Q_current) uses a potentially very old reward. If the search space has shifted significantly, the old Q-value may no longer be relevant, leading to sub-optimal switching decisions.",
+      "High Sensitivity to Tick Variance: Kissat's 'ticks' can be highly volatile depending on clause length and cache locality. Because ticks are in the denominator of the reward R, small fluctuations in memory performance can cause large swings in the Q-value, potentially triggering unnecessary heuristic switches.",
+      "Lack of Exploration Bonus: While the fatigue mechanism forces switching, the algorithm lacks a formal exploration term (like UCB1's sqrt(ln N / n)). It relies entirely on the decay of the winner rather than the potential 'uncertainty' or 'potential' of the loser."
+    ],
+    "key_mechanisms": [
+      "Proportional-Derivative (PD) Reward Update: The formula Q_new = 0.85 * Q_old + 0.15 * (R + 2.0 * T) functions as a low-pass filter on the reward while amplifying the first derivative (trend). This makes the solver sensitive to the *rate of change* in performance, not just the absolute performance.",
+      "Stateful Consecutive Tracking: The use of consecutive_count creates a temporal dependency in the MAB. It transforms the MAB from a stationary selection problem into a non-stationary one that explicitly penalizes persistence.",
+      "Conflict Density Metric: The core driver is the maximization of log-conflicts per tick. This forces the solver to prefer heuristics that generate contradictions quickly relative to the number of memory accesses and propagations performed."
+    ],
+    "improvement_suggestions": [
+      "Implement Adaptive Fatigue: Replace the constant 0.95 with a value scaled by the current conflict rate or glue (LBD) levels. If the solver is finding high-quality (low LBD) clauses, the fatigue should decrease to allow the current heuristic to continue its trajectory.",
+      "Add a 'Cool-down' Period: Introduce a minimum consecutive_count (e.g., 5) before the fatigue factor begins to apply. This would ensure that a heuristic has a fair window to stabilize its internal data structures (like the variable activity scores) before being evaluated for a switch.",
+      "Incorporate LBD into Reward: Modify the reward R to include the average LBD of conflicts found during the phase: R = (log2(conflicts + 1) / (ticks + 1)) * (1.0 / avg_lbd). This would bias the MAB toward heuristics that find 'useful' clauses, not just 'many' clauses.",
+      "Dynamic Trend Gain: Scale the trend gain (beta=2.0) based on the variance of the reward. If the rewards are highly noisy, reducing beta would prevent the solver from 'chasing noise' and making erratic switches."
+    ]
+  }
+}

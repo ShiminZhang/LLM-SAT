@@ -1,190 +1,96 @@
 [
   {
-    "algorithm_id": "bd4797f6c9eddaef42f8f04ad4a61e77139475de58a869633974686b2f9115d4",
-    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
-    "parent_b_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
-    "algorithm_json": "{\"name\": \"Adaptive Trend-Based Heuristic Selector\", \"algorithm\": \"Step 1: Maintain a circular buffer for the average LBD and conflict rate from the last N=10 restart phases to capture longer-term trends. Step 2: Calculate the linear regression slope 'S' of the LBD history and the normalized standard deviation 'V' of the conflict rate history. Step 3: Compute the raw reward R for the just-completed phase using log2(conflicts_generated + 1) / (elapsed_ticks + 1). Step 4: Calculate the performance trend T = R - R_prev, and update R_prev. Step 5: Update the Q-value for both modes using a weighted update rule: Q_new = (1 - alpha) * Q_old + alpha * (R + beta * T), with alpha dynamically adjusted based on performance variability (range: 0.1 to 0.3). Step 6: Calculate the Selection Score S for both modes. For the mode just completed, S = Q_new * (0.95 ^ consecutive_count), and for the inactive mode, S = Q_current. Step 7: Select the mode with the highest S. If the mode changes, reset consecutive_count to 0; otherwise, increment it. Step 8: If |S| <= 0.25 (stagnation), apply Adaptive Boltzmann Selection with temperature T = 0.1 + V to explore other heuristics.\", \"target_function\": \"restart_mab\"}",
-    "reason": "This offspring algorithm combines the strengths of both parents by leveraging adaptive thresholds for performance tracking and incorporating a wider variety of heuristics through a larger circular buffer. The dynamic learning rate and decay factor enhance exploration while preventing stagnation, addressing the weaknesses of both parents.",
+    "algorithm_id": "56a0452fe1d4f612e009f7fb458f53937631f2d1f3cd4c1bab82ab31ea4185bb",
+    "parent_a_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
+    "parent_b_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "algorithm_json": "{\"name\": \"LBD-Momentum Fatigue MAB\", \"algorithm\": \"Step 1: For the completed phase, compute the Phase Reward R = log2(conflicts + 1) / ((ticks + 1) * avg_LBD). This combines conflict throughput with clause quality. Step 2: Update the active mode's Quality (Q) and Volatility (V) using an Exponential Moving Average (alpha=0.2): Q_new = 0.8 * Q_old + 0.2 * R; V_new = 0.8 * V_old + 0.2 * |R - Q_new|. Step 3: Calculate the Normalized LBD Momentum M = (LBD_prev - avg_LBD_curr) / LBD_prev. Update LBD_prev = avg_LBD_curr. Step 4: Apply Momentum Gating. If M > 0.05 (LBD improving by >5%) and conflicts_in_phase > 512, stay in the current mode. If M < -0.10 (LBD worsening by >10%) and conflicts_in_phase > 512, switch to the other mode. Step 5: If no gating applies, calculate the Selection Score S = (Q * (0.98 ^ consecutive_count)) / (1.0 + V). Select the mode with the highest S. If the mode changes, reset consecutive_count to 0; otherwise, increment it.\", \"target_function\": \"restart_mab\"}",
+    "reason": "The LBD-Momentum Fatigue MAB improves on its parents by integrating LBD-based quality metrics directly into the reward function and decision logic. It addresses Parent A's 'Quality-Blind' weakness by using LBD as a divisor in the reward, and it fixes Parent B's 'Counter-Intuitive Reward' by favoring high conflict throughput and low LBDs. By replacing Parent B's small-window linear regression with a scale-invariant Normalized Momentum (M) and EMA-based Volatility (V), the algorithm becomes robust against noise and varying problem scales. The inclusion of a 512-conflict 'warm-up' period prevents the high-frequency 'chatter' identified in Parent A, while the modified fatigue factor (0.98) and volatility-weighted score ensure exploration occurs only when search progress stagnates or becomes erratic.",
     "parent_a_strengths_used": [
-      "Adaptive Boltzmann Selection with temperature 'T'",
-      "Circular buffer for LBD and conflict rate history",
-      "Momentum Override based on slope 'S'"
+      "Trend-Sensitive Adaptation",
+      "Deterministic Efficiency",
+      "Anti-Stagnation via Fatigue",
+      "Logarithmic Conflict Dampening"
     ],
     "parent_b_strengths_used": [
-      "Use of logarithmic scaling for reward calculation",
-      "Incorporation of performance trend",
-      "Weighted Q-value update with learning rate and trend gain"
+      "Momentum-Based Hysteresis",
+      "Volatility-Scaled Exploration",
+      "LBD as a Progress Proxy"
     ],
     "target_function": "restart_mab"
   },
   {
-    "algorithm_id": "bce2c54be938b5dca2fec3e1fbcc51e7cea9ecb86a05295a38cf90684079fa9f",
+    "algorithm_id": "c0532a9648ba38e046848c0e6238d45c188e006f437ceb6f95fcd9a2dc79e717",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "2b5ccc78ef02cdbac48c52609719d86ab61d796bdd15e1795cbf22f083e1248e",
+    "algorithm_json": "{\"name\": \"Scale-Invariant Momentum EMA Bandit\", \"algorithm\": \"Step 1: Calculate the phase reward $R = (\\\\log_2(1 + \\\\text{conflicts}) / \\\\text{avg\\\\_LBD})$. Apply a Global Progress Weight $W$: if the solver improved the global `best_lbd` or `best_assigned_trail` during this phase, $R \\\\leftarrow R \\\\cdot 1.5$, otherwise $R \\\\leftarrow R \\\\cdot 0.8$.\\nStep 2: Update the current mode's Quality $Q_m$ and the global Mean LBD $\\\\mu_{LBD}$ using an Exponential Moving Average (EMA) with $\\\\alpha = 0.2$: $Q_m = (1-\\\\alpha)Q_m + \\\\alpha R$. Calculate the normalized volatility $V$ as the EMA of the absolute deviation of the conflict rate.\\nStep 3: Calculate the scale-invariant momentum $S_{norm} = (\\\\text{avg\\\\_LBD}_{current} - \\\\text{avg\\\\_LBD}_{previous}) / \\\\mu_{LBD}$. Increment a 'stagnation_counter' if no global records were broken.\\nStep 4: Decision Gating. If fewer than 3 phases have passed since the last switch (Cooldown), maintain the current mode. Else if $S_{norm} < -0.05$ (significant improvement), maintain the current mode. Else if $S_{norm} > 0.05$ and stagnation_counter > 5, force a switch.\\nStep 5: If $|S_{norm}| \\\\le 0.05$, use Adaptive Boltzmann Selection. Set Temperature $T = 0.1 + V$. Select mode $m$ with probability $P(m) = \\\\exp(Q_m / T) / \\\\sum \\\\exp(Q_k / T)$, using max-exponent subtraction for numerical stability. Reset stagnation_counter on mode switch.\", \"target_function\": \"restart_mab\"}",
+    "reason": "This offspring combines Parent A's sophisticated volatility-scaled exploration and momentum logic with Parent B's superior efficiency-based reward metric and global progress weighting. It specifically addresses Parent A's weaknesses by implementing scale-invariant slope normalization (S_norm), replacing small-window linear regression with robust EMA, and inverting the reward logic to favor high conflict throughput. It also introduces a 'Cooldown' period and 'Stagnation Counter' to prevent the high-frequency switching and 'empty conflict' optimization that likely led to Parent B's PAR2 instability.",
+    "parent_a_strengths_used": [
+      "Momentum-Based Hysteresis",
+      "Volatility-Scaled Exploration",
+      "Numerical Stability (Boltzmann max-exponent subtraction)",
+      "LBD as a Progress Proxy"
+    ],
+    "parent_b_strengths_used": [
+      "Phase Efficiency Metric (conflicts/LBD)",
+      "Global Progress Weighting (best_lbd/trail)",
+      "Fast-decay EMA for non-stationary tracking"
+    ],
+    "target_function": "restart_mab"
+  },
+  {
+    "algorithm_id": "14747fd180ef447582c5b32c571c56ed7dcdb36082f85aad7e0fdf12034f1494",
     "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
     "parent_b_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
-    "algorithm_json": "{\"name\": \"Adaptive Momentum Boltzmann MAB\", \"algorithm\": \"Step 1: Maintain a circular buffer of the average LBD and conflict rate from the last N=10 restarts to capture longer-term trends. Calculate the linear regression slope 'S' of the LBD history and the normalized standard deviation 'V' of the conflict rate history. Step 2: Compute the average Quality 'Q' for multiple modes (e.g., Stable, Focused, Alternative) as (accumulated_score / number_of_selections). Step 3: Apply Momentum Override with adaptive thresholds based on the median of recent slopes. If S < median(S) - 0.1 (performance improving), deterministically select the current mode. If S > median(S) + 0.1 (performance degrading), deterministically switch to a better-performing mode. Step 4: If |S| <= median(S) ± 0.1 (stagnation), apply Adaptive Boltzmann Selection. Set Temperature T = 0.1 + V. Select mode 'm' with probability P(m) = exp(Q_m / T) / Sum(exp(Q_k / T)). Step 5: Update the exponential moving average Score 'S' for each mode using adaptive weights based on recent variance. Step 6: Introduce periodic exploration phases where alternative heuristics are tested even during stable performance periods to ensure diverse strategies are considered.\", \"target_function\": \"restart_mab\"}",
-    "reason": "This offspring algorithm combines the adaptive momentum and exploratory strengths of both parents while addressing their weaknesses. By using a larger buffer for performance metrics and adaptive thresholds, it reduces the risk of premature switches and captures more meaningful performance trends. The introduction of multiple modes and periodic exploration enhances adaptability and prevents stagnation.",
+    "algorithm_json": "{\"name\": \"Dual-EMA Momentum Boltzmann Solver\", \"algorithm\": \"Step 1: At the end of each restart, calculate the interval performance metric P = (conflicts / decisions) * (1.0 / (average_LBD + 1.0)). This metric rewards high conflict density and low LBD simultaneously.\\nStep 2: For the active mode, update a fast EMA (E_fast, alpha=0.2), a slow EMA (E_slow, alpha=0.05), and a volatility measure V (EMA of |P - E_fast|, alpha=0.1). Maintain the E_fast of the inactive mode as a baseline.\\nStep 3: Compute the Relative Momentum M = (E_fast - E_slow) / (E_slow + 1e-6). This provides a scale-invariant measure of whether performance is accelerating or decelerating.\\nStep 4: Apply Trajectory Gating. If M > 0.05 (improving), deterministically stay in the current mode. If M < -0.05 (degrading) AND E_fast < (E_other * 0.95), switch to the other mode with probability prob = min(1.0, |M| * 2.5).\\nStep 5: If |M| <= 0.05 (stagnant), apply Volatility-Scaled Boltzmann Selection. Set Temperature T = 0.1 + (V / (E_fast + 1e-6)). Select mode 'm' with probability P(m) = exp(E_fast_m / T) / Sum(exp(E_fast_k / T)).\", \"target_function\": \"restart_mab\"}",
+    "reason": "This algorithm creates a robust hybrid by replacing Parent A's noisy N=5 regression with a more stable dual-EMA momentum (M) and fixing its flawed reward function to prioritize high-quality conflict generation. It incorporates Parent B's trajectory-based logic but adds a 'Relative Performance Guard' to prevent abandoning high-performing modes during minor dips. The use of scale-invariant momentum (relative difference) ensures consistent behavior across different problem instances, while the volatility-scaled Boltzmann selection allows for intelligent exploration when the search trajectory is flat or noisy.",
     "parent_a_strengths_used": [
-      "Momentum Override based on slope 'S'",
-      "Adaptive Boltzmann Selection with temperature 'T'",
-      "Circular buffer for LBD and conflict rate history"
+      "Momentum-Based Hysteresis",
+      "Volatility-Scaled Exploration",
+      "LBD as a Progress Proxy"
     ],
     "parent_b_strengths_used": [
-      "Dynamic performance metric calculation",
-      "Exponential Moving Average (EMA) for score updates",
-      "Probabilistic decision-making for mode switching"
+      "Trajectory-Based Selection",
+      "High alpha EMA for responsiveness",
+      "Stochastic Escape mechanism"
     ],
     "target_function": "restart_mab"
   },
   {
-    "algorithm_id": "dd203b72116e997d3c64fdc453c6b92a7e70f18ab21bc6e147aaaf51943f7f45",
-    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
-    "parent_b_id": "92500611f8373de03bf570a7dacfc41fcd7dc11fe68251a1e11db160d0902602",
-    "algorithm_json": "{\"name\": \"Adaptive Momentum Boltzmann Switching\", \"algorithm\": \"Step 1: Maintain a circular buffer of the average LBD and conflict rate from the last N=10 restart phases to capture longer-term trends. \\nStep 2: Compute the Fast and Slow EMAs for the average LBD and conflict rate, using dynamically adjustable alpha values based on problem characteristics (e.g., alpha_fast = 0.15, alpha_slow = 0.05). \\nStep 3: Calculate the linear regression slope 'S' of the LBD history and the momentum for both modes defined as M = Fast_EMA - Slow_EMA. \\nStep 4: Compute the average Quality 'Q' for both modes and apply the Adaptive Boltzmann Selection: Set Temperature T = 0.1 + V, where V is the normalized standard deviation of the conflict rate. Select mode 'm' with probability P(m) = exp(Q_m / T) / Sum(exp(Q_k / T)). \\nStep 5: Apply a stop-loss mechanism: if M < 0 and the current mode has been active for more than 5 consecutive intervals without improvement, force a switch. \\nStep 6: Implement adaptive thresholds for slope 'S', where thresholds are adjusted based on the recent performance trends (e.g., using a factor of the standard deviation of the last N=10 LBD values). \\nStep 7: Incorporate a decay mechanism for consecutive active counters, allowing them to gradually decrease over time instead of resetting on heuristic switch.\", \"target_function\": \"restart_mab\"}",
-    "reason": "This offspring algorithm combines the momentum-driven performance tracking from Parent B with the adaptive Boltzmann selection and circular buffer from Parent A. By using dynamic thresholds and longer history tracking, it enhances adaptability while avoiding the rigidity and premature switching of both parents. The incorporation of decay for active counters and alternative EMAs makes it robust across varied SAT instances.",
-    "parent_a_strengths_used": [
-      "Momentum Override based on slope 'S'",
-      "Adaptive Boltzmann Selection with temperature 'T'",
-      "Circular buffer for LBD and conflict rate history"
-    ],
-    "parent_b_strengths_used": [
-      "Use of Exponential Moving Averages (EMAs) for performance tracking",
-      "Momentum calculation (M = Fast_EMA - Slow_EMA)",
-      "Projected Score (P = Fast_EMA + (1.5 * M))"
-    ],
-    "target_function": "restart_mab"
-  },
-  {
-    "algorithm_id": "4480d1978c9ee7dc5c087564a896c9409f5838466a9687d60de8d2cdcc92db1c",
-    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
-    "parent_b_id": "8c9f2bdd1d7bcf473785e1225b1c6066ce49551618660c3ab5087e8c5d64db25",
-    "algorithm_json": "{\"name\": \"Adaptive Momentum Stagnation Selector\", \"algorithm\": \"Step 1: Maintain a circular buffer of the average LBD and conflict rate from the last N=10 restart phases to better capture variability in performance trends.\\nStep 2: Calculate the reward R for the just-completed restart interval as R = (conflicts / max(1, sum_of_LBDs)). Higher R indicates better search quality.\\nStep 3: Update two persistent exponential moving averages: Fast_EMA (alpha=0.3) and Slow_EMA (alpha=0.1) using R to adaptively track performance with a more responsive slow EMA.\\nStep 4: For the current mode, calculate the slope 'S' of the LBD history. If S < -0.15, select the current mode; if S > 0.15, switch to the alternative mode. If |S| <= 0.15, proceed to the next step.\\nStep 5: Update a global Stagnation_Counter: increment it if zero new glue clauses (LBD <= 2) were learned during this interval; otherwise, reset it to 0. If Stagnation_Counter > 4, apply a penalty: P = P * 0.7 for the currently active mode.\\nStep 6: Calculate Priority P for each available mode: P = Slow_EMA + 1.5 * (Fast_EMA - Slow_EMA). This incorporates momentum-based rewards and penalizes modes that are stagnating.\\nStep 7: Select the next restart mode corresponding to the highest Priority P.\", \"target_function\": \"restart_mab\"}",
-    "reason": "This algorithm combines the momentum-driven approach of both parents while introducing flexibility with adaptive thresholds and a more comprehensive history size. It addresses the rigidity of fixed thresholds and limited heuristics, allowing for better performance across diverse SAT instances.",
-    "parent_a_strengths_used": [
-      "Momentum Override based on slope 'S'",
-      "Adaptive Boltzmann Selection with temperature 'T'",
-      "Circular buffer for LBD and conflict rate history"
-    ],
-    "parent_b_strengths_used": [
-      "Use of Exponential Moving Averages (EMAs) for reward tracking",
-      "Reward calculation based on conflicts and LBDs",
-      "Stagnation counter to track learning progress",
-      "Momentum-based priority calculation"
-    ],
-    "target_function": "restart_mab"
-  },
-  {
-    "algorithm_id": "cf71ca944de9d8820b847d479b40b601604e0b3d887705f41ff13660077c8892",
-    "parent_a_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
-    "parent_b_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
-    "algorithm_json": "{\"name\": \"Adaptive Performance Trend MAB\", \"algorithm\": \"Step 1: Compute the raw reward R for the just-completed phase as log2(conflicts_generated + 1) / (elapsed_ticks + 1). Step 2: Update the exponential moving average Score 'S' for the active mode using a dynamic weight: S_new = (1 - dynamic_alpha) * S_old + dynamic_alpha * R, where dynamic_alpha is adjusted based on recent performance variance. Step 3: Calculate the performance trend T = R - R_prev, and update R_prev to R. Step 4: Calculate the discrete derivative 'Delta' of the score: Delta = S_new - S_old. Step 5: Execute Mode Selection based on trajectory: If Delta > 0, retain the current mode; if Delta < 0, switch mode with probability prob = min(1.0, abs(Delta) * 5.0). Step 6: Introduce a periodic exploration phase where the algorithm tests an alternative heuristic with a defined probability (e.g., 10%) during stable performance (when |Delta| < 0.01).\", \"target_function\": \"restart_mab\"}",
-    "reason": "This combination retains the effective logarithmic reward calculation and performance trend tracking from Parent A while adopting the dynamic performance metric and probabilistic mode switching strategies from Parent B. The use of adaptive weights for EMA updates enhances responsiveness to performance changes, while the exploration phase prevents stagnation in mode selection. This results in a more robust algorithm capable of responding to varying problem landscapes.",
-    "parent_a_strengths_used": [
-      "Use of logarithmic scaling for reward calculation",
-      "Incorporation of performance trend tracking",
-      "Weighted Q-value update with a blend of historical and new rewards",
-      "Encouragement of exploration through dynamic mode selection"
-    ],
-    "parent_b_strengths_used": [
-      "Dynamic performance metric calculation based on LBD and trail levels",
-      "Exponential Moving Average for score updates with adaptive weights",
-      "Mode selection based on performance trajectory",
-      "Probabilistic decision-making for mode switching"
-    ],
-    "target_function": "restart_mab"
-  },
-  {
-    "algorithm_id": "b63c736cde3ca0a1a3ad3f4911c3bcd50e9fd0804d7721e0b6ca22f65ab35ff0",
-    "parent_a_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
-    "parent_b_id": "92500611f8373de03bf570a7dacfc41fcd7dc11fe68251a1e11db160d0902602",
-    "algorithm_json": "{\"name\": \"Dynamic Momentum-Enhanced Mode Selector\", \"algorithm\": \"Step 1: Maintain two separate exponential moving averages (EMAs) for each search mode (Stable and Focused): a 'Fast' EMA with a dynamic alpha adjusted based on recent performance variability and a 'Slow' EMA with a fixed alpha of 0.05. \\nStep 2: At the end of a phase, calculate the raw yield 'Y' using log2(conflicts per second + 1) to normalize performance metrics. Update both Fast and Slow EMAs for the mode that just finished using Y. \\nStep 3: Calculate 'Momentum' for both modes, defined as M = Fast_EMA - Slow_EMA. This quantifies the rate of change in performance. \\nStep 4: Compute a 'Projected Score' for each mode: P = Fast_EMA + (1.5 * M). This score boosts modes with rising performance and penalizes those with negative momentum. \\nStep 5: Select the mode with the highest P. If the current mode has negative Momentum (M < 0) and has been active for more than 3 consecutive intervals, switch to the mode with the highest score. \\nStep 6: Implement a decay mechanism for the consecutive active counter. Instead of resetting on mode switch, decrease the count gradually by 1 for each interval after a mode is chosen, allowing for continuity in performance assessment. \\nStep 7: Introduce a performance metric assessment threshold that triggers an exploration of alternative modes if the consecutive count exceeds 5 intervals without improvement in yield.\", \"target_function\": \"restart_mab\"}",
-    "reason": "This offspring algorithm combines the strengths of both parents by using dynamic EMAs for better adaptability and incorporating logarithmic scaling for yield calculation. It avoids weaknesses such as static learning rates and limited mode selection by introducing a mechanism for dynamic adaptation and a broader exploration strategy. The decay mechanism for the consecutive count ensures that the solver maintains continuity while allowing for timely exploration of alternatives, thus improving overall performance stability.",
-    "parent_a_strengths_used": [
-      "Logarithmic scaling for reward calculation",
-      "Incorporation of performance trend",
-      "Decay factor in selection score"
-    ],
-    "parent_b_strengths_used": [
-      "Use of Exponential Moving Averages (EMAs)",
-      "Momentum calculation",
-      "Projected Score for adaptive heuristic selection"
-    ],
-    "target_function": "restart_mab"
-  },
-  {
-    "algorithm_id": "af0c2f13c9e517db176590834bbb73096603fd17126b558bf5c8343be7ac19cf",
-    "parent_a_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
-    "parent_b_id": "8c9f2bdd1d7bcf473785e1225b1c6066ce49551618660c3ab5087e8c5d64db25",
-    "algorithm_json": "{\"name\": \"Adaptive Momentum-Enhanced Restart MAB\", \"algorithm\": \"Step 1: Calculate the reward R for the current restart interval as R = log2(conflicts_generated + 1) / (elapsed_ticks + 1) + (conflicts / max(1, sum_of_LBDs)). Step 2: Update two exponential moving averages: Fast_EMA (alpha=0.3) and Slow_EMA (alpha=0.05) using the new reward R. Step 3: Maintain a Stagnation_Counter, incrementing it if zero new glue clauses (LBD <= 2) were learned during this interval; reset it to 0 otherwise. Step 4: Calculate Priority P for each available mode using P = Slow_EMA + 1.5 * (Fast_EMA - Slow_EMA). Step 5: If Stagnation_Counter exceeds a dynamic threshold based on problem characteristics (initially set to 6), apply a penalty to the priority of the currently active mode: P = P * 0.5. Step 6: Select the mode corresponding to the highest Priority P. Step 7: Adjust the learning rate dynamically based on performance variability, allowing for a more responsive Q-value update: Q_new = (1 - alpha) * Q_old + alpha * (R + 2.0 * (R - R_prev)). Step 8: Reset the consecutive_count based on a combination of performance metrics and mode changes to encourage timely exploration of alternatives.\", \"target_function\": \"restart_mab\"}",
-    "reason": "This offspring algorithm combines logarithmic reward scaling and LBD-based evaluation, providing a balanced assessment of performance. It introduces dynamic thresholds and learning rates to enhance adaptability while expanding mode selection beyond two, preventing stagnation and ensuring a broader exploration of strategies.",
-    "parent_a_strengths_used": [
-      "Use of logarithmic scaling for reward calculation",
-      "Incorporation of performance trend",
-      "Weighted Q-value update with learning rate and trend gain",
-      "Decay factor in selection score"
-    ],
-    "parent_b_strengths_used": [
-      "Use of Exponential Moving Averages (EMAs) for reward tracking",
-      "Reward calculation based on conflicts and LBDs",
-      "Stagnation counter to track learning progress",
-      "Momentum-based priority calculation"
-    ],
-    "target_function": "restart_mab"
-  },
-  {
-    "algorithm_id": "1826a215026fdce35dc3c3d757041ac52743d4a83098482636b1c5421dfcbf2a",
-    "parent_a_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
-    "parent_b_id": "92500611f8373de03bf570a7dacfc41fcd7dc11fe68251a1e11db160d0902602",
-    "algorithm_json": "{\"name\": \"Adaptive Momentum Heuristic Switch\", \"algorithm\": \"Step 1: Maintain two dynamic exponential moving averages (EMAs) for each search mode (Stable and Focused): a 'Fast' EMA (alpha dynamically adjusted based on recent performance variance) and a 'Slow' EMA (alpha also dynamically adjusted similarly). \\nStep 2: At the end of a phase, calculate the raw yield 'Y' as the number of conflicts per second. Update both Fast and Slow EMAs based on the mode that just finished using Y. \\nStep 3: Calculate the 'Momentum' for both modes, defined as M = Fast_EMA - Slow_EMA. \\nStep 4: Compute a 'Projected Score' for each mode: P = Fast_EMA + (1.5 * M). This scoring system encourages exploration of modes with rising performance and discourages prolonged usage of declining modes. \\nStep 5: Select the mode with the highest P. If the current mode has negative Momentum (M < 0) and has been active for more than 3 consecutive intervals, force a switch to the other mode. \\nStep 6: Implement a periodic exploration phase that tests an alternative heuristic every 10 intervals, even if the current mode is performing stably to ensure thorough exploration of potential heuristics.\", \"target_function\": \"restart_mab\"}",
-    "reason": "This offspring combines the dynamic EMA approach from both parents while introducing adaptive alpha values to enhance responsiveness. The periodic exploration phase addresses the deterministic mode retention issue, ensuring that the algorithm can discover better heuristics even during stable periods. Overall, it aims for a more balanced exploration and exploitation strategy.",
-    "parent_a_strengths_used": [
-      "Use of raw performance metric 'P' based on average LBD and trail level",
-      "Exponential Moving Average (EMA) for score updates",
-      "Mode selection based on the discrete derivative 'Delta'",
-      "Probabilistic mode switching based on performance degradation"
-    ],
-    "parent_b_strengths_used": [
-      "Use of Exponential Moving Averages (EMAs) for performance tracking",
-      "Momentum calculation (M = Fast_EMA - Slow_EMA)",
-      "Projected Score (P = Fast_EMA + (1.5 * M))",
-      "Stop-loss mechanism (switching heuristics on negative momentum after 3 intervals)"
-    ],
-    "target_function": "restart_mab"
-  },
-  {
-    "algorithm_id": "d3cdad305563b5c8eceb1b0a2bb7aa83ff358c845dbb5ff3846efad1446229d8",
-    "parent_a_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
-    "parent_b_id": "8c9f2bdd1d7bcf473785e1225b1c6066ce49551618660c3ab5087e8c5d64db25",
-    "algorithm_json": "{\"name\": \"Adaptive Momentum-Driven Crossover\", \"algorithm\": \"Step 1: Calculate the raw performance metric 'P' as P = 10000 / (average_LBD * sqrt(average_trail_level) + 1) and reward R as R = (conflicts / max(1, sum_of_LBDs)). \\nStep 2: Update two persistent exponential moving averages: Fast_EMA (alpha=0.3) and Slow_EMA (alpha=0.05) using R, and an adaptive EMA for the raw performance metric P with weights that adjust based on recent variance. \\nStep 3: Track a global Stagnation_Counter, incrementing it if zero new glue clauses (LBD <= 2) were learned during this interval; otherwise, reset it to 0. \\nStep 4: Calculate Priority P for each available mode: P = Slow_EMA + 1.5 * (Fast_EMA - Slow_EMA) + 0.5 * P (to incorporate raw performance). \\nStep 5: If Stagnation_Counter exceeds a dynamic threshold (calculated based on historical performance metrics), apply a penalty: P = P * 0.5 for the currently active mode. \\nStep 6: Select the next restart mode corresponding to the highest Priority P, with an exploration phase every 5 intervals where alternative heuristics are tested regardless of performance stability.\", \"target_function\": \"restart_mab\"}",
-    "reason": "This algorithm combines the dynamic performance tracking and adaptive mode selection from Parent A with the momentum-based reward calculation and stagnation tracking from Parent B. It avoids the weaknesses of both parents by using adaptive weights for EMA updates, dynamic thresholds for stagnation penalties, and incorporates a broader exploration strategy to ensure a comprehensive search of heuristics.",
-    "parent_a_strengths_used": [
-      "Dynamic performance metric calculation prioritizing low LBD conflicts",
-      "Exponential Moving Average (EMA) for score updates with high responsiveness",
-      "Probabilistic decision-making for mode switching based on performance degradation"
-    ],
-    "parent_b_strengths_used": [
-      "Adaptive tracking of performance through dual EMAs",
-      "Reward calculation based on search quality (conflicts to LBD ratio)",
-      "Stagnation tracking to encourage exploration of effective modes"
-    ],
-    "target_function": "restart_mab"
-  },
-  {
-    "algorithm_id": "eaed5c50dfde4d7e250b4a8487173af9a3fdf65b74a7ad1a4f3a1698addfe160",
+    "algorithm_id": "edfacce36d79fb599149746046917e09babcebb78e227d94734f00dd7a368dfd",
     "parent_a_id": "92500611f8373de03bf570a7dacfc41fcd7dc11fe68251a1e11db160d0902602",
-    "parent_b_id": "8c9f2bdd1d7bcf473785e1225b1c6066ce49551618660c3ab5087e8c5d64db25",
-    "algorithm_json": "{\"name\": \"Dynamic Momentum Adaptive Solver\", \"algorithm\": \"Step 1: Maintain two separate exponential moving averages (EMAs) for each search mode (Stable and Focused): a 'Fast' EMA (dynamic alpha based on problem characteristics) and a 'Slow' EMA (dynamic alpha based on problem characteristics). \\nStep 2: At the end of each phase, calculate the raw yield 'Y' as the ratio of conflicts to the sum of learned clause LBDs. Update both Fast and Slow EMAs using Y. \\nStep 3: Calculate 'Momentum' for both modes, defined as M = Fast_EMA - Slow_EMA. This captures the performance trend. \\nStep 4: Compute a 'Projected Score' for each mode: P = Fast_EMA + (1.5 * M). This encourages exploration of improving heuristics. \\nStep 5: Track a Stagnation_Counter: increment it if zero new glue clauses (LBD <= 2) were learned during the interval; otherwise, reset it to 0. \\nStep 6: If Stagnation_Counter exceeds a dynamic threshold (based on historical performance), apply a penalty: P = P * 0.5 for the currently active mode. \\nStep 7: Select the mode with the highest Projected Score P to execute next. \\nStep 8: Initialize EMAs based on a small sample of initial performance metrics to ensure realistic starting points.\", \"target_function\": \"restart_mab\"}",
-    "reason": "This algorithm improves upon both parents by integrating dynamic alpha values for EMAs, allowing for better responsiveness across problem instances. It combines effective performance tracking from both parents while avoiding fixed thresholds that could hinder exploration. Additionally, it facilitates broader heuristic exploration by allowing for more modes, thus enhancing adaptability and overall performance.",
+    "parent_b_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "algorithm_json": "{\"name\": \"Volatility-Adaptive MACD Boltzmann Switcher\", \"algorithm\": \"Step 1: For the active mode, calculate Yield Y = (conflicts / solver->ticks) / (1.0 + average_LBD). This rewards high conflict density and low LBD scores simultaneously. \\nStep 2: Update the active mode's Fast EMA (alpha=0.20) and Slow EMA (alpha=0.05) using Y. Calculate Momentum M = Fast_EMA - Slow_EMA and Volatility V = EMA(|Y - Fast_EMA|, alpha=0.10). \\nStep 3: For the inactive mode, apply a 'Stale Data' correction: multiply its EMAs by 0.95 (decay) and increment its 'inactivity_age' counter. \\nStep 4: Compute the Projected Score for both modes: P = Fast_EMA + (k * M), where k = 1.5 / (1.0 + V). For the inactive mode, add an exploration bonus: P_final = P + sqrt(inactivity_age / total_intervals). \\nStep 5: Apply Three-State Gating logic: \\n- If active mode M > (0.05 * Slow_EMA) [Improving]: Deterministically stay in the current mode. \\n- If active mode M < -0.10 [Degrading] and active_intervals > 5: Deterministically switch to the other mode (Stop-Loss). \\n- Else [Stagnant]: Perform Boltzmann Selection between modes using P_final values with Temperature T = 0.1 + V. Reset 'inactivity_age' for the selected mode.\", \"target_function\": \"restart_mab\"}",
+    "reason": "This algorithm merges Parent A's anticipatory MACD logic with Parent B's volatility-scaled exploration. It fixes Parent B's reward function by correctly incorporating LBD as a quality divisor and replaces the noisy circular buffer with stable EMAs. It addresses Parent A's stale data bias and lack of exploration by introducing an inactivity decay and a UCB-inspired exploration bonus in the Boltzmann calculation. The dynamic momentum multiplier (k) ensures the solver is less sensitive to noise in chaotic search spaces.",
     "parent_a_strengths_used": [
-      "Use of Exponential Moving Averages (EMAs) for performance tracking",
-      "Momentum calculation (M = Fast_EMA - Slow_EMA)",
-      "Projected Score (P = Fast_EMA + (1.5 * M))",
-      "Stop-loss mechanism (switching heuristics on negative momentum after 5 intervals)"
+      "Anticipatory Switching",
+      "Noise Filtering via Dual EMAs",
+      "Deterministic Work Metric",
+      "Stop-Loss Mechanism"
     ],
     "parent_b_strengths_used": [
-      "Use of Exponential Moving Averages (EMAs) for reward tracking",
-      "Reward calculation based on conflicts and LBDs",
-      "Stagnation counter to track learning progress",
-      "Momentum-based priority calculation"
+      "Volatility-Scaled Exploration",
+      "LBD as a Progress Proxy",
+      "Deterministic vs. Probabilistic Gating"
+    ],
+    "target_function": "restart_mab"
+  },
+  {
+    "algorithm_id": "3f881cf37be568e49a63b9fc9fefa76e2e1530097d6e9dc0dbc5fbf32fec644a",
+    "parent_a_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
+    "parent_b_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
+    "algorithm_json": "{\"name\": \"Dual-EMA Momentum Fatigue MAB\", \"algorithm\": \"Step 1: Compute the raw reward R for the completed restart phase as: R = [log2(conflicts_generated + 1) * 10000] / [(elapsed_ticks + 1) * (avg_LBD * sqrt(avg_trail_level + 1) + 1)]. This metric balances conflict throughput, clause quality, and search depth. Step 2: Update dual Exponential Moving Averages (EMA) for the active mode. If it is the first time this mode is run, initialize S_fast = S_slow = R. Otherwise, update S_fast = 0.8 * S_fast + 0.2 * R and S_slow = 0.95 * S_slow + 0.05 * R. Step 3: Calculate the Performance Trend T = S_fast - S_slow. Step 4: Calculate the Fatigue-Adjusted Score S_adj = S_fast * (0.998 ^ consecutive_count), where consecutive_count tracks the repetitions of the current mode. Step 5: Execute mode selection. Switch to the inactive mode if: (a) S_adj < S_other_slow (where S_other_slow is the S_slow of the inactive mode) AND T <= 0, OR (b) T < -0.1 * S_slow (significant decay) and a random float [0,1] < min(0.6, abs(T) / (S_slow + 1e-9) * 4.0). Step 6: If the mode changes, reset consecutive_count to 0; otherwise, increment it.\", \"target_function\": \"restart_mab\"}",
+    "reason": "This offspring combines Parent A's deterministic tick-based throughput and fatigue-based exploration with Parent B's quality-depth metric and derivative-driven momentum. It improves on Parent A by adding clause quality (LBD) to the reward and using a dual-EMA to smooth the aggressive derivative gain. It improves on Parent B by adding a 'Relative Performance Guard' (comparing against the other mode's slow EMA) and a fatigue factor to prevent the solver from getting stuck in a mode that is only 'locally' improving but globally sub-optimal. The use of log2 and a 10000x multiplier ensures the reward signal remains robust across different problem scales.",
+    "parent_a_strengths_used": [
+      "Trend-Sensitive Adaptation",
+      "Deterministic Efficiency",
+      "Anti-Stagnation via Fatigue",
+      "Logarithmic Conflict Dampening"
+    ],
+    "parent_b_strengths_used": [
+      "Quality-Depth Tradeoff",
+      "Momentum effect",
+      "Stochastic Escape",
+      "High alpha responsiveness"
     ],
     "target_function": "restart_mab"
   }

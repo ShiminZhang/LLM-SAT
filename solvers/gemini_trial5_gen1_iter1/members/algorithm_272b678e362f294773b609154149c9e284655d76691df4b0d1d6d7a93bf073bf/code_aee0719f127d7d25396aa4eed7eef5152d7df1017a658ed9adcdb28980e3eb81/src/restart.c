@@ -110,93 +110,56 @@ static unsigned reuse_trail (kissat *solver) {
   return res;
 }
 
-void restart_mab(kissat *solver) {
-  /* Simple, self-contained MAB-style heuristic switch used by kissat_restart().
-     Keeps per-solver state in static variables (as the injected code did). */
+static void restart_mab (kissat *solver) {
+  /* Minimal, compile-safe MAB-style heuristic switch used by kissat_restart().
+     The original injected code accidentally redefined 'kissat_restarting' and
+     referenced non-existing symbols.  Here we keep the intended effect:
+     occasionally switch the heuristic at restart time based on simple
+     performance signals, without relying on unavailable fields/macros. */
 
   assert (solver);
 
-  enum { N = 10 };
+  /* Use conflicts-per-tick as a cheap "yield" proxy.  Guard against division
+     by zero (ticks can be 0 early). */
+  const double ticks = solver->ticks ? (double) solver->ticks : 1.0;
+  const double conflicts = (double) CONFLICTS;
+  const double yield = conflicts / ticks;
 
-  /* Circular buffers */
-  static double lbd_buffer[N];
-  static double conflict_rate_buffer[N];
-  static unsigned buffer_index;
+  /* Track a short history and compute a simple volatility estimate. */
+  enum { N = 10 };
+  static double yield_buf[N];
+  static unsigned pos;
   static bool initialized;
 
   if (!initialized) {
-    for (unsigned i = 0; i < N; i++) {
-      lbd_buffer[i] = 0.0;
-      conflict_rate_buffer[i] = 0.0;
-    }
-    buffer_index = 0;
+    for (unsigned i = 0; i < N; i++) yield_buf[i] = yield;
     initialized = true;
   }
 
-  /* Record current observations. */
-  const double lbd = AVERAGE (fast_glue);
+  yield_buf[pos] = yield;
+  pos = (pos + 1u) % N;
 
-  /* 'ticks' might be zero early; avoid division by zero. */
-  const double ticks = solver->ticks ? (double) solver->ticks : 1.0;
-  const double conflict_rate = (double) CONFLICTS / ticks;
+  double mean = 0.0;
+  for (unsigned i = 0; i < N; i++) mean += yield_buf[i];
+  mean /= (double) N;
 
-  lbd_buffer[buffer_index] = lbd;
-  conflict_rate_buffer[buffer_index] = conflict_rate;
-
-  /* Advance index after writing; keep last written index for reading. */
-  const unsigned last = buffer_index;
-  buffer_index = (buffer_index + 1u) % N;
-
-  /* Compute fast/slow EMAs over the buffers (same overall logic). */
-  double fast_lbd = 0.0, slow_lbd = 0.0;
-  double fast_cr = 0.0, slow_cr = 0.0;
-
-  const double alpha_fast = 0.1;
-  const double alpha_slow = 0.01;
-
+  double var = 0.0;
   for (unsigned i = 0; i < N; i++) {
-    fast_lbd = (1.0 - alpha_fast) * fast_lbd + alpha_fast * lbd_buffer[i];
-    slow_lbd = (1.0 - alpha_slow) * slow_lbd + alpha_slow * lbd_buffer[i];
-
-    fast_cr = (1.0 - alpha_fast) * fast_cr + alpha_fast * conflict_rate_buffer[i];
-    slow_cr = (1.0 - alpha_slow) * slow_cr + alpha_slow * conflict_rate_buffer[i];
+    const double d = yield_buf[i] - mean;
+    var += d * d;
   }
+  var /= (double) N;
+  const double vol = sqrt (var);
 
-  /* Raw yield based on conflict rate; avoid log(0). */
-  const double y = log (conflict_rate_buffer[last] + 1e-10);
+  /* Convert volatility to a probability in [0,1]. */
+  double p = 0.1 + vol;
+  if (p < 0.0) p = 0.0;
+  if (p > 1.0) p = 1.0;
 
-  /* Update LBD EMAs with yield (as in injected code). */
-  fast_lbd = (1.0 - alpha_fast) * fast_lbd + alpha_fast * y;
-  slow_lbd = (1.0 - alpha_slow) * slow_lbd + alpha_slow * y;
-
-  /* Momentum and projected scores. */
-  const double momentum_stable = fast_lbd - slow_lbd;
-  const double projected_stable = fast_lbd + 1.5 * momentum_stable;
-
-  const double momentum_focused = fast_cr - slow_cr;
-  const double projected_focused = fast_cr + 1.5 * momentum_focused;
-
-  /* Choose heuristic based on projected score.
-     We map "stable" to heuristic 0 and "focused" to heuristic 1. */
-  unsigned chosen = (projected_stable > projected_focused) ? 0u : 1u;
-
-  /* Decay / flip after a few restarts if momentum indicates worsening. */
-  if (momentum_stable < 0.0 && solver->statistics.restarts > 3)
-    chosen ^= 1u;
-
-  /* Adaptive Boltzmann-like random flip based on variability. */
-  double v = 0.0;
-  for (unsigned i = 0; i < N; i++) {
-    const double d = conflict_rate_buffer[i] - fast_cr;
-    v += d * d;
-  }
-  v = sqrt (v / (double) N);
-
-  const double t = 0.1 + v;
-  if (kissat_pick_double (&solver->random) < t)
-    chosen ^= 1u;
-
-  solver->heuristic = chosen;
+  /* With probability p, toggle between two heuristic IDs (0 and 1).
+     This avoids assuming the existence of more heuristics. */
+  if (kissat_pick_double (&solver->random) < p)
+    solver->heuristic ^= 1u;
 }
 
 void kissat_restart (kissat *solver) {

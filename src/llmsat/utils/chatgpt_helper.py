@@ -2,10 +2,50 @@ import os
 import time
 from pathlib import Path
 from typing import Optional
-from llmsat.llmsat import setup_logging, get_logger 
+from llmsat.llmsat import setup_logging, get_logger
 import logging
 setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
+
+
+def get_llm_response(
+    prompt: str,
+    system_message: Optional[str] = None,
+    model: Optional[str] = None,
+    temperature: float = 0.7,
+) -> str:
+    """
+    Unified LLM call that dispatches to Gemini or OpenAI based on the model name.
+
+    Model routing:
+      - Model names starting with "gemini" → Gemini API (requires GOOGLE_API_KEY)
+      - All other model names            → OpenAI API  (requires OPENAI_API_KEY)
+
+    Falls back to the GEMINI_MODEL / OPENAI_MODEL environment variable when
+    model is None, then to "gemini-2.5-pro-preview-05-06" / "gpt-4.1" respectively.
+    """
+    resolved_model = model or ""
+    if resolved_model.lower().startswith("gemini") or (
+        not resolved_model and os.environ.get("GEMINI_MODEL", "").lower().startswith("gemini")
+    ):
+        from llmsat.utils.gemini_helper import get_response_from_gemini
+        effective_model = resolved_model or os.environ.get("GEMINI_MODEL", "gemini-2.5-pro-preview-05-06")
+        logger.info(f"Routing LLM call to Gemini (model={effective_model})")
+        return get_response_from_gemini(
+            prompt=prompt,
+            system_message=system_message,
+            model=effective_model,
+            temperature=temperature,
+        )
+    else:
+        effective_model = resolved_model or os.environ.get("OPENAI_MODEL", "gpt-4.1")
+        logger.info(f"Routing LLM call to OpenAI (model={effective_model})")
+        return get_response_from_chatgpt(
+            prompt=prompt,
+            system_message=system_message,
+            model=effective_model,
+            temperature=temperature,
+        )
 
 def _get_openai_client():
     """

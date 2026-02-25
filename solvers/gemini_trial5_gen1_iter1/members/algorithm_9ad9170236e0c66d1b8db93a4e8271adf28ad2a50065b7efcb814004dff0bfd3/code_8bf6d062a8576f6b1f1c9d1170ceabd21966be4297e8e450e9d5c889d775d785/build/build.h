@@ -1,5 +1,5 @@
 #define VERSION "4.0.2"
-#define COMPILER "gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0 -W -Wall -O3 -DNDEBUG"
+#define COMPILER "gcc (SUSE Linux) 14.3.0 -W -Wall -O3 -DNDEBUG"
 #define ID "unknown"
-#define BUILD "Wed Feb 18 12:53:13 PST 2026 Linux cs-delta-g02 6.8.0-49-generic x86_64"
-#define DIR "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785/build"
+#define BUILD "Mon Feb 23 07:30:13 PM PST 2026 Linux login38 6.4.0-150600.23.73_15.0.14-cray_shasta_c x86_64"
+#define DIR "/pscratch/sd/j/jsong/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_9ad9170236e0c66d1b8db93a4e8271adf28ad2a50065b7efcb814004dff0bfd3/code_8bf6d062a8576f6b1f1c9d1170ceabd21966be4297e8e450e9d5c889d775d785/build"

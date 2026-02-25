@@ -34,11 +34,30 @@ def get_response_from_gemini(
     system_message: Optional[str] = None,
     model: Optional[str] = None,
     temperature: float = 0.7,
+    max_retries: int = 5,
+    initial_delay: float = 20.0,
+    backoff_factor: float = 2.0,
 ) -> str:
     """
-    Single-turn call to Gemini API.
-    Returns the text output.
+    Single-turn call to Gemini API with exponential-backoff retry.
+
+    Retryable errors (transient):
+      - 503 UNAVAILABLE  (high demand / service temporarily down)
+      - 429 RESOURCE_EXHAUSTED (rate limit / quota)
+      - 500 INTERNAL     (transient server error)
+
+    Non-retryable errors (bad request, auth, etc.) are re-raised immediately.
+
+    Args:
+        max_retries: Maximum number of retry attempts after the first failure.
+        initial_delay: Seconds to wait before the first retry.
+        backoff_factor: Multiplier applied to the delay after each retry.
     """
+    try:
+        from google.genai.errors import ServerError
+    except ImportError:
+        ServerError = Exception  # fallback: retry on any exception
+
     client = _get_gemini_client()
     chosen_model = model or os.environ.get("GEMINI_MODEL", "gemini-3-pro-preview")
 
@@ -46,25 +65,44 @@ def get_response_from_gemini(
     if system_message:
         config["system_instruction"] = system_message
 
-    response = client.models.generate_content(
-        model=chosen_model,
-        contents=prompt,
-        config=config,
-    )
+    RETRYABLE_CODES = {429, 500, 503}
+    delay = initial_delay
 
-    # Extract text from response
-    if hasattr(response, "text"):
-        return response.text
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.models.generate_content(
+                model=chosen_model,
+                contents=prompt,
+                config=config,
+            )
 
-    # Fallback: traverse candidates structure
-    if hasattr(response, "candidates") and response.candidates:
-        for candidate in response.candidates:
-            if hasattr(candidate, "content") and candidate.content:
-                for part in candidate.content.parts:
-                    if hasattr(part, "text") and part.text:
-                        return part.text
+            # Extract text from response
+            if hasattr(response, "text"):
+                return response.text
 
-    return str(response)
+            # Fallback: traverse candidates structure
+            if hasattr(response, "candidates") and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, "content") and candidate.content:
+                        for part in candidate.content.parts:
+                            if hasattr(part, "text") and part.text:
+                                return part.text
+
+            return str(response)
+
+        except ServerError as e:
+            status_code = getattr(e, "status_code", None)
+            if status_code not in RETRYABLE_CODES or attempt == max_retries:
+                logger.error(
+                    f"Gemini API error (code={status_code}, attempt={attempt + 1}): {e}"
+                )
+                raise
+            logger.warning(
+                f"Gemini API transient error (code={status_code}, attempt={attempt + 1}/{max_retries + 1}). "
+                f"Retrying in {delay:.0f}s... [{e}]"
+            )
+            time.sleep(delay)
+            delay *= backoff_factor
 
 
 def build_gemini_batch_request(

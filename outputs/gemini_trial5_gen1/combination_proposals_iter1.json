@@ -1,0 +1,57 @@
+[
+  {
+    "parent_a_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
+    "parent_b_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "score": 9.5,
+    "justification": "This combination pairs the best-performing algorithm (Index 3) with the highly efficient deterministic framework of Index 0. Index 3's primary weakness is its noisy linear regression (N=5) and counter-intuitive reward; Index 0 provides a robust tick-normalized throughput metric and a deterministic fatigue mechanism that prevents the stagnation Index 3 might suffer from due to its small window.",
+    "complementary_strengths": [
+      "Index 3's LBD-slope sensitivity provides the quality awareness missing in Index 0.",
+      "Index 0's fatigue penalty (0.95^count) acts as a safety valve for Index 3's Boltzmann exploration.",
+      "Index 0's tick-based normalization ensures the reward signal is hardware-independent and reflects true computational effort."
+    ]
+  },
+  {
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "2b5ccc78ef02cdbac48c52609719d86ab61d796bdd15e1795cbf22f083e1248e",
+    "score": 9.3,
+    "justification": "Index 6 introduces 'Global Progress Weights' (tracking best_lbd and trail), which is the perfect antidote to Index 3's 'empty conflict' weakness. By gating Index 3's Boltzmann selection with global breakthrough data, the hybrid can distinguish between productive search phases and those that merely generate high-volume, low-utility conflicts.",
+    "complementary_strengths": [
+      "Index 6's breakthrough-based weighting (W=1.5) provides a global progress signal that Index 3's local LBD slope lacks.",
+      "Index 3's Boltzmann selection provides a principled way to handle the uncertainty of the rewards updated by Index 6.",
+      "Index 6's stagnation override (10 intervals) provides a harder constraint than Index 3's probabilistic switching."
+    ]
+  },
+  {
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
+    "score": 9.1,
+    "justification": "Index 7 features a sophisticated reward metric that balances LBD with search depth (sqrt(trail)). This addresses a major flaw in Index 3 where the 'Stable' mode is often unfairly penalized for its naturally higher LBDs. Combining this depth-aware metric with Index 3's Boltzmann exploration creates a more balanced MAB.",
+    "complementary_strengths": [
+      "Index 7's sqrt(trail) term prevents the MAB from prematurely abandoning deep search trees in 'Stable' mode.",
+      "Index 3's volatility-scaled temperature (T = 0.1 + V) allows the solver to explore more when Index 7's derivative-based switching becomes too aggressive.",
+      "Index 7's probabilistic escape (min(1.0, abs(Delta) * 5.0)) complements Index 3's momentum-based deterministic overrides."
+    ]
+  },
+  {
+    "parent_a_id": "92500611f8373de03bf570a7dacfc41fcd7dc11fe68251a1e11db160d0902602",
+    "parent_b_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "score": 8.8,
+    "justification": "Index 1 uses a MACD (Fast/Slow EMA) approach which is a more robust way to calculate performance 'velocity' than Index 3's linear regression. By replacing Index 3's slope calculation with Index 1's momentum (M = Fast - Slow), the hybrid gains a more stable trend-following capability while retaining the superior Boltzmann selection logic.",
+    "complementary_strengths": [
+      "Index 1's dual-EMA structure filters out the high-frequency noise that plagues Index 3's N=5 regression buffer.",
+      "Index 3's Boltzmann selection provides the exploration mechanism that Index 1's purely exploitative 'highest P' logic lacks.",
+      "Index 1's 'stop-loss' mechanism (forced switch after 5 negative intervals) provides a robust fallback for Index 3's probabilistic model."
+    ]
+  },
+  {
+    "parent_a_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
+    "parent_b_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
+    "score": 8.6,
+    "justification": "This pair optimizes the 'Quantity vs. Quality' trade-off. Index 0 uses a PD-controller to maximize conflict throughput (quantity), while Index 7 uses a depth-aware metric to ensure those conflicts are high-quality. The hybrid would essentially function as a Proportional-Derivative controller for 'Efficient Depth'.",
+    "complementary_strengths": [
+      "Index 0's trend gain (beta=2.0) allows the solver to pivot rapidly when throughput drops.",
+      "Index 7's reward formula (10k / (LBD * sqrt(trail))) ensures the solver doesn't just chase 'easy' conflicts at low decision levels.",
+      "Index 0's consecutive_count mechanism prevents the 'chatter' or high-frequency switching that Index 7's aggressive derivative multiplier (5.0) might cause."
+    ]
+  }
+]

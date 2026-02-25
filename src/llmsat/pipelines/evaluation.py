@@ -40,8 +40,8 @@ logger = get_logger(__name__)
 
 DEFAULT_REGISTRY_PATH = "solvers/base/function_registry.yaml"
 
-# SLURM Configuration for Compute Canada
-SLURM_ACCOUNT = "def-vganesh"
+# SLURM Configuration for NERSC Perlmutter
+SLURM_ACCOUNT = "m4831"
 SLURM_TIMEOUT_SECONDS = 5000           # 83 min 20 sec per CNF
 SLURM_WALL_TIME = "01:30:00"           # 90 min (timeout + buffer)
 SLURM_MEMORY = "4G"
@@ -60,7 +60,7 @@ def _compute_average(values: List[float]) -> Optional[float]:
 
 def _get_activation_cmd() -> str:
     """Return shell command to activate Python environment."""
-    return "source ~/general/bin/activate"
+    return "module load conda; conda activate /pscratch/sd/j/jsong/conda_env/llmsat"
 
 
 @dataclass
@@ -719,10 +719,12 @@ exit $EXIT_CODE
             slurm_ids = self.slurm_run_evaluate(solver_path, SAT2025_BENCHMARK_PATH, result_dir, dry_run=dry_run)
 
             if not dry_run:
-                code_result.status = CodeStatus.Evaluating
-                update_code_result(code_result)
                 if slurm_ids:
+                    code_result.status = CodeStatus.Evaluating
+                    update_code_result(code_result)
                     self.slurm_collect_result(slurm_ids, code_id)
+                else:
+                    logger.warning(f"SLURM submission failed for {code_id[:16]}, status not updated")
 
             return (solver_path, result_dir, code_id)
         else:

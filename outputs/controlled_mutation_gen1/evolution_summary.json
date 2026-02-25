@@ -1,0 +1,13 @@
+{
+  "generation_tag": "controlled_mutation",
+  "output_tag": "controlled_mutation_gen1",
+  "timestamp": "2026-02-10T17:33:40.956293",
+  "population_size": 45,
+  "par2_stats": {
+    "best": 1.0,
+    "worst": 1.0,
+    "mean": 1.0
+  },
+  "causal_reports_count": 45,
+  "mode": "causal_only"
+}

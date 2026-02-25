@@ -110,12 +110,17 @@ static unsigned reuse_trail (kissat *solver) {
   return res;
 }
 
-void restart_mab(kissat *solver) {
-  /* Minimal stub to fix compilation:
-     - The file calls 'restart_mab(solver)' but no definition existed.
-     - Keep signature exactly as requested.
-     - Do not change solver state here (safe no-op). */
+void restart_mab(kissat *solver)
+{
+  /* Minimal, compile-safe implementation.
+     The injected code referenced this function but it did not exist, causing
+     an implicit declaration error.  We keep the signature as requested and
+     avoid touching solver internals that are not guaranteed here. */
+
   (void) solver;
+
+  /* If you later want to implement a real MAB-based heuristic switch, do it
+     here by updating 'solver->heuristic' based on your policy. */
 }
 
 void kissat_restart (kissat *solver) {

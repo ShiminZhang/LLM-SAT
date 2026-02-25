@@ -71,8 +71,9 @@ def atomic_append(file_path: str, content: str) -> None:
 def wrap_command_to_slurm_array(
     script_path: str,
     array_range: str,
-    mem: str = "8G",
-    time: str = "00:30:00",
+    account: str = "m4831",
+    mem: str = "4G",
+    time: str = "01:30:00",
     nodes: int = 1,
     ntasks: int = 1,
     cpus_per_task: int = 1,
@@ -80,25 +81,29 @@ def wrap_command_to_slurm_array(
     output_file: str = None,
     error_file: str = None,
     max_concurrent: int = None,
+    constraint: str = "cpu",
+    qos: str = "regular",
 ) -> str:
     """
     Create an sbatch command for a job array.
-    
     Args:
         script_path: Path to the bash script to run for each array task
         array_range: SLURM array range (e.g., "0-199" or "0-199%50" for max 50 concurrent)
+        account: NERSC account (required)
         max_concurrent: Maximum number of concurrent array tasks (optional)
+        constraint: Node architecture constraint (default: "cpu" for NERSC Perlmutter)
+        qos: SLURM QOS (default: "regular" for NERSC Perlmutter)
     """
     job_name_parameter = f"--job-name={job_name}" if job_name else ""
     output_parameter = f"--output={output_file}" if output_file else ""
     error_parameter = f"--error={error_file}" if error_file else ""
-    
     # Add max concurrent limit to array spec if provided
     array_spec = array_range
     if max_concurrent:
         array_spec = f"{array_range}%{max_concurrent}"
-    
     return f"sbatch \
+        --account={account} \
+        --qos={qos} \
         {job_name_parameter} \
         {output_parameter} \
         {error_parameter} \
@@ -107,6 +112,7 @@ def wrap_command_to_slurm_array(
         --nodes={nodes} \
         --ntasks={ntasks} \
         --cpus-per-task={cpus_per_task} \
+        --constraint={constraint} \
         --array={array_spec} \
         {script_path}"
 
@@ -122,6 +128,9 @@ def wrap_command_to_slurm(
     error_file: str=None,
     dependencies: list[str]=None,
     dependency_type: str="afterok",
+    account: str="m4831",
+    constraint: str="cpu",
+    qos: str="regular",
 ) -> str:
     dependencies_parameter = ""
     if dependencies is not None and len(dependencies) > 0:
@@ -136,6 +145,8 @@ def wrap_command_to_slurm(
     if error_file is not None:
         error_parameter = f"--error={error_file}"
     return f"sbatch \
+        --account={account} \
+        --qos={qos} \
         {job_name_parameter} \
         {output_parameter} \
         {error_parameter} \
@@ -144,6 +155,7 @@ def wrap_command_to_slurm(
         --nodes={nodes} \
         --ntasks={ntasks} \
         --cpus-per-task={cpus_per_task} \
+        --constraint={constraint} \
         {dependencies_parameter} \
         --wrap='{command}'"
 

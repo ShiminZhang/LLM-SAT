@@ -1,0 +1,5 @@
+#define VERSION "4.0.2"
+#define COMPILER "gcc (SUSE Linux) 14.3.0 -W -Wall -O3 -DNDEBUG"
+#define ID "unknown"
+#define BUILD "Mon Feb 23 07:30:55 PM PST 2026 Linux login38 6.4.0-150600.23.73_15.0.14-cray_shasta_c x86_64"
+#define DIR "/pscratch/sd/j/jsong/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_14747fd180ef447582c5b32c571c56ed7dcdb36082f85aad7e0fdf12034f1494/code_93212fd9f08edb8d995dbcd0b3127998117a34e39162aa43847498562c16a099/build"
