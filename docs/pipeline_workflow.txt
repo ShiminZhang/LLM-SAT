@@ -102,7 +102,7 @@ squeue -u $USER    # Monitor running jobs
 
 ```bash
 python src/llmsat/pipelines/evaluation.py \
-    --collect_all_results --generation_tag gemini_trial5
+    --collect_all_results --generation_tag gemini_trial5 --quick-eval
 ```
 
 This reads solver output logs and computes PAR2 scores:
@@ -206,7 +206,7 @@ After SLURM jobs complete, collect results and run iter 2:
 ```bash
 # Collect iter 1 results
 python src/llmsat/pipelines/evaluation.py \
-    --collect_all_results --generation_tag gemini_trial5_gen1_v1_iter1
+    --collect_all_results --generation_tag gemini_trial5_gen1_v1_iter1 --quick-eval
 
 # Iter 2: carries forward improvements from iter 1
 python src/llmsat/pipelines/genetic_evolution.py \
@@ -239,7 +239,7 @@ python src/llmsat/pipelines/evaluation.py \
     --quick-eval --batch-mode
 # ... wait for SLURM ...
 python src/llmsat/pipelines/evaluation.py \
-    --collect_all_results --generation_tag $TAG
+    --collect_all_results --generation_tag $TAG --quick-eval
 
 # Phase 3: Promote best team members to leaders
 python src/llmsat/pipelines/evaluation.py \
@@ -256,7 +256,7 @@ python src/llmsat/pipelines/genetic_evolution.py \
     --model gemini-3-flash-preview
 # ... wait for SLURM ...
 python src/llmsat/pipelines/evaluation.py \
-    --collect_all_results --generation_tag ${TAG}_gen1_v1_iter1
+    --collect_all_results --generation_tag ${TAG}_gen1_v1_iter1 --quick-eval
 
 # Repeat phase 4 with --prev_output_tags for further iterations
 ```

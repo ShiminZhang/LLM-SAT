@@ -15,8 +15,8 @@ import random
 import sys
 
 SOLVING_TIMES_PATH = "solvers/base/solving_times.json"
-OUTPUT_PATH = "data/benchmarks/satcomp2025_quick100.txt"
-SUBSET_SIZE = 100
+OUTPUT_PATH = "data/benchmarks/satcomp2025_quick50.txt"
+SUBSET_SIZE = 50
 RANDOM_SEED = 42
 
 # Difficulty tiers based on base solver time (seconds)

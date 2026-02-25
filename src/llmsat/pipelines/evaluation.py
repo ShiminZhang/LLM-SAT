@@ -55,7 +55,7 @@ PAR2_PENALTY = 10000                   # 2× timeout for unsolved
 QUICK_EVAL_TIMEOUT_SECONDS = 1000       # ~17 min per CNF
 QUICK_EVAL_WALL_TIME = "00:20:00"       # 20 min (timeout + buffer)
 QUICK_EVAL_PAR2_PENALTY = 2000          # 2× quick timeout
-QUICK_EVAL_BENCHMARK_LIST = "data/benchmarks/satcomp2025_quick100.txt"
+QUICK_EVAL_BENCHMARK_LIST = "data/benchmarks/satcomp2025_quick50.txt"
 
 
 def _compute_average(values: List[float]) -> Optional[float]:
@@ -182,7 +182,9 @@ class EvaluationPipeline:
         result_dir = get_solver_result_dir(algorithm_id, code_id,
                                            generation_tag=self.generation_tag, parent_id=parent_id)
 
-        cmd = f"{activate_cmd} && python src/llmsat/pipelines/evaluation.py --algorithm_id {algorithm_id} --code_id {code_id} --collect_result"
+        gen_tag_flag = f" --generation_tag {self.generation_tag}" if self.generation_tag else ""
+        quick_eval_flag = " --quick-eval" if self.cnf_files is not None else ""
+        cmd = f"{activate_cmd} && python src/llmsat/pipelines/evaluation.py --algorithm_id {algorithm_id} --code_id {code_id} --collect_result{gen_tag_flag}{quick_eval_flag}"
         output_file = f"{result_dir}/00000000_collect_result.log"
 
         slurm_cmd = wrap_command_to_slurm(
