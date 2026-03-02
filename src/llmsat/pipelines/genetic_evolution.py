@@ -224,6 +224,7 @@ def load_population(generation_tag: str) -> List[Individual]:
     """
     logger.info(f"Loading population for generation tag: {generation_tag}")
     algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
+    logger.info(f"Found {len(algorithm_ids)} algorithms in generation tag")
 
     population = []
     skipped_no_code = 0
@@ -1532,6 +1533,8 @@ def store_offspring(
 def evaluate_offspring(
     stored_pairs: List[Tuple[str, str]],
     generation_tag: Optional[str] = None,
+    sample_size: Optional[int] = None,
+    sample_seed: int = 42,
 ) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
     """
     Evaluate offspring by building solvers and submitting SLURM jobs.
@@ -1554,7 +1557,7 @@ def evaluate_offspring(
     for i, (algorithm_id, code_id) in enumerate(stored_pairs):
         logger.info(f"[{i+1}/{len(stored_pairs)}] Evaluating code {code_id[:16]}...")
         try:
-            result = pipeline.run_single_solver(code_id)
+            result = pipeline.run_single_solver(code_id, sample_size=sample_size, sample_seed=sample_seed)
             if result is None:
                 logger.warning(f"  Build/submit FAILED for {code_id[:16]}")
                 failed.append((algorithm_id, code_id))
@@ -1856,6 +1859,8 @@ def run_evolution(
     max_iterations: int = 5,
     minibatch_size: int = DEFAULT_MINIBATCH_SIZE,
     prev_output_tags: Optional[list] = None,
+    sample_size: Optional[int] = None,
+    sample_seed: int = 42,
 ) -> Dict[str, Any]:
     """
     Run the full genetic evolution pipeline with an iterative loop.
@@ -1898,6 +1903,8 @@ def run_evolution(
         rubric_weights: Deprecated — no longer used.
         max_iterations: Maximum number of evolution loop iterations (default: 5)
         minibatch_size: Max leaders per LLM combination-proposal call (default: 10)
+        sample_size: If set, randomly sample this many CNF files for evaluation instead of all
+        sample_seed: Random seed for reproducible CNF sampling (default: 42)
 
     Returns:
         Summary dict with results from each stage and iteration.
@@ -1947,7 +1954,8 @@ def run_evolution(
             }
             if stored_pairs:
                 successful_pairs, failed_pairs = evaluate_offspring(
-                    stored_pairs, generation_tag=iter_output_tag
+                    stored_pairs, generation_tag=iter_output_tag,
+                    sample_size=sample_size, sample_seed=sample_seed,
                 )
                 iter_summary["evaluation"] = {
                     "build_success": len(successful_pairs),
@@ -1968,7 +1976,7 @@ def run_evolution(
     if not population:
         logger.error("No individuals loaded. Check generation tag and database.")
         return {"error": "Empty population"}
-    
+
     # Load any existing causal reports cached in the current output dir (e.g. re-run)
     causal_reports: Dict[str, CausalReport] = {}
     existing_causal_path = os.path.join(output_dir, "causal_reports.json")
@@ -2000,6 +2008,7 @@ def run_evolution(
                 logger.info(f"  Loaded {len(prev_reports)} causal reports from '{prev_output_tag}'")
 
         population.sort(key=lambda x: x.par2)
+        print([(p.generation, p.par2) for p in population])
         population = population[:par2_keep_top_n]
 
         best_original_par2 = min(ind.par2 for ind in population)
@@ -2025,6 +2034,25 @@ def run_evolution(
                 json.dump(summary, f, indent=2)
             return summary
 
+        # Save carried-forward individuals for auditability
+        # selected_path = os.path.join(output_dir, "selected_from_prev.json")
+        # data = [
+        #     {
+        #         "algorithm_id": ind.algorithm_id,
+        #         "algorithm_json": ind.algorithm_json,
+        #         "code_id": ind.code_id,
+        #         "par2": ind.par2,
+        #         "target_function": ind.target_function,
+        #         "parent_id": ind.parent_id,
+        #         "generation": ind.generation,
+        #     }
+        #     for ind in improvements
+        # ]
+        # with open(selected_path, "w") as f:
+        #     json.dump(data, f, indent=2, ensure_ascii=False)
+        # logger.info(f"Saved {len(improvements)} carried-forward individuals to {selected_path}")
+        # population = population + improvements
+
         summary["prev_output_tags"] = prev_output_tags
         summary["prev_improvements_added"] = len(improvements)
 
@@ -2047,6 +2075,7 @@ def run_evolution(
         logger.info("Skipping causal analysis, loading from file")
         if not causal_reports:
             causal_reports = load_causal_reports(output_dir)
+        if not causal_reports:
             logger.error("No causal reports found. Run without --skip_causal first.")
             return {"error": "No causal reports"}
         else:
@@ -2184,7 +2213,8 @@ def run_evolution(
         if evaluate and stored_pairs:
             logger.info(f"Evaluating {len(stored_pairs)} offspring (build + SLURM)")
             successful_pairs, failed_pairs = evaluate_offspring(
-                stored_pairs, generation_tag=iter_output_tag
+                stored_pairs, generation_tag=iter_output_tag,
+                sample_size=sample_size, sample_seed=sample_seed,
             )
 
             iter_summary["evaluation"] = {
@@ -2467,7 +2497,7 @@ def main():
     parser.add_argument(
         "--prev_output_tags",
         type=str,
-        nargs="+", 
+        nargs="+",
         default=None,
         help=(
             "Output tag of the previous run to load evaluated offspring from. "
@@ -2475,6 +2505,22 @@ def main():
             "keeps only those that improved over the original population best PAR2. "
             "Stops early if no improvements found (evolution stagnated)."
         ),
+    )
+    parser.add_argument(
+        "--sample_size",
+        type=int,
+        default=None,
+        help=(
+            "If set, randomly sample this many CNF files for evaluation instead of using all. "
+            "e.g. --sample_size 100 uses 100 out of 400 benchmarks. "
+            "Use --sample_seed to control reproducibility."
+        ),
+    )
+    parser.add_argument(
+        "--sample_seed",
+        type=int,
+        default=42,
+        help="Random seed for CNF sampling (default: 42). Only used when --sample_size is set.",
     )
 
     args = parser.parse_args()
@@ -2517,6 +2563,8 @@ def main():
         max_iterations=1,  # always 1 per run; SLURM is async so multi-iter must be driven manually
         minibatch_size=args.minibatch_size,
         prev_output_tags=args.prev_output_tags,
+        sample_size=args.sample_size,
+        sample_seed=args.sample_seed,
     )
 
     # Print summary
