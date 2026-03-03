@@ -46,15 +46,15 @@ DEFAULT_REGISTRY_PATH = "solvers/base/function_registry.yaml"
 SLURM_ACCOUNT = "def-vganesh"
 SLURM_TIMEOUT_SECONDS = 5000           # 83 min 20 sec per CNF
 SLURM_WALL_TIME = "01:30:00"           # 90 min (timeout + buffer)
-SLURM_MEMORY = "4G"
+SLURM_MEMORY = "2G"
 SLURM_MAX_CONCURRENT = 1000 
 SLURM_MAX_ARRAY_SIZE = 1000
 PAR2_PENALTY = 10000                   # 2× timeout for unsolved
 
 # Quick-eval mode: 100 representative CNFs, reduced timeout
-QUICK_EVAL_TIMEOUT_SECONDS = 1000       # ~17 min per CNF
-QUICK_EVAL_WALL_TIME = "00:20:00"       # 20 min (timeout + buffer)
-QUICK_EVAL_PAR2_PENALTY = 2000          # 2× quick timeout
+QUICK_EVAL_TIMEOUT_SECONDS = 600 
+QUICK_EVAL_WALL_TIME = "00:12:00"       
+QUICK_EVAL_PAR2_PENALTY = 1200 # 2× quick timeout
 QUICK_EVAL_BENCHMARK_LIST = "data/benchmarks/satcomp2025_quick50.txt"
 
 
@@ -192,7 +192,9 @@ class EvaluationPipeline:
             output_file=output_file,
             job_name=f"collect_result_{code_id[:8]}",
             dependencies=[str(sid) for sid in slurm_ids],
-            dependency_type="afterany"
+            dependency_type="afterany",
+            mem="1G",
+            time="00:05:00",
         )
 
         slurm_output = os.popen(slurm_cmd).read()
@@ -266,9 +268,10 @@ class EvaluationPipeline:
                 all_logs.append("[OK] Configure succeeded")
 
             # Run make
-            all_logs.append("\n--- make -j1 ---")
+            nproc = os.cpu_count() or 1
+            all_logs.append(f"\n--- make -j{nproc} ---")
             make_proc = subprocess.run(
-                ["make", "-j1"],
+                ["make", f"-j{nproc}"],
                 cwd=solver_path,
                 capture_output=True,
                 text=True,
@@ -1132,8 +1135,6 @@ def main():
                         help="Print SLURM commands without submitting")
     parser.add_argument("--timeout", type=int, default=5000,
                         help="Timeout per CNF in seconds (default: 5000)")
-    parser.add_argument("--max-concurrent", type=int, default=100,
-                        help="Max concurrent SLURM tasks per array (default: 100)")
     parser.add_argument("--batch-mode", action="store_true",
                         help="Use batch submission mode (all solvers × CNFs in unified arrays)")
     parser.add_argument("--skip-build", action="store_true",

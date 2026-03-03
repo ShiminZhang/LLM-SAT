@@ -157,12 +157,15 @@ def update_algorithm_result(algorithm_result: AlgorithmResult):
     if other_metrics_obj is None:
         other_metrics_obj = {}
     if isinstance(other_metrics_obj, dict):
+        # Defensively remove stale keys before re-adding
+        other_metrics_obj.pop("target_function", None)
+        other_metrics_obj.pop("parent_id", None)
         # Store target_function if not default
         if algorithm_result.target_function != "kissat_restarting":
-            other_metrics_obj = {**other_metrics_obj, "target_function": algorithm_result.target_function}
+            other_metrics_obj["target_function"] = algorithm_result.target_function
         # Store parent_id if set
         if algorithm_result.parent_id is not None:
-            other_metrics_obj = {**other_metrics_obj, "parent_id": algorithm_result.parent_id}
+            other_metrics_obj["parent_id"] = algorithm_result.parent_id
     algorithm_result.last_updated = datetime.now()
     if other_metrics_obj is None:
         other_metrics_text = None
