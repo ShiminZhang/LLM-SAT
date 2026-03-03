@@ -1547,6 +1547,8 @@ def evaluate_offspring(
     stored_pairs: List[Tuple[str, str]],
     generation_tag: Optional[str] = None,
     quick_eval: bool = True,
+    sample_size: Optional[int] = None,
+    sample_seed: int = 42,
 ) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
     """
     Evaluate offspring by building solvers and submitting SLURM jobs.
@@ -1597,7 +1599,7 @@ def evaluate_offspring(
     for i, (algorithm_id, code_id) in enumerate(stored_pairs):
         logger.info(f"[{i+1}/{len(stored_pairs)}] Evaluating code {code_id[:16]}...")
         try:
-            result = pipeline.run_single_solver(code_id)
+            result = pipeline.run_single_solver(code_id, sample_size=sample_size, sample_seed=sample_seed)
             if result is None:
                 logger.warning(f"  Build/submit FAILED for {code_id[:16]}")
                 failed.append((algorithm_id, code_id))
@@ -1899,6 +1901,8 @@ def run_evolution(
     max_iterations: int = 5,
     minibatch_size: int = DEFAULT_MINIBATCH_SIZE,
     prev_output_tags: Optional[list] = None,
+    sample_size: Optional[int] = None,
+    sample_seed: int = 42,
 ) -> Dict[str, Any]:
     """
     Run the full genetic evolution pipeline with an iterative loop.
@@ -1941,6 +1945,8 @@ def run_evolution(
         rubric_weights: Deprecated — no longer used.
         max_iterations: Maximum number of evolution loop iterations (default: 5)
         minibatch_size: Max leaders per LLM combination-proposal call (default: 10)
+        sample_size: If set, randomly sample this many CNF files for evaluation instead of all
+        sample_seed: Random seed for reproducible CNF sampling (default: 42)
 
     Returns:
         Summary dict with results from each stage and iteration.
@@ -1990,7 +1996,8 @@ def run_evolution(
             }
             if stored_pairs:
                 successful_pairs, failed_pairs = evaluate_offspring(
-                    stored_pairs, generation_tag=iter_output_tag
+                    stored_pairs, generation_tag=iter_output_tag,
+                    sample_size=sample_size, sample_seed=sample_seed,
                 )
                 iter_summary["evaluation"] = {
                     "build_success": len(successful_pairs),
@@ -2043,6 +2050,7 @@ def run_evolution(
                 logger.info(f"  Loaded {len(prev_reports)} causal reports from '{prev_output_tag}'")
 
         population.sort(key=lambda x: x.par2)
+        print([(p.generation, p.par2) for p in population])
         population = population[:par2_keep_top_n]
 
         best_original_par2 = min(ind.par2 for ind in population)
@@ -2227,7 +2235,8 @@ def run_evolution(
         if evaluate and stored_pairs:
             logger.info(f"Evaluating {len(stored_pairs)} offspring (build + SLURM)")
             successful_pairs, failed_pairs = evaluate_offspring(
-                stored_pairs, generation_tag=iter_output_tag
+                stored_pairs, generation_tag=iter_output_tag,
+                sample_size=sample_size, sample_seed=sample_seed,
             )
 
             iter_summary["evaluation"] = {
@@ -2519,6 +2528,22 @@ def main():
             "Stops early if no improvements found (evolution stagnated)."
         ),
     )
+    parser.add_argument(
+        "--sample_size",
+        type=int,
+        default=None,
+        help=(
+            "If set, randomly sample this many CNF files for evaluation instead of using all. "
+            "e.g. --sample_size 100 uses 100 out of 400 benchmarks. "
+            "Use --sample_seed to control reproducibility."
+        ),
+    )
+    parser.add_argument(
+        "--sample_seed",
+        type=int,
+        default=42,
+        help="Random seed for CNF sampling (default: 42). Only used when --sample_size is set.",
+    )
 
     args = parser.parse_args()
 
@@ -2560,6 +2585,8 @@ def main():
         max_iterations=1,  # always 1 per run; SLURM is async so multi-iter must be driven manually
         minibatch_size=args.minibatch_size,
         prev_output_tags=args.prev_output_tags,
+        sample_size=args.sample_size,
+        sample_seed=args.sample_seed,
     )
 
     # Print summary

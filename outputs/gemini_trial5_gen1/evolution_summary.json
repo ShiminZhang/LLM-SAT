@@ -1,0 +1,38 @@
+{
+  "generation_tag": "gemini_trial5",
+  "output_tag": "gemini_trial5_gen1",
+  "timestamp": "2026-02-23T14:13:51.148392",
+  "iterations": [
+    {
+      "iteration": 1,
+      "population_size": 8,
+      "best_par2_entering": 1672.4111000000005,
+      "combination_proposals": {
+        "proposals_count": 5,
+        "combination_score_min": 6.0,
+        "avg_score": 8.959999999999999
+      },
+      "crossover": {
+        "pairs_attempted": 5,
+        "offspring_produced": 5
+      },
+      "code_generation": {
+        "codes_generated": 5
+      },
+      "stored": 5,
+      "evaluation": "skipped",
+      "par2_selection": "skipped (no evaluation)",
+      "status": "eval_skipped"
+    }
+  ],
+  "population_size": 8,
+  "par2_stats": {
+    "best": 1672.4111000000005,
+    "worst": Infinity,
+    "mean": Infinity
+  },
+  "causal_reports_count": 8,
+  "final_best_par2": 1672.4111000000005,
+  "top_tier_count": 0,
+  "top_tier": []
+}

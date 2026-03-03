@@ -1,0 +1,202 @@
+[
+  {
+    "offspring_id": "bd4797f6c9eddaef42f8f04ad4a61e77139475de58a869633974686b2f9115d4",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
+    "scores": {
+      "improvement_over_parents": 8.0,
+      "algorithmic_novelty": 7.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 9.0
+    },
+    "weighted_total": 8.25,
+    "justifications": {
+      "improvement_over_parents": "The offspring effectively combines the strengths of both parents, such as adaptive thresholds and a larger history buffer, leading to a more robust approach to SAT solving.",
+      "algorithmic_novelty": "While the offspring introduces some novel elements like a dynamic learning rate and a combination of performance metrics, it largely builds upon existing concepts from the parents.",
+      "mechanistic_soundness": "The design choices are well-justified and coherent, integrating performance tracking and adaptive mechanisms that align with SAT-solving theory.",
+      "implementation_feasibility": "The algorithm is described in a concrete manner, with clear thresholds and mechanisms, making it feasible for implementation in C.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, avoiding conflicts and enhancing overall performance through synergy."
+    }
+  },
+  {
+    "offspring_id": "bce2c54be938b5dca2fec3e1fbcc51e7cea9ecb86a05295a38cf90684079fa9f",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
+    "scores": {
+      "improvement_over_parents": 9.0,
+      "algorithmic_novelty": 8.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 10.0
+    },
+    "weighted_total": 8.85,
+    "justifications": {
+      "improvement_over_parents": "The offspring algorithm significantly enhances the strengths of both parents by incorporating adaptive thresholds and a larger circular buffer, which improves responsiveness and reduces the risk of premature mode switching.",
+      "algorithmic_novelty": "The introduction of periodic exploration phases and adaptive weights for the exponential moving average represents a creative combination of ideas that were not present in either parent, showcasing originality.",
+      "mechanistic_soundness": "The design choices are well-justified and logically coherent, particularly the use of adaptive thresholds and multiple modes, which align with established SAT-solving principles.",
+      "implementation_feasibility": "The algorithm description is concrete and specific, though some aspects, like the implementation of adaptive weights, may require careful tuning in practice.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, creating a synergistic approach that enhances adaptability without introducing conflicting strategies."
+    }
+  },
+  {
+    "offspring_id": "dd203b72116e997d3c64fdc453c6b92a7e70f18ab21bc6e147aaaf51943f7f45",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "92500611f8373de03bf570a7dacfc41fcd7dc11fe68251a1e11db160d0902602",
+    "scores": {
+      "improvement_over_parents": 8.0,
+      "algorithmic_novelty": 7.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 9.0
+    },
+    "weighted_total": 8.25,
+    "justifications": {
+      "improvement_over_parents": "The offspring algorithm effectively combines the momentum-driven performance tracking of Parent B with the adaptive Boltzmann selection and circular buffer from Parent A, enhancing adaptability and reducing rigidity in heuristic switching.",
+      "algorithmic_novelty": "The introduction of dynamically adjustable alpha values for EMAs and adaptive thresholds for slope 'S' adds a level of innovation not present in either parent, though the overall structure remains familiar.",
+      "mechanistic_soundness": "The design choices are well-justified, with clear logical coherence in the use of performance metrics, adaptive thresholds, and a stop-loss mechanism, all grounded in SAT-solving theory.",
+      "implementation_feasibility": "The algorithm description is concrete and specific, providing clear steps and conditions for implementation, though some aspects may require careful tuning in practice.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, utilizing the best features without introducing conflicting strategies, resulting in a robust hybrid."
+    }
+  },
+  {
+    "offspring_id": "4480d1978c9ee7dc5c087564a896c9409f5838466a9687d60de8d2cdcc92db1c",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "8c9f2bdd1d7bcf473785e1225b1c6066ce49551618660c3ab5087e8c5d64db25",
+    "scores": {
+      "improvement_over_parents": 8.0,
+      "algorithmic_novelty": 7.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 9.0
+    },
+    "weighted_total": 8.25,
+    "justifications": {
+      "improvement_over_parents": "The offspring algorithm effectively combines the strengths of both parents, such as the circular buffer from Parent A and the reward mechanism from Parent B, while also addressing weaknesses like fixed thresholds, resulting in a more adaptable and potentially effective solver.",
+      "algorithmic_novelty": "While the offspring introduces some novel adaptations, such as a more responsive slow EMA and a broader history size, the core concepts are still derived from the parents, limiting its originality.",
+      "mechanistic_soundness": "The design choices in the offspring are well-justified and logically coherent, particularly in how it tracks performance and adjusts heuristics based on empirical data.",
+      "implementation_feasibility": "The algorithm is described in sufficient detail to be implemented effectively, with clear definitions of thresholds and mechanisms, though some minor ambiguities remain.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, creating a synergistic effect without significant conflicts or redundancies in strategies."
+    }
+  },
+  {
+    "offspring_id": "cf71ca944de9d8820b847d479b40b601604e0b3d887705f41ff13660077c8892",
+    "parent_a_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
+    "parent_b_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
+    "scores": {
+      "improvement_over_parents": 8.0,
+      "algorithmic_novelty": 7.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 9.0
+    },
+    "weighted_total": 8.25,
+    "justifications": {
+      "improvement_over_parents": "The offspring effectively combines the logarithmic reward calculation and performance trend tracking from Parent A with the dynamic performance metric and probabilistic mode switching from Parent B, resulting in a more responsive and adaptive algorithm.",
+      "algorithmic_novelty": "The introduction of dynamic weights for the exponential moving average and a periodic exploration phase adds a level of innovation not present in either parent, enhancing the algorithm's adaptability.",
+      "mechanistic_soundness": "The design choices are well-justified and logically coherent, integrating established SAT-solving principles with new adaptive mechanisms that enhance performance tracking and mode selection.",
+      "implementation_feasibility": "The algorithm description is clear and specific, allowing for straightforward implementation in C, though some details on the dynamic_alpha adjustment could be more explicit.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, leveraging effective strategies without introducing conflicting elements, resulting in a cohesive and synergistic approach."
+    }
+  },
+  {
+    "offspring_id": "b63c736cde3ca0a1a3ad3f4911c3bcd50e9fd0804d7721e0b6ca22f65ab35ff0",
+    "parent_a_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
+    "parent_b_id": "92500611f8373de03bf570a7dacfc41fcd7dc11fe68251a1e11db160d0902602",
+    "scores": {
+      "improvement_over_parents": 8.0,
+      "algorithmic_novelty": 7.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 9.0
+    },
+    "weighted_total": 8.25,
+    "justifications": {
+      "improvement_over_parents": "The offspring algorithm effectively combines the strengths of both parents, particularly by introducing dynamic EMAs and a decay mechanism for the consecutive count, which enhances adaptability and exploration.",
+      "algorithmic_novelty": "While the offspring incorporates established concepts from both parents, the dynamic adjustment of the EMA and the gradual decay of the consecutive count represent innovative adaptations that improve performance.",
+      "mechanistic_soundness": "The design choices are well-justified and logically coherent, particularly in how they address performance tracking and adaptive mode selection, aligning with SAT-solving theory.",
+      "implementation_feasibility": "The algorithm description is concrete and specific, allowing for straightforward implementation, though some details on dynamic alpha adjustment could be further clarified.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, avoiding conflicts and leveraging the best features of each to create a more robust algorithm."
+    }
+  },
+  {
+    "offspring_id": "af0c2f13c9e517db176590834bbb73096603fd17126b558bf5c8343be7ac19cf",
+    "parent_a_id": "4bd63594e049d1128f62ffbb7d36a549969d8affab891eeca233630d89192143",
+    "parent_b_id": "8c9f2bdd1d7bcf473785e1225b1c6066ce49551618660c3ab5087e8c5d64db25",
+    "scores": {
+      "improvement_over_parents": 8.0,
+      "algorithmic_novelty": 7.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 9.0
+    },
+    "weighted_total": 8.25,
+    "justifications": {
+      "improvement_over_parents": "The offspring algorithm effectively combines the strengths of both parents, enhancing adaptability through dynamic thresholds and learning rates while maintaining robust performance evaluation metrics.",
+      "algorithmic_novelty": "While the offspring introduces some novel elements like dynamic thresholds and a combined reward calculation, it largely builds upon existing concepts from both parents rather than presenting entirely new mechanisms.",
+      "mechanistic_soundness": "The design choices are well-justified and coherent, integrating performance metrics and adaptive strategies that align with SAT-solving theory, particularly in managing stagnation and mode selection.",
+      "implementation_feasibility": "The algorithm description is clear and detailed enough for implementation, though some aspects like dynamic thresholds could require careful tuning in practice.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, avoiding redundancy and creating a synergistic approach that enhances overall performance."
+    }
+  },
+  {
+    "offspring_id": "1826a215026fdce35dc3c3d757041ac52743d4a83098482636b1c5421dfcbf2a",
+    "parent_a_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
+    "parent_b_id": "92500611f8373de03bf570a7dacfc41fcd7dc11fe68251a1e11db160d0902602",
+    "scores": {
+      "improvement_over_parents": 8.0,
+      "algorithmic_novelty": 7.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 9.0
+    },
+    "weighted_total": 8.25,
+    "justifications": {
+      "improvement_over_parents": "The offspring effectively combines the dynamic EMA approach and adaptive alpha values from both parents, enhancing responsiveness and addressing deterministic mode retention issues, which shows a meaningful improvement.",
+      "algorithmic_novelty": "While the offspring introduces the concept of dynamically adjusted alpha values and a periodic exploration phase, these ideas are built on existing mechanisms from the parents, resulting in moderate novelty.",
+      "mechanistic_soundness": "The design choices are well-justified within SAT-solving theory, particularly the use of momentum and projected scores, ensuring logical coherence in decision-making.",
+      "implementation_feasibility": "The algorithm is described in a clear manner, with specific mechanisms outlined, making it feasible to implement in code, though some details on data structures could be more explicit.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, utilizing their strengths without introducing conflicting strategies, resulting in a synergistic combination."
+    }
+  },
+  {
+    "offspring_id": "d3cdad305563b5c8eceb1b0a2bb7aa83ff358c845dbb5ff3846efad1446229d8",
+    "parent_a_id": "f30fa2df2502740509bc892006f9ca7c350b78d98ba478ab3fa89842320622bd",
+    "parent_b_id": "8c9f2bdd1d7bcf473785e1225b1c6066ce49551618660c3ab5087e8c5d64db25",
+    "scores": {
+      "improvement_over_parents": 9.0,
+      "algorithmic_novelty": 8.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 8.0,
+      "complementarity": 10.0
+    },
+    "weighted_total": 8.85,
+    "justifications": {
+      "improvement_over_parents": "The offspring algorithm effectively combines the strengths of both parents, enhancing performance tracking and mode selection while addressing their weaknesses, resulting in a more adaptive and responsive solver.",
+      "algorithmic_novelty": "The introduction of adaptive weights for EMA updates and dynamic thresholds for stagnation penalties showcases a creative approach that goes beyond simple concatenation of parent strategies.",
+      "mechanistic_soundness": "The design choices are well-justified and logically coherent, integrating robust performance metrics and adaptive mechanisms that align with SAT-solving theory.",
+      "implementation_feasibility": "The algorithm description is concrete and specific, though some details on the adaptive EMA implementation could be clearer for direct translation into code.",
+      "complementarity": "The offspring successfully merges complementary strengths from both parents, creating a synergistic effect without conflicting strategies, which enhances overall performance."
+    }
+  },
+  {
+    "offspring_id": "eaed5c50dfde4d7e250b4a8487173af9a3fdf65b74a7ad1a4f3a1698addfe160",
+    "parent_a_id": "92500611f8373de03bf570a7dacfc41fcd7dc11fe68251a1e11db160d0902602",
+    "parent_b_id": "8c9f2bdd1d7bcf473785e1225b1c6066ce49551618660c3ab5087e8c5d64db25",
+    "scores": {
+      "improvement_over_parents": 9.0,
+      "algorithmic_novelty": 8.0,
+      "mechanistic_soundness": 9.0,
+      "implementation_feasibility": 7.0,
+      "complementarity": 10.0
+    },
+    "weighted_total": 8.7,
+    "justifications": {
+      "improvement_over_parents": "The offspring effectively combines dynamic alpha values for EMAs and a more nuanced yield calculation, enhancing responsiveness and adaptability compared to both parents.",
+      "algorithmic_novelty": "The introduction of dynamic thresholds and a more comprehensive performance metric showcases creativity, although it builds on existing concepts from both parents.",
+      "mechanistic_soundness": "The design choices are well-justified and coherent, effectively integrating performance tracking and stagnation management in a logical manner.",
+      "implementation_feasibility": "While the algorithm is mostly concrete, the dynamic aspects may require careful calibration in implementation, which could introduce complexity.",
+      "complementarity": "The offspring merges strengths from both parents seamlessly, leveraging their best features without introducing conflicts or redundancies."
+    }
+  }
+]

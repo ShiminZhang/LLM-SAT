@@ -1,0 +1,38 @@
+[
+  {
+    "algorithm_id": "0386696e295391fa3376b484bb89be28d1aa08fb033213a8a56858e3643e494d",
+    "parent_a_id": "790231b11c5bb8867d4c191f78254aee059f8513bb78dd5294e02dfd4b0b7dde",
+    "parent_b_id": "e9ccb4989a9c6c9777abe65910ef28b862a1d4d1ef4e612077c9543aafbba2de",
+    "algorithm_json": "{\"name\": \"Adaptive EMA-LBD Restarting\", \"algorithm\": \"Step 1: Maintain two persistent exponential moving averages (EMAs) of the Literal Block Distance (LBD): 'fast_ema' (alpha=0.05) and 'slow_ema' (alpha=0.002). Update these values on every call using the latest learned clause LBD.\\nStep 2: Calculate the momentum ratio: R = fast_ema / slow_ema.\\nStep 3: Maintain a circular buffer of the last 20 fast LBD values to compute a gradient for dynamic margin adjustment. Step 4: Calculate the gradient as the difference between the current fast LBD and the average of the circular buffer values.\\nStep 5: Define a base restart margin M (initially set to 1.05) and adjust it dynamically based on the gradient: M' = M - (gradient * 2.0), clamped between [0.8, 1.5].\\nStep 6: Enforce a minimum run length of 50 conflicts before considering a restart. Step 7: If R > 1.15 in 'Focused' mode or R > 1.35 in 'Stable' mode, trigger a restart if avg_fast > avg_slow * M'. If R < 0.85, allow for restarts to ensure exploration if performance declines, while monitoring the number of conflicts to avoid stagnation.\", \"target_function\": \"kissat_restarting\"}",
+    "reason": "This offspring algorithm integrates the adaptive EMA tracking from Parent B with the dynamic margin adjustment and circular buffering from Parent A. By allowing for a larger buffer and a more nuanced gradient calculation, it reduces sensitivity to noise and improves responsiveness. The inclusion of adaptive thresholds and a nuanced restart condition enhances performance across a wider range of problem instances.",
+    "parent_a_strengths_used": [
+      "Dynamic margin adjustment based on gradient",
+      "Clamping of M' to a safety range [0.8, 1.5]",
+      "Use of a circular buffer for fast LBD values"
+    ],
+    "parent_b_strengths_used": [
+      "Use of Exponential Moving Averages (EMAs) for LBD tracking",
+      "Momentum ratio R calculation",
+      "Mode-aware restart strategy (Focused vs. Stable)"
+    ],
+    "target_function": "kissat_restarting"
+  },
+  {
+    "algorithm_id": "6e31186f2e483dbea4b22cc9c62f43def27b324507a4bfaa71a67ec3a43ab7d9",
+    "parent_a_id": "790231b11c5bb8867d4c191f78254aee059f8513bb78dd5294e02dfd4b0b7dde",
+    "parent_b_id": "e3d0e540b7c924132a39e3e2d74c61b56779edd5ce9f5314bad8b96cb2a13dbb",
+    "algorithm_json": "{\"name\": \"Adaptive LBD Restart Strategy\", \"algorithm\": \"Step 1: Maintain three exponential moving averages (EMAs): `fast_lbd_ema`, `slow_lbd_ema`, and `lbd_var_ema`. Initialize `lbd_var_ema` based on the first few conflict resolutions to reflect the initial search dynamics. \\nStep 2: On every conflict, update `lbd_var_ema` using: `diff = current_lbd - fast_lbd_ema`; `lbd_var_ema = 0.95 * lbd_var_ema + 0.05 * (diff * diff)`. \\nStep 3: Define 'Laminar Search' condition as `fast_lbd_ema < 0.75 * slow_lbd_ema` AND `lbd_var_ema < 1.0`. \\nStep 4: Define 'Turbulent Search' condition as `fast_lbd_ema > 1.1 * slow_lbd_ema` AND `lbd_var_ema > 3.5`. \\nStep 5: Calculate the gradient of `fast_lbd_ema` based on a dynamic circular buffer of size 20 for `fast_lbd_ema` values to reduce noise and enhance stability. \\nStep 6: Adjust the base margin `M` dynamically based on the gradient: `M' = M - (gradient * 2.0)`, clamped to [0.8, 1.5]. \\nStep 7: If the standard restart condition (Luby/Geometric) returns TRUE, check if 'Laminar Search' is active. If yes, OVERRIDE and return FALSE (skip restart) to extend the burst, allowing for up to 7 consecutive skips. \\nStep 8: If the standard restart condition returns FALSE, check if 'Turbulent Search' is active. If yes, OVERRIDE and return TRUE (force restart) to escape the chaotic search area.\", \"target_function\": \"kissat_restarting\"}",
+    "reason": "This algorithm combines the adaptive restart frequency and clause quality tracking from both parents while improving responsiveness through dynamic thresholds and a larger buffer size. By addressing the weaknesses of both parents—such as fixed thresholds and lagging responses—this offspring provides a more nuanced and effective approach to managing restarts in SAT solving.",
+    "parent_a_strengths_used": [
+      "Dynamic margin adjustment based on gradient",
+      "Clamping of M' to a safety range [0.8, 1.5]",
+      "Use of a circular buffer for fast LBD values"
+    ],
+    "parent_b_strengths_used": [
+      "Exponential Moving Average (EMA) for LBD variance",
+      "Laminar and Turbulent Search conditions",
+      "Skip restarts during Laminar search"
+    ],
+    "target_function": "kissat_restarting"
+  }
+]

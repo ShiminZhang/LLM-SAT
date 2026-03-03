@@ -1,0 +1,62 @@
+[
+  {
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "edfacce36d79fb599149746046917e09babcebb78e227d94734f00dd7a368dfd",
+    "score": 9.6,
+    "justification": "This is the most promising pair as it combines the top-performing solver's logic with the most robust reward metric. Algorithm 0's primary weakness is its counter-intuitive reward function (log decisions/log conflicts), which Algorithm 1 perfectly addresses with its 'Yield' metric that balances conflict density, computational effort (ticks), and clause quality (LBD).",
+    "complementary_strengths": [
+      "Algorithm 0's sophisticated Boltzmann selection and LBD-driven momentum override",
+      "Algorithm 1's Multi-Objective Yield Metric (conflicts/ticks)/(1+LBD)",
+      "Algorithm 1's Three-State Gating logic which refines Algorithm 0's deterministic switching",
+      "Algorithm 0's numerical stability in softmax calculations"
+    ]
+  },
+  {
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "c0532a9648ba38e046848c0e6238d45c188e006f437ceb6f95fcd9a2dc79e717",
+    "score": 9.3,
+    "justification": "This combination introduces 'Global Context' to the best-performing algorithm. Algorithm 0 relies entirely on local restart-phase metrics, which can lead to optimizing for 'efficient' search that doesn't actually progress toward a solution. Algorithm 3's Global Progress Weight provides the necessary link to global solver success (best_lbd).",
+    "complementary_strengths": [
+      "Algorithm 3's Global Progress Weight (1.5x/0.8x multiplier for breaking records)",
+      "Algorithm 3's scale-invariant momentum (S_norm) which fixes Algorithm 0's absolute threshold issues",
+      "Algorithm 0's volatility-adjusted exploration (T = 0.1 + V)",
+      "Algorithm 3's hysteresis and cooldown periods to prevent heuristic thrashing"
+    ]
+  },
+  {
+    "parent_a_id": "edfacce36d79fb599149746046917e09babcebb78e227d94734f00dd7a368dfd",
+    "parent_b_id": "14747fd180ef447582c5b32c571c56ed7dcdb36082f85aad7e0fdf12034f1494",
+    "score": 8.9,
+    "justification": "Both algorithms utilize EMA-based momentum (MACD style), but Algorithm 2 provides more rigorous mathematical grounding for the thresholds. Combining Algorithm 1's Yield metric with Algorithm 2's scale-invariant 'Relative Momentum' and 'Volatility-Scaled Temperature' creates a highly stable and adaptive switcher.",
+    "complementary_strengths": [
+      "Algorithm 2's Relative Momentum calculation (E_fast - E_slow) / E_slow",
+      "Algorithm 1's Yield-LBD coupling for the reward signal",
+      "Algorithm 2's Signal-to-Noise Temperature Control (T = 0.1 + V/E_fast)",
+      "Algorithm 2's Probabilistic Exit mechanism based on the magnitude of degradation"
+    ]
+  },
+  {
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "14747fd180ef447582c5b32c571c56ed7dcdb36082f85aad7e0fdf12034f1494",
+    "score": 8.7,
+    "justification": "Algorithm 0 is the strongest performer, but its momentum thresholds are absolute and prone to scale-invariance issues. Algorithm 2's composite performance metric P and scale-invariant momentum M provide a more robust way to trigger the deterministic overrides in Algorithm 0's logic.",
+    "complementary_strengths": [
+      "Algorithm 2's Composite Performance Metric P (conf/dec * 1/(LBD+1))",
+      "Algorithm 2's Trajectory Gating which protects the 'warm-up' period of heuristics like VSIDS",
+      "Algorithm 0's LBD-driven state detection",
+      "Algorithm 2's use of percentage-based improvement rather than absolute LBD drops"
+    ]
+  },
+  {
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "3f881cf37be568e49a63b9fc9fefa76e2e1530097d6e9dc0dbc5fbf32fec644a",
+    "score": 8.5,
+    "justification": "This pair addresses the 'exploitation trap.' While Algorithm 0 is excellent at identifying and staying in productive modes, it lacks a mechanism to escape a mode that is performing well but has reached a plateau. Algorithm 4's Fatigue-Adjusted Score forces exploration after a mode has been active for too long, ensuring the solver continues to sample the alternative heuristic.",
+    "complementary_strengths": [
+      "Algorithm 4's Fatigue-Driven Exploration (0.998^consecutive_count)",
+      "Algorithm 4's Computational Cost Normalization (elapsed_ticks) which is more accurate than wall-clock time",
+      "Algorithm 0's Adaptive Boltzmann Selection",
+      "Algorithm 4's Performance Momentum (T) which detects deceleration before a mode stalls"
+    ]
+  }
+]

@@ -700,12 +700,12 @@ def resume_code_collection(generation_tag: str, batch_map_path: str):
 
 def main():
     generate_team_data(
-        generation_tag="gemini_trial4",
+        generation_tag="25trial",
         designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
         variant_prompt_path="./data/prompts/variant_prompt.txt",
         code_prompt_template_path="./data/prompts/coder_prompt_testing.txt",
-        n_leaders=5,
-        m_variants_per_leader=6,
+        n_leaders=25,
+        m_variants_per_leader=1,
         model="gemini-3-pro-preview",
     )
 

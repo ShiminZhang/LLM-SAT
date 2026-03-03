@@ -361,7 +361,12 @@ class EvaluationPipeline:
         logger.info(f"Building solver at {new_solver_path}")
         if os.path.exists(new_solver_path):
             shutil.rmtree(new_solver_path)
-        shutil.copytree(BASE_SOLVER_PATH, new_solver_path)
+        shutil.copytree(BASE_SOLVER_PATH, new_solver_path, symlinks=True)
+
+        # Ensure configure script is executable after copy (copytree may not preserve exec bit)
+        configure_script = os.path.join(new_solver_path, "configure")
+        if os.path.exists(configure_script):
+            os.chmod(configure_script, os.stat(configure_script).st_mode | 0o111)
 
         # Compile with debugging support
         func_info = self.registry[target_function]

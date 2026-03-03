@@ -1,0 +1,96 @@
+[
+  {
+    "algorithm_id": "c3ee0882f85fcde9347d2fb1fc5518a5721a1422cd3ebc1156769179e5e25194",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "edfacce36d79fb599149746046917e09babcebb78e227d94734f00dd7a368dfd",
+    "algorithm_json": "{\"name\": \"Normalized MACD-Momentum Boltzmann Switcher\", \"algorithm\": \"Step 1: At each restart, calculate the current interval's Yield Y = (conflicts / (decisions + 1)) * (global_avg_LBD / (1.0 + local_avg_LBD)). This normalizes the reward across different problem scales and rewards high conflict density with low LBD.\\nStep 2: Update the active mode's Fast EMA (alpha=0.20) and Slow EMA (alpha=0.05) using Y. Calculate the Relative Momentum M_rel = (Fast_EMA - Slow_EMA) / (Slow_EMA + 1e-6) and Volatility V = EMA(|Y - Fast_EMA|, alpha=0.10).\\nStep 3: For the inactive mode, apply a soft decay to prevent the 'poverty trap': Slow_EMA = (0.99 * Slow_EMA) + (0.01 * global_avg_Yield). Increment its 'inactivity_age' counter.\\nStep 4: Apply Three-State Gating logic. If M_rel > 0.10 (Improving), deterministically keep the current mode. If M_rel < -0.15 and interval_count > 5 (Degrading), deterministically switch to the other mode.\\nStep 5: If |M_rel| is within [-0.15, 0.10] (Stagnant), use Adaptive Boltzmann Selection. Calculate mode quality Q_m = Fast_EMA_m + 0.1 * sqrt(log(total_intervals) / (1 + inactivity_age_m)). Set Temperature T = 0.1 + V. Select mode 'm' with probability P(m) = exp((Q_m - Q_max) / T) / Sum(exp((Q_k - Q_max) / T)), where Q_max is the maximum Q among modes to ensure numerical stability.\", \"target_function\": \"restart_mab\"}",
+    "reason": "This offspring combines Parent A's momentum-based gating and Parent B's MACD/Yield metrics while fixing their primary flaws. It replaces Parent A's counter-intuitive reward with a normalized Yield that rewards search efficiency. It solves Parent B's threshold mismatch by using relative momentum (M_rel) instead of absolute values. The 'poverty trap' is avoided via soft decay toward the global average rather than zero, and the exploration bonus is scaled using a UCB-style square-root term to prevent it from dominating the Yield signal. Numerical stability from Parent A is preserved via max-subtraction in the softmax.",
+    "parent_a_strengths_used": [
+      "Volatility-Adjusted Exploration",
+      "Hysteresis via Momentum Override",
+      "Numerical Stability in Softmax"
+    ],
+    "parent_b_strengths_used": [
+      "Multi-Objective Yield Metric",
+      "MACD-based Trend Detection",
+      "Dynamic Boltzmann Temperature"
+    ],
+    "target_function": "restart_mab"
+  },
+  {
+    "algorithm_id": "64ec5d2487efb4305efe4f4914e4fc8c63ee8125afe450104dee195cd433ecd7",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "c0532a9648ba38e046848c0e6238d45c188e006f437ceb6f95fcd9a2dc79e717",
+    "algorithm_json": "{\"name\": \"Adaptive Scale-Invariant Momentum Bandit\", \"algorithm\": \"Step 1: Track the current phase metrics: average LBD (avg_LBD), conflict rate (conflicts/decisions), and global mean LBD (mu_LBD) using an Exponential Moving Average (EMA) with alpha=0.1. Maintain a 'stagnation_counter' incremented each phase where no global 'best_lbd' or 'best_assigned_trail' is improved.\\nStep 2: Calculate the phase reward R = (conflicts / decisions) / (avg_LBD + 5.0). Apply a Global Progress Multiplier: R = R * 1.5 if a global record was broken this phase, else R = R * 0.8. Update the current mode's Quality Q_m using EMA (alpha=0.1): Q_m = (1-alpha)*Q_m + alpha*R.\\nStep 3: Compute scale-invariant momentum S_norm = (avg_LBD_current - avg_LBD_previous) / mu_LBD. Calculate search volatility V as the EMA (alpha=0.1) of the absolute deviation of S_norm.\\nStep 4: Execute Decision Gating. (a) If phases_since_switch < 3, maintain current mode. (b) If S_norm < -0.05 (improving), maintain current mode. (c) If S_norm > 0.05 and stagnation_counter > (5 + log10(num_variables)), force a switch to the other mode.\\nStep 5: If |S_norm| <= 0.05 (stagnation), apply Adaptive Boltzmann Selection. Set Temperature T = 0.1 + V. Select mode 'm' with probability P(m) = exp(Q_m / T) / Sum(exp(Q_k / T)), utilizing max-exponent subtraction for numerical stability. Reset stagnation_counter upon any mode switch.\", \"target_function\": \"restart_mab\"}",
+    "reason": "The ASIMB algorithm addresses Parent A's weak reward function by rewarding high conflict rates and penalizing high LBDs while adding a smoothing constant (k=5) to prevent hyper-sensitivity at low LBD values (Parent B's weakness). It replaces Parent A's small circular buffer with a more stable EMA (alpha=0.1) and adopts Parent B's scale-invariant momentum (S_norm) to ensure consistent behavior across benchmarks. To prevent premature switching in large instances, the stagnation threshold is scaled by the log of the variable count. Finally, it retains the successful volatility-adjusted Boltzmann exploration and global progress coupling from both parents.",
+    "parent_a_strengths_used": [
+      "LBD Slope as a Momentum Indicator",
+      "Volatility-Adjusted Exploration",
+      "Numerical Stability in Softmax"
+    ],
+    "parent_b_strengths_used": [
+      "Global Progress Coupling",
+      "Scale-Invariant Momentum",
+      "Hysteresis and Cooldown"
+    ],
+    "target_function": "restart_mab"
+  },
+  {
+    "algorithm_id": "4ff581052d18ccb9e1094aa79d64bb56786d5133858a1fcd4439ad9e6762ff07",
+    "parent_a_id": "edfacce36d79fb599149746046917e09babcebb78e227d94734f00dd7a368dfd",
+    "parent_b_id": "14747fd180ef447582c5b32c571c56ed7dcdb36082f85aad7e0fdf12034f1494",
+    "algorithm_json": "{\"name\": \"Log-Scaled Relative Momentum Gating\", \"algorithm\": \"Step 1: Calculate the local performance metric Y = log10(1.0 + (solver->conflicts / solver->ticks) * 1e6) * (global_average_LBD / (current_restart_LBD + 1.0)). This log-scales the conflict density and rewards local LBD improvements relative to global performance.\\nStep 2: For the active mode, update Fast EMA (alpha=0.20), Slow EMA (alpha=0.05), and Volatility V = EMA(|Y - Fast_EMA|, alpha=0.10). Update a global EMA (E_glob) of Y across all modes to serve as a baseline.\\nStep 3: For the inactive mode, apply 'Soft Decay': E_fast_inactive = (0.98 * E_fast_inactive) + (0.02 * E_glob). This prevents the 'poverty trap' by decaying performance toward the mean rather than zero. Increment its 'inactivity_age'.\\nStep 4: Compute Relative Momentum M = (Fast_EMA - Slow_EMA) / (Slow_EMA + 1e-9). Apply Three-State Gating:\\n- If M > 0.05 [Improving]: Stay in the current mode.\\n- If M < -0.20 [Degrading] and active_intervals > 5: Switch to the other mode immediately.\\n- Else [Stagnant]: Proceed to Boltzmann Selection.\\nStep 5: Perform Boltzmann Selection with Temperature T = 0.1 + (V / (Fast_EMA + 1e-9)). Calculate scores: S_active = Fast_EMA and S_inactive = E_fast_inactive + (0.1 * sqrt(inactivity_age / total_intervals)) - (0.05 * E_glob). The subtraction acts as a 'Switching Penalty' to prevent thrashing. Reset 'inactivity_age' for the selected mode.\", \"target_function\": \"restart_mab\"}",
+    "reason": "This algorithm combines Parent A's robust Three-State Gating and Volatility-adjusted logic with Parent B's scale-invariant Relative Momentum. It specifically addresses Parent A's 'Threshold Mismatch' by using relative rather than absolute momentum, and fixes the 'Poverty Trap' by decaying inactive modes toward the global mean. It resolves Parent B's 'Stagnation Flip-Flopping' by introducing a switching penalty in the Boltzmann score. The use of log-scaling and LBD windowing ensures the reward signal is both stable across problem sizes and responsive to immediate search quality changes.",
+    "parent_a_strengths_used": [
+      "Multi-Objective Yield Metric",
+      "Three-State Gating Logic",
+      "Dynamic Boltzmann Temperature",
+      "Volatility tracking"
+    ],
+    "parent_b_strengths_used": [
+      "Relative Momentum (scale-invariant)",
+      "Composite Performance Metric",
+      "Signal-to-Noise Temperature Control"
+    ],
+    "target_function": "restart_mab"
+  },
+  {
+    "algorithm_id": "fa5932e16456dda060f25b6f29aea45bae76cb65788d2f2d1be4dfadfdfcf365",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "14747fd180ef447582c5b32c571c56ed7dcdb36082f85aad7e0fdf12034f1494",
+    "algorithm_json": "{\"name\": \"Hysteresis-Adjusted Dual-EMA Momentum Solver\", \"algorithm\": \"Step 1: At the end of each restart, calculate the responsive performance metric P = (conflicts / decisions) * (1.0 / (avg_LBD_current_restart + 1.0)). This uses only LBDs from the current restart to eliminate trailing lag.\\nStep 2: Update state for the active mode: Fast EMA E_fast (alpha=0.2), Slow EMA E_slow (alpha=0.05), and Volatility V (EMA of |P - E_fast|, alpha=0.1). Maintain the E_fast of the inactive mode as a baseline.\\nStep 3: Compute Relative Momentum M = (E_fast - E_slow) / (E_slow + 1e-6). This scale-invariant derivative measures the percentage improvement of the current search trajectory.\\nStep 4: Apply Trajectory Gating. If M > 0.05 (improving), deterministically stay in the current mode. If M < -0.05 (degrading) AND E_fast < (E_other * 0.95), switch to the other mode with probability prob = min(1.0, |M| * 2.5).\\nStep 5: If |M| <= 0.05 (stagnant), apply Hysteresis-Boltzmann Selection. Set Temperature T = 0.1 + (V / (E_fast + 1e-6)). Define Quality scores: Q_active = E_fast_active and Q_inactive = E_fast_inactive * 0.95 (applying a 5% switching penalty to prevent flip-flopping). Select mode 'm' with probability P(m) = exp(Q_m / T) / Sum(exp(Q_k / T)), using max-subtraction for numerical stability.\", \"target_function\": \"restart_mab\"}",
+    "reason": "This offspring combines Parent B's superior composite metric and Dual-EMA momentum tracking with Parent A's robust hysteresis and numerical stability. It specifically addresses Parent A's 'Small Sample Window' by using EMAs and Parent B's 'Stagnation Flip-Flopping' by introducing a 5% switching penalty (hysteresis) in the Boltzmann selection. By using LBDs only from the current restart, it eliminates the 'LBD Lag' identified in Parent B, making the solver more responsive to sudden changes in search space difficulty.",
+    "parent_a_strengths_used": [
+      "Volatility-Adjusted Exploration",
+      "Hysteresis via Momentum Override",
+      "Numerical Stability in Softmax"
+    ],
+    "parent_b_strengths_used": [
+      "Composite Performance Metric (P)",
+      "Dual-EMA Momentum Tracking",
+      "Trajectory Gating",
+      "Signal-to-Noise Temperature Control"
+    ],
+    "target_function": "restart_mab"
+  },
+  {
+    "algorithm_id": "79aed53aae21ab11c774bad6b962380555ecb419f642a5cb0b7e1276cfe22632",
+    "parent_a_id": "efb1dfa448d7915e46cd2e3c36bd12a279eda7ad60c8982be768a6ceca2b6ee9",
+    "parent_b_id": "3f881cf37be568e49a63b9fc9fefa76e2e1530097d6e9dc0dbc5fbf32fec644a",
+    "algorithm_json": "{\"name\": \"Momentum-Fatigue Adaptive Boltzmann MAB\", \"algorithm\": \"Step 1: Compute the restart reward R = (conflicts * 10000) / ((elapsed_ticks + 1) * (avg_LBD + log2(avg_trail_level + 1) + 1)). This balances throughput, clause quality, and search depth without the heavy square-root penalty for deep search.\\nStep 2: Update dual Exponential Moving Averages (EMA) for the active mode: S_fast = 0.8 * S_fast + 0.2 * R; S_slow = 0.95 * S_slow + 0.05 * R. For the inactive mode, apply 'Benchmark Decay': S_slow_other = S_slow_other * 0.998 to prevent stale performance data from blocking future switches.\\nStep 3: Calculate the relative performance trend S_rel = (S_fast - S_slow) / (S_slow + 1e-9) and the search volatility V = (standard_deviation of R over last 10 restarts) / (mean of R over last 10 restarts + 1e-9).\\nStep 4: Calculate the Fatigue-Adjusted Score S_adj = S_fast * (0.998 ^ consecutive_count), where consecutive_count tracks the duration of the current mode.\\nStep 5: Apply Hysteresis and Momentum Override. If consecutive_count < 20, return the current mode (prevents thrashing). If S_rel > 0.1 (strong upward momentum), return the current mode regardless of fatigue.\\nStep 6: Execute selection. Switch if: (a) S_adj < S_slow_other AND S_rel < 0 (deterministic switch for underperformance), OR (b) S_rel < -0.05 AND a random float [0,1] < P, where P = 1 / (1 + exp((S_adj - S_slow_other) / ((0.1 + V) * S_slow + 1e-9))).\", \"target_function\": \"restart_mab\"}",
+    "reason": "This algorithm combines Parent A's momentum-based state detection and Boltzmann exploration with Parent B's multi-dimensional reward and Dual-EMA trend tracking. It specifically addresses Parent A's weaknesses by replacing the tiny N=5 window with EMAs and a 20-restart hysteresis, and by fixing the counter-intuitive reward function. It resolves Parent B's weaknesses by introducing 'Benchmark Decay' to refresh stale inactive scores and by using a log-scaled trail depth to avoid unfairly penalizing stable modes. The use of relative slope (S_rel) and volatility-scaled temperature ensures scale-invariance across different problem instances.",
+    "parent_a_strengths_used": [
+      "LBD Slope as a Momentum Indicator",
+      "Volatility-Adjusted Exploration",
+      "Hysteresis via Momentum Override",
+      "Numerical Stability in Softmax"
+    ],
+    "parent_b_strengths_used": [
+      "Multi-Dimensional Reward Signal",
+      "Momentum-Based Trend Detection",
+      "Fatigue-Driven Exploration",
+      "Computational Cost Normalization"
+    ],
+    "target_function": "restart_mab"
+  }
+]

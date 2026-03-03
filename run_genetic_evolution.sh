@@ -34,15 +34,15 @@ python src/llmsat/pipelines/genetic_evolution.py \
 # Wait for SLURM jobs from iter 1 to complete, then run:
 #   evaluation.py --collect_all_results --generation_tag ${GENERATION_TAG}_gen1_v1_iter1
 #
-# python src/llmsat/pipelines/genetic_evolution.py \
-#     --generation_tag "$GENERATION_TAG" \
-#     --output_tag "${GENERATION_TAG}_gen1_v2" \
-#     --prev_output_tags "${GENERATION_TAG}_gen1_v1" \
-#     --code_prompt_path data/prompts/coder_prompt.txt \
-#     --evaluate \
-#     --top_k 5 \
-#     --minibatch_size 10 \
-#     --rubric_min 6.0 \
-#     --rubric_keep_top_n 10 \
-#     --par2_keep_top_n 7 \
-#     --model gemini-3-flash-preview
+python src/llmsat/pipelines/genetic_evolution.py \
+    --generation_tag "$GENERATION_TAG" \
+    --output_tag "${GENERATION_TAG}_gen1_v2" \
+    --prev_output_tags "${GENERATION_TAG}_gen1_v1" \
+    --code_prompt_path data/prompts/coder_prompt.txt \
+    --evaluate \
+    --top_k 5 \
+    --minibatch_size 10 \
+    --rubric_min 6.0 \
+    --rubric_keep_top_n 10 \
+    --par2_keep_top_n 7 \
+    --model gemini-3-flash-preview

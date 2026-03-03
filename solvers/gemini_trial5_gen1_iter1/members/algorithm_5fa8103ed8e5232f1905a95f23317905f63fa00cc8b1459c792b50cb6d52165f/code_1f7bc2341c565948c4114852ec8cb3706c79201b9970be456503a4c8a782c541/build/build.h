@@ -1,0 +1,5 @@
+#define VERSION "4.0.2"
+#define COMPILER "gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0 -W -Wall -O3 -DNDEBUG"
+#define ID "unknown"
+#define BUILD "Wed Feb 18 12:58:00 PST 2026 Linux cs-delta-g02 6.8.0-49-generic x86_64"
+#define DIR "/local-scratch/localhome/jsa505/Desktop/LLM-SAT/solvers/gemini_trial5_gen1_iter1/members/algorithm_5fa8103ed8e5232f1905a95f23317905f63fa00cc8b1459c792b50cb6d52165f/code_1f7bc2341c565948c4114852ec8cb3706c79201b9970be456503a4c8a782c541/build"

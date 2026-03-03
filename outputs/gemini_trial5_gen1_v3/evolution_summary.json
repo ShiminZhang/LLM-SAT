@@ -1,0 +1,51 @@
+{
+  "generation_tag": "gemini_trial5",
+  "output_tag": "gemini_trial5_gen1_v3",
+  "timestamp": "2026-02-24T13:13:17.177416",
+  "iterations": [
+    {
+      "iteration": 1,
+      "population_size": 7,
+      "best_par2_entering": 1672.4111000000005,
+      "combination_proposals": {
+        "proposals_count": 5,
+        "combination_score_min": 6.0,
+        "avg_score": 9.0
+      },
+      "crossover": {
+        "pairs_attempted": 5,
+        "offspring_produced": 5
+      },
+      "code_generation": {
+        "codes_generated": 5
+      },
+      "stored": 5,
+      "evaluation": {
+        "build_success": 5,
+        "build_failed": 0
+      },
+      "par2_selection": {
+        "evaluated": 0,
+        "selected": 0,
+        "par2_threshold": null,
+        "selected_offspring": []
+      },
+      "status": "no_par2_selection",
+      "par2_improved": false
+    }
+  ],
+  "prev_output_tags": [
+    "gemini_trial5_gen1_v2"
+  ],
+  "prev_improvements_added": 5,
+  "population_size": 7,
+  "par2_stats": {
+    "best": 1672.4111000000005,
+    "worst": 1870.6509750000002,
+    "mean": 1754.6584634767858
+  },
+  "causal_reports_count": 7,
+  "final_best_par2": 1672.4111000000005,
+  "top_tier_count": 0,
+  "top_tier": []
+}

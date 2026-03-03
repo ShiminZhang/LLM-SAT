@@ -2,7 +2,7 @@ import os
 import time
 from pathlib import Path
 from typing import Optional
-from llmsat.llmsat import setup_logging, get_logger 
+from llmsat.llmsat import setup_logging, get_logger
 import logging
 setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
