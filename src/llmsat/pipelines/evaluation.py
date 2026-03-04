@@ -822,7 +822,8 @@ exit $EXIT_CODE
 
         return job_ids
 
-    def run_single_solver(self, code_id: str, build_only: bool = False, dry_run: bool = False, skip_build: bool = False) -> Optional[Tuple[str, str, str]]:
+    def run_single_solver(self, code_id: str, build_only: bool = False, dry_run: bool = False, skip_build: bool = False,
+                          sample_size: Optional[int] = None, sample_seed: int = 42) -> Optional[Tuple[str, str, str]]:
         """
         Build and evaluate a single code result.
 
@@ -831,6 +832,8 @@ exit $EXIT_CODE
             build_only: If True, build the solver but don't submit SLURM evaluation
             dry_run: If True, print SLURM commands without submitting
             skip_build: If True, assume solver is already built and skip build step
+            sample_size: If set, randomly sample this many CNF files for evaluation
+            sample_seed: Random seed for reproducible CNF sampling (default: 42)
 
         Returns:
             Tuple of (solver_path, result_dir, code_id) if build succeeded, None otherwise.
@@ -872,8 +875,20 @@ exit $EXIT_CODE
                 logger.info(f"Build-only mode: skipping SLURM evaluation")
                 return (solver_path, result_dir, code_id)
 
+            # Apply CNF sampling if requested
+            eval_cnf_files = self.cnf_files
+            if sample_size is not None:
+                import random as _random
+                # Build full CNF list to sample from
+                if eval_cnf_files is None:
+                    eval_cnf_files = sorted(f for f in os.listdir(SAT2025_BENCHMARK_PATH) if f.endswith(".cnf"))
+                if sample_size < len(eval_cnf_files):
+                    rng = _random.Random(sample_seed)
+                    eval_cnf_files = sorted(rng.sample(eval_cnf_files, sample_size))
+                    logger.info(f"Sampled {sample_size} CNF files (seed={sample_seed})")
+
             slurm_ids = self.slurm_run_evaluate(solver_path, SAT2025_BENCHMARK_PATH, result_dir, dry_run=dry_run,
-                                                   timeout=self.timeout, wall_time=self.wall_time, cnf_files=self.cnf_files)
+                                                   timeout=self.timeout, wall_time=self.wall_time, cnf_files=eval_cnf_files)
 
             if not dry_run:
                 code_result.status = CodeStatus.Evaluating
