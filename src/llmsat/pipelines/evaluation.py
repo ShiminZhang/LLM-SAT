@@ -57,6 +57,10 @@ QUICK_EVAL_WALL_TIME = "00:12:00"
 QUICK_EVAL_PAR2_PENALTY = 1200 # 2× quick timeout
 QUICK_EVAL_BENCHMARK_LIST = "data/benchmarks/satcomp2025_quick50.txt"
 
+INSTANCE_CATEGORIES_PATH = "data/benchmarks/instance_categories.json"
+# Baseline time threshold (seconds) for easy/hard split. Adjust as needed.
+DIFFICULTY_CUTOFF = 100
+
 
 def _compute_average(values: List[float]) -> Optional[float]:
     """Compute average of non-None values."""
@@ -64,6 +68,42 @@ def _compute_average(values: List[float]) -> Optional[float]:
     if not non_none:
         return None
     return sum(non_none) / len(non_none)
+
+
+def _compute_par2_breakdown(
+    solving_times: Dict[str, float],
+    instance_categories: Dict[str, dict],
+    difficulty_cutoff: float = DIFFICULTY_CUTOFF,
+) -> Dict[str, Optional[float]]:
+    """Compute PAR2 scores broken down by category.
+
+    Returns dict with keys: all, easy, hard, sat, unsat.
+    Categories are determined by instance_categories (satisfiability + baseline_time).
+    Instances not in instance_categories are included in 'all' only.
+    """
+    buckets: Dict[str, List[float]] = {"all": [], "easy": [], "hard": [], "sat": [], "unsat": []}
+
+    for instance_name, time_val in solving_times.items():
+        buckets["all"].append(time_val)
+
+        cat = instance_categories.get(instance_name)
+        if cat is None:
+            continue
+
+        baseline_time = cat.get("baseline_time")
+        if baseline_time is not None:
+            if baseline_time < difficulty_cutoff:
+                buckets["easy"].append(time_val)
+            else:
+                buckets["hard"].append(time_val)
+
+        sat_status = cat.get("satisfiability")
+        if sat_status == "SAT":
+            buckets["sat"].append(time_val)
+        elif sat_status == "UNSAT":
+            buckets["unsat"].append(time_val)
+
+    return {k: _compute_average(v) for k, v in buckets.items()}
 
 
 def _get_activation_cmd() -> str:
@@ -84,6 +124,13 @@ class EvaluationPipeline:
         self.wall_time = SLURM_WALL_TIME
         self.par2_penalty = PAR2_PENALTY
         self.cnf_files = None  # None = scan benchmark directory; list = use specific files
+        # Load instance categories for PAR2 breakdown (SAT/UNSAT, easy/hard)
+        if os.path.exists(INSTANCE_CATEGORIES_PATH):
+            with open(INSTANCE_CATEGORIES_PATH) as f:
+                self.instance_categories = json.load(f)
+        else:
+            logger.warning(f"Instance categories not found at {INSTANCE_CATEGORIES_PATH}; PAR2 breakdown disabled")
+            self.instance_categories = {}
         logger.info(f"Initialized FunctionRegistry with {len(self.registry)} functions: {self.registry.list_functions()}")
 
     def parse_solving_time(self, file_path: str) -> Optional[float]:
@@ -118,6 +165,33 @@ class EvaluationPipeline:
         logger.warning(f"No process-time found in log (incomplete run): {file_path}")
         return penalty
 
+    TRACKED_STATS = [
+        "conflicts", "decisions", "propagations", "restarts",
+        "switched", "chronological", "reductions", "eliminated",
+        "rephased", "vivified", "walks", "reordered",
+    ]
+
+    def parse_solver_stats(self, file_path: str) -> Optional[Dict[str, int]]:
+        """Parse solver internal statistics from a kissat .solving.log file."""
+        try:
+            with open(file_path, "r") as f:
+                content = f.read()
+        except Exception:
+            return None
+
+        stats_start = content.find("---- [ statistics ]")
+        if stats_start == -1:
+            return None
+
+        stats_section = content[stats_start:]
+        stats = {}
+        for match in re.finditer(r'^c\s+([\w_]+):\s+(\d+)', stats_section, re.MULTILINE):
+            name = match.group(1)
+            if name in self.TRACKED_STATS:
+                stats[name] = int(match.group(2))
+
+        return stats if stats else None
+
     def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> Optional[float]:
         """Collect evaluation results from solver logs and compute PAR2 score."""
         algorithm = get_algorithm_result(algorithm_id)
@@ -133,17 +207,22 @@ class EvaluationPipeline:
 
         logger.info(f"Collecting results from {solver_dir}")
         solving_times: Dict[str, float] = {}
+        solver_stats: Dict[str, Dict[str, int]] = {}
         timeouts_or_errors: List[str] = []
 
         if os.path.isdir(solver_dir):
             for file in os.listdir(solver_dir):
                 if file.endswith(".solving.log"):
                     instance_name = file.split(".")[0]
-                    instance_time = self.parse_solving_time(f"{solver_dir}/{file}")
+                    log_path = f"{solver_dir}/{file}"
+                    instance_time = self.parse_solving_time(log_path)
                     if instance_time is not None:
                         solving_times[instance_name] = instance_time
                         if instance_time >= self.par2_penalty:
                             timeouts_or_errors.append(instance_name)
+                    instance_stats = self.parse_solver_stats(log_path)
+                    if instance_stats:
+                        solver_stats[instance_name] = instance_stats
         else:
             logger.warning(f"Solver directory missing: {solver_dir}")
 
@@ -169,6 +248,19 @@ class EvaluationPipeline:
         with open(result_path, "w") as f:
             json.dump(solving_times, f)
         logger.info(f"Wrote solving times to {result_path}")
+
+        if solver_stats:
+            stats_path = result_path.replace("solving_times_", "solver_stats_")
+            with open(stats_path, "w") as f:
+                json.dump(solver_stats, f)
+            logger.info(f"Wrote solver stats for {len(solver_stats)} instances to {stats_path}")
+
+        if self.instance_categories:
+            par2_breakdown = _compute_par2_breakdown(solving_times, self.instance_categories)
+            breakdown_path = result_path.replace("solving_times_", "par2_breakdown_")
+            with open(breakdown_path, "w") as f:
+                json.dump(par2_breakdown, f)
+            logger.info(f"Wrote PAR2 breakdown to {breakdown_path}: {par2_breakdown}")
 
         return par2
 
@@ -513,7 +605,7 @@ echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
 # Run solver with timeout, measuring CPU time (user + system) via GNU time
 "$GNU_TIME" -f "%U %S" -o "${{OUTPUT_FILE}}.time" \
-    timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+    timeout ${{TIMEOUT}}s "$SOLVER" -s "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
 
 if [ -f "${{OUTPUT_FILE}}.time" ]; then
@@ -673,7 +765,7 @@ echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
 # Run solver with timeout, measuring CPU time (user + system) via GNU time
 "$GNU_TIME" -f "%U %S" -o "${{OUTPUT_FILE}}.time" \
-    timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+    timeout ${{TIMEOUT}}s "$SOLVER" -s "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
 
 if [ -f "${{OUTPUT_FILE}}.time" ]; then

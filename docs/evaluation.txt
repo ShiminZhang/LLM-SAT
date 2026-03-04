@@ -32,7 +32,7 @@ The pipeline uses the following defaults for Compute Canada:
 | Parameter | Value | Description |
 |-----------|-------|-------------|
 | Account | `def-vganesh` | Compute Canada allocation |
-| Memory | `4G` | Per-task memory |
+| Memory | `30G` | Per-task memory (matches SAT Competition 2025) |
 | Wall Time | `01:30:00` | 90 minutes per task |
 | Timeout | `5000s` | ~83 min solver timeout |
 | Max Concurrent | `100` | Concurrent array tasks |
@@ -88,6 +88,39 @@ python src/llmsat/pipelines/evaluation.py \
     --batch-mode
 ```
 
+### Quick Evaluation (Development Mode)
+
+Use `--quick-eval` for fast iteration during development. Runs 100 representative CNFs with a 1000s timeout instead of 400 CNFs at 5000s:
+
+```bash
+python src/llmsat/pipelines/evaluation.py \
+    --run_all --generation_tag gemini_trial1 \
+    --quick-eval --dry-run
+```
+
+**One-time setup** (required before first `--quick-eval`):
+
+```bash
+# 1. Run base solver on all 400 CNFs to get reference times
+bash scripts/run_base_solver_eval.sh
+
+# 2. Wait for SLURM jobs to finish, then collect times
+bash scripts/run_base_solver_eval.sh --collect
+
+# 3. Generate the stratified 100-CNF subset
+python scripts/generate_benchmark_subset.py
+```
+
+Quick-eval settings:
+
+| Parameter | Value |
+|-----------|-------|
+| CNFs | 100 (stratified subset) |
+| Timeout | 1000s (~17 min) |
+| Wall Time | 00:20:00 (20 min) |
+| PAR2 Penalty | 2000 (2× timeout) |
+| Benchmark List | `data/benchmarks/satcomp2025_quick100.txt` |
+
 ### Collect Results
 
 After all SLURM jobs complete, collect PAR2 scores:
@@ -102,6 +135,49 @@ python src/llmsat/pipelines/evaluation.py \
     --collect_result --algorithm_id <ID> --code_id <ID>
 ```
 
+### Promote Leaders
+
+After collecting results, promote the best-performing algorithm in each team to leader:
+
+```bash
+# Preview promotions (no changes made)
+python src/llmsat/pipelines/evaluation.py \
+    --promote-leaders --generation_tag gemini_trial1 \
+    --dry-run
+
+# Execute promotions
+python src/llmsat/pipelines/evaluation.py \
+    --promote-leaders --generation_tag gemini_trial1
+```
+
+**How it works:**
+
+Teams consist of a leader (`parent_id=None`) and members (`parent_id=leader_id`). The leader/member distinction controls directory placement (`leaders/` vs `members/`) and which algorithms are used as templates for the next generation.
+
+For each team, the pipeline compares PAR2 scores (lower is better). If a member has a strictly lower PAR2 than the current leader:
+
+1. **Filesystem**: The promoted member's directory moves from `members/` to `leaders/`, and the demoted leader moves from `leaders/` to `members/`. Remaining members stay in `members/` (no directory move needed).
+2. **Database**: The promoted member's `parent_id` is set to `None`, the demoted leader's `parent_id` is set to the new leader's ID, and remaining members' `parent_id` values are updated to point to the new leader.
+
+A PAR2 summary report is written to `outputs/<generation_tag>/par2_scores.txt` with per-team breakdowns:
+
+```
+PAR2 Scores - gemini_trial1
+========================================
+
+Team: algorithm_88... (Leader)
+  [L] algorithm_88... code_e256... PAR2: 3245.12
+  [M] algorithm_a1... code_f3d4... PAR2: 2890.50  <-- BEST
+  [M] algorithm_c5... code_7890... PAR2: 4100.00
+
+Summary: 1 teams, 1 promotion
+```
+
+- `[L]` = leader, `[M]` = member
+- `<-- BEST` marks the best in each team
+- Teams are sorted by best PAR2 (best team first)
+- Ties keep the current leader
+
 ## CLI Reference
 
 ```
@@ -110,6 +186,7 @@ usage: evaluation.py [-h] [--algorithm_id ALGORITHM_ID] [--code_id CODE_ID]
                      [--collect_all_results] [--generation_tag GENERATION_TAG]
                      [--build-only] [--dry-run] [--skip-build] [--timeout TIMEOUT]
                      [--max-concurrent MAX_CONCURRENT] [--batch-mode]
+                     [--promote-leaders] [--quick-eval]
 
 options:
   --algorithm_id ID      Single algorithm ID to evaluate
@@ -125,6 +202,8 @@ options:
   --timeout SECONDS      Timeout per CNF in seconds (default: 5000)
   --max-concurrent N     Max concurrent SLURM tasks per array (default: 100)
   --batch-mode           Use batch submission mode (unified arrays)
+  --promote-leaders      Promote best-performing member to leader in each team
+  --quick-eval           Fast evaluation: 100 representative CNFs, 1000s timeout
 ```
 
 ## Workflow Examples
@@ -158,6 +237,10 @@ squeue -u $USER
 # Step 4: After completion, collect results
 python src/llmsat/pipelines/evaluation.py \
     --collect_all_results --generation_tag gemini_trial1
+
+# Step 5: Promote best members to leaders for next generation
+python src/llmsat/pipelines/evaluation.py \
+    --promote-leaders --generation_tag gemini_trial1
 ```
 
 ### Dry-Run with Pre-Built Solvers
@@ -176,18 +259,120 @@ Results are stored in the solver result directory:
 
 ```
 solvers/<generation_tag>/<algorithm_id>/code_<code_id>/results/
-├── cnf_file_list.txt          # List of CNF files to evaluate
-├── run_solver_array.sh        # SLURM wrapper script
-├── slurm_array_*.log          # SLURM output logs
-├── <cnf_name>.cnf.solving.log # Solver output per CNF
-└── solving_times.json         # Collected PAR2 results
+├── cnf_file_list.txt              # List of CNF files to evaluate
+├── run_solver_array.sh            # SLURM wrapper script
+├── slurm_array_*.log              # SLURM output logs
+├── <cnf_name>.cnf.solving.log     # Solver output per CNF
+├── solving_times_<code_id>.json   # Per-instance solving times
+├── solver_stats_<code_id>.json    # Per-instance solver statistics (restarts, conflicts, etc.)
+└── par2_breakdown_<code_id>.json  # PAR2 scores by category (all/easy/hard/sat/unsat)
 ```
+
+## Timing: CPU Time via GNU `time`
+
+Solver time is measured as CPU time (user + system), not wall-clock time, to match SAT Competition 2025 (BenchExec) methodology. The SLURM scripts use:
+
+```bash
+GNU_TIME=$(which time 2>/dev/null)
+"$GNU_TIME" -f "%U %S" -o "${OUTPUT_FILE}.time" \
+    timeout ${TIMEOUT}s "$SOLVER" ...
+```
+
+- `%U` (user) + `%S` (system) = total CPU seconds of the solver process
+- Wall-clock `timeout` is kept as a safety net
+- GNU `time` is located via `which` (handles CVMFS paths on Compute Canada)
+- If the `.time` file is missing (OOM kill / SLURM kill), the script writes an `ERROR` line
+
+| Scenario | Output | PAR2 |
+|---|---|---|
+| Normal solve | `c process-time: X seconds` | X |
+| Timeout (exit 124) | `TIMEOUT after Ns` | 10000 |
+| OOM / SLURM kill | `ERROR: process killed (OOM or SLURM limit)` | 10000 |
 
 ## PAR2 Scoring
 
-- **Solved**: Actual solving time in seconds
+- **Solved**: CPU time in seconds
 - **Timeout/Error**: 10000 seconds (2x the 5000s timeout)
 - **PAR2 Score**: Average of all instance times
+
+## Solver Internal Statistics (`-s` flag)
+
+The evaluation pipeline passes `-s` to kissat, which prints internal statistics (restarts, conflicts, decisions, etc.) to stdout. These are captured in the `.solving.log` files and parsed during result collection.
+
+### Tracked Statistics
+
+`conflicts`, `decisions`, `propagations`, `restarts`, `switched`, `chronological`, `reductions`, `eliminated`, `rephased`, `vivified`, `walks`, `reordered`
+
+### How It Works
+
+- Kissat prints a `---- [ statistics ]` section when run with `-s`
+- `parse_solver_stats()` extracts the tracked stats from this section
+- On timeout (SIGTERM), kissat's signal handler still prints statistics, so stats are available even for timed-out instances. Hard kills (OOM/SIGKILL) won't have stats — the parser returns `None` gracefully.
+- Stats are saved per-solver as `solver_stats_{code_id}.json`
+
+### Output Format
+
+```
+solvers/<generation_tag>/<algorithm_id>/code_<code_id>/results/
+├── solver_stats_<code_id>.json   # Per-instance solver statistics
+```
+
+```json
+{
+  "instance_name": {
+    "conflicts": 106415374,
+    "decisions": 1070584243,
+    "propagations": 4084341475,
+    "restarts": 981064
+  }
+}
+```
+
+The `restarts` stat is the most directly relevant since the project modifies `kissat_restarting`.
+
+## PAR2 Breakdown by Category
+
+In addition to the overall PAR2 score, the pipeline computes category-specific PAR2 scores for each solver: all, easy, hard, SAT, and UNSAT.
+
+### Instance Categories
+
+A static metadata file `data/benchmarks/instance_categories.json` maps each instance to its satisfiability (SAT/UNSAT/UNKNOWN) and baseline solving time. Generate or regenerate it with:
+
+```bash
+python scripts/generate_instance_categories.py
+```
+
+This script parses baseline `.solving.log` files (from `solvers/baseline/result/`, `solvers/base/result/`, `solvers/base/result_quick/`) for SAT/UNSAT determination and reads `data/results/baseline/baseline_solving_times.json` for timing. Instances that timed out on all solvers are labeled UNKNOWN.
+
+### Easy/Hard Cutoff
+
+The easy/hard split uses a baseline time threshold defined as `DIFFICULTY_CUTOFF` in `evaluation.py` (currently `100` seconds). Instances with baseline time < cutoff are "easy", >= cutoff are "hard". This is a property of the instance (not the evaluation mode), so the same categories apply to both full eval and quick eval.
+
+To change the cutoff, edit the `DIFFICULTY_CUTOFF` constant in `src/llmsat/pipelines/evaluation.py`.
+
+### How It Works
+
+- `instance_categories.json` is loaded once in `EvaluationPipeline.__init__`
+- During `collect_results()`, `_compute_par2_breakdown()` filters `solving_times` by category and computes average per bucket
+- Only instances present in both `solving_times` (i.e., actually evaluated) and `instance_categories` are categorized; the rest are included in "all" only
+- Works with both full eval (400 CNFs) and quick eval (50 CNFs) — the 50-instance subset simply matches fewer keys
+
+### Output Format
+
+```
+solvers/<generation_tag>/<algorithm_id>/code_<code_id>/results/
+├── par2_breakdown_<code_id>.json  # PAR2 by category
+```
+
+```json
+{
+  "all": 2016.30,
+  "easy": 28.93,
+  "hard": 3369.05,
+  "sat": 457.46,
+  "unsat": 996.37
+}
+```
 
 ## Troubleshooting
 
