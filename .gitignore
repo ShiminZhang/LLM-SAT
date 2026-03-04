@@ -8,6 +8,7 @@ data/benchmarks/*
 !data/benchmarks/satcomp2025_quick50.txt
 !data/benchmarks/satcomp2025_quick100.txt
 data/results/
+!data/results/baseline/baseline_solving_times.json
 logs/
 *.pyc
 __pycache__/
