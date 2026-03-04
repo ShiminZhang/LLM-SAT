@@ -73,7 +73,7 @@ from llmsat.pipelines.chatgpt_data_generation import (
     read_code_prompt_template,
     generate_code_prompt,
 )
-import glob
+import glob, random
 
 setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
@@ -850,6 +850,8 @@ def propose_combinations_llm(
     minibatch_size: int = DEFAULT_MINIBATCH_SIZE,
     combination_score_min: float = 0.0,
     model: str = "gpt-4.1",
+    shuffle_passes: int = 3,
+    shuffle_seed: Optional[int] = None,
 ) -> List[Tuple["CombinationProposal", Individual, Individual]]:
     """
     Ask the LLM to propose top-k pairwise combinations from the population.
@@ -868,26 +870,33 @@ def propose_combinations_llm(
     Returns:
         List of (CombinationProposal, parent_a, parent_b), sorted by score desc.
     """
-    pop_lookup: Dict[str, Individual] = {ind.algorithm_id: ind for ind in population}
-
-    # Split into minibatches if needed
-    if len(population) <= minibatch_size:
-        batches = [population]
-    else:
-        batches = [
-            population[i: i + minibatch_size]
-            for i in range(0, len(population), minibatch_size)
-        ]
-        logger.info(
-            f"Splitting {len(population)} leaders into {len(batches)} minibatch(es) "
-            f"of up to {minibatch_size}"
-        )
+    pop_lookup = {ind.algorithm_id: ind for ind in population}
+    rng = random.Random(shuffle_seed)
 
     all_proposals: List[CombinationProposal] = []
 
-    for batch_idx, batch in enumerate(batches):
+    if len(population) <= minibatch_size:
+        # No batching needed; one pass suffices
+        passes_to_run = [population]
+    else:
+        # Build batches for each shuffle pass
+        passes_to_run = []
+        for pass_idx in range(shuffle_passes):
+            shuffled = list(population)
+            rng.shuffle(shuffled)
+            batches = [
+                shuffled[i: i + minibatch_size]
+                for i in range(0, len(shuffled), minibatch_size)
+            ]
+            passes_to_run.extend(batches)
         logger.info(
-            f"Minibatch {batch_idx + 1}/{len(batches)}: requesting top-{top_k} "
+            f"Using {shuffle_passes} shuffle passes → "
+            f"{len(passes_to_run)} total minibatches"
+        )
+
+    for batch_idx, batch in enumerate(passes_to_run):
+        logger.info(
+            f"Minibatch {batch_idx + 1}/{len(passes_to_run)}: requesting top-{top_k} "
             f"combinations from {len(batch)} leaders"
         )
         prompt = build_combination_proposal_prompt(batch, causal_reports, top_k=top_k)
@@ -1861,6 +1870,8 @@ def run_evolution(
     prev_output_tags: Optional[list] = None,
     sample_size: Optional[int] = None,
     sample_seed: int = 42,
+    shuffle_seed: int = 42,
+    shuffle_passes: int = 3
 ) -> Dict[str, Any]:
     """
     Run the full genetic evolution pipeline with an iterative loop.
@@ -2152,6 +2163,8 @@ def run_evolution(
             minibatch_size=minibatch_size,
             combination_score_min=rubric_min,
             model=model,
+            shuffle_passes=shuffle_passes,
+            shuffle_seed=shuffle_seed
         )
 
         # Apply keep_top_n cap after score filter
@@ -2522,6 +2535,18 @@ def main():
         default=42,
         help="Random seed for CNF sampling (default: 42). Only used when --sample_size is set.",
     )
+    parser.add_argument(
+        "--shuffle_seed",
+        type=int,
+        default=42,
+        help="Random seed for shuffle across mini-batches (default: 42).",
+    )
+    parser.add_argument(
+        "--shuffle_passes",
+        type=int,
+        default=3,
+        help="Number of passes for shuffle mini-batches.",
+    )
 
     args = parser.parse_args()
 
@@ -2565,6 +2590,8 @@ def main():
         prev_output_tags=args.prev_output_tags,
         sample_size=args.sample_size,
         sample_seed=args.sample_seed,
+        shuffle_passes=args.shuffle_passes,
+        shuffle_seed=args.shuffle_seed
     )
 
     # Print summary

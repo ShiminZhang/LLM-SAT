@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import math
+import random
 import shutil
 import json
 import subprocess
@@ -45,8 +47,9 @@ SLURM_ACCOUNT = "m4831"
 SLURM_TIMEOUT_SECONDS = 5000           # 83 min 20 sec per CNF
 SLURM_WALL_TIME = "01:30:00"           # 90 min (timeout + buffer)
 SLURM_MEMORY = "4G"
-SLURM_MAX_CONCURRENT = 1000 
+SLURM_MAX_CONCURRENT = 1000
 SLURM_MAX_ARRAY_SIZE = 1000
+SLURM_JOBS_PER_NODE = 128             # physical cores per Perlmutter CPU node (2 sockets × 64 cores)
 PAR2_PENALTY = 10000                   # 2× timeout for unsolved
 
 
@@ -60,7 +63,7 @@ def _compute_average(values: List[float]) -> Optional[float]:
 
 def _get_activation_cmd() -> str:
     """Return shell command to activate Python environment."""
-    return "module load conda; conda activate /pscratch/sd/j/jsong/conda_env/llmsat"
+    return "source ~/general/bin/activate"
 
 
 @dataclass
@@ -406,6 +409,8 @@ class EvaluationPipeline:
         max_jobs: int = 400,
         dry_run: bool = False,
         timeout: int = SLURM_TIMEOUT_SECONDS,
+        sample_size: Optional[int] = None,
+        sample_seed: int = 42,
     ) -> List[int]:
         """
         Submit solver evaluation using a SLURM job array.
@@ -417,6 +422,8 @@ class EvaluationPipeline:
             max_jobs: Maximum number of CNF files to evaluate
             dry_run: If True, print SLURM commands without submitting
             timeout: Timeout per CNF in seconds (default: SLURM_TIMEOUT_SECONDS)
+            sample_size: If set, randomly sample this many CNF files instead of using all
+            sample_seed: Random seed for reproducible sampling (default: 42)
 
         Returns:
             List containing the SLURM job array ID, or empty list on failure.
@@ -438,6 +445,11 @@ class EvaluationPipeline:
             logger.info(f"All {jobs_skipped} benchmarks already evaluated")
             return []
 
+        if sample_size is not None and sample_size < len(cnf_files):
+            rng = random.Random(sample_seed)
+            cnf_files = rng.sample(cnf_files, sample_size)
+            logger.info(f"Sampled {sample_size} CNF files (seed={sample_seed})")
+
         if len(cnf_files) > max_jobs:
             logger.warning(f"Limiting evaluation to {max_jobs} benchmarks (out of {len(cnf_files)} remaining)")
             cnf_files = cnf_files[:max_jobs]
@@ -449,7 +461,7 @@ class EvaluationPipeline:
                 f.write(f"{cnf_file}\n")
         logger.info(f"Wrote {len(cnf_files)} CNF files to {cnf_list_path}")
 
-        # Create wrapper script for job array with timeout
+        # Create wrapper script: each array task = 1 node running SLURM_JOBS_PER_NODE jobs in parallel
         script_path = f"{result_dir}/run_solver_array.sh"
         script_content = f"""#!/bin/bash
 CNF_LIST="{cnf_list_path}"
@@ -457,45 +469,56 @@ SOLVER="{solver_path}/kissat"
 BENCHMARK_PATH="{benchmark_path}"
 RESULT_DIR="{result_dir}"
 TIMEOUT={timeout}
+N_PER_NODE={SLURM_JOBS_PER_NODE}
 
-CNF_FILE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$CNF_LIST")
-OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
+# Compute the line range for this node's chunk
+START_LINE=$(( SLURM_ARRAY_TASK_ID * N_PER_NODE + 1 ))
+END_LINE=$(( START_LINE + N_PER_NODE - 1 ))
 
-if [ -z "$CNF_FILE" ]; then
-    echo "ERROR: No CNF file found for array task $SLURM_ARRAY_TASK_ID"
-    exit 1
-fi
+echo "Node $SLURM_ARRAY_TASK_ID: processing lines $START_LINE to $END_LINE"
 
-# Skip if already done
-if [ -f "$OUTPUT_FILE" ]; then
-    echo "Already completed: $CNF_FILE"
-    exit 0
-fi
+# Run all CNF files in this chunk in parallel (one per physical core)
+while IFS= read -r CNF_FILE; do
+    (
+        if [ -z "$CNF_FILE" ]; then
+            exit 0
+        fi
 
-echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
+        OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
 
-# Run solver with timeout, capturing wall-clock time
-START_TIME=$(date +%s.%N)
-timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
-EXIT_CODE=$?
-END_TIME=$(date +%s.%N)
-ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
+        # Skip if already done
+        if [ -f "$OUTPUT_FILE" ]; then
+            echo "Already completed: $CNF_FILE"
+            exit 0
+        fi
 
-if [ $EXIT_CODE -eq 124 ]; then
-    echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
-else
-    echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
-fi
+        echo "Running solver on $CNF_FILE"
 
-echo "Solver finished with exit code $EXIT_CODE"
-exit $EXIT_CODE
+        # Run solver with timeout, capturing wall-clock time
+        START_TIME=$(date +%s.%N)
+        timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+        EXIT_CODE=$?
+        END_TIME=$(date +%s.%N)
+        ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
+
+        if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+        else
+            echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
+        fi
+    ) &
+done < <(sed -n "${{START_LINE}},${{END_LINE}}p" "$CNF_LIST")
+
+wait  # wait for all background jobs on this node to finish
+echo "Node $SLURM_ARRAY_TASK_ID done"
 """
         with open(script_path, "w") as f:
             f.write(script_content)
         os.chmod(script_path, 0o755)
 
-        # Submit job array
-        array_range = f"0-{len(cnf_files) - 1}"
+        # 1 array task = 1 node = SLURM_JOBS_PER_NODE parallel jobs
+        n_nodes = math.ceil(len(cnf_files) / SLURM_JOBS_PER_NODE)
+        array_range = f"0-{n_nodes - 1}"
         slurm_cmd = wrap_command_to_slurm_array(
             script_path=script_path,
             array_range=array_range,
@@ -505,6 +528,8 @@ exit $EXIT_CODE
             job_name=f"solve_array",
             output_file=f"{result_dir}/slurm_array_%a.log",
             max_concurrent=SLURM_MAX_CONCURRENT,
+            ntasks=SLURM_JOBS_PER_NODE,
+            cpus_per_task=1,
         )
         logger.info(f"SLURM command: {slurm_cmd}")
 
@@ -586,56 +611,63 @@ exit $EXIT_CODE
                     f.write(f"{solver_path}\t{result_dir}\t{cnf_file}\n")
 
             # Create wrapper script
+            # Each array task = 1 node running SLURM_JOBS_PER_NODE jobs in parallel
             script_path = f"{batch_dir}/run_batch_array.sh"
             script_content = f"""#!/bin/bash
 TASK_LIST="{task_list_path}"
 BENCHMARK_PATH="{benchmark_path}"
 TIMEOUT={timeout}
+N_PER_NODE={SLURM_JOBS_PER_NODE}
 
-# Read task info for this array index
-TASK_LINE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$TASK_LIST")
-SOLVER_PATH=$(echo "$TASK_LINE" | cut -f1)
-RESULT_DIR=$(echo "$TASK_LINE" | cut -f2)
-CNF_FILE=$(echo "$TASK_LINE" | cut -f3)
+# Compute the line range for this node's chunk
+START_LINE=$(( SLURM_ARRAY_TASK_ID * N_PER_NODE + 1 ))
+END_LINE=$(( START_LINE + N_PER_NODE - 1 ))
 
-SOLVER="${{SOLVER_PATH}}/kissat"
-OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
+echo "Node $SLURM_ARRAY_TASK_ID: processing lines $START_LINE to $END_LINE"
 
-if [ -z "$CNF_FILE" ]; then
-    echo "ERROR: No task found for array task $SLURM_ARRAY_TASK_ID"
-    exit 1
-fi
+# Run all tasks in this chunk in parallel (one background process per core)
+while IFS=$'\\t' read -r SOLVER_PATH RESULT_DIR CNF_FILE; do
+    (
+        if [ -z "$CNF_FILE" ]; then
+            exit 0
+        fi
 
-# Skip if already done
-if [ -f "$OUTPUT_FILE" ]; then
-    echo "Already completed: $CNF_FILE"
-    exit 0
-fi
+        SOLVER="${{SOLVER_PATH}}/kissat"
+        OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
 
-echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
+        # Skip if already done
+        if [ -f "$OUTPUT_FILE" ]; then
+            echo "Already completed: $CNF_FILE"
+            exit 0
+        fi
 
-# Run solver with timeout, capturing wall-clock time
-START_TIME=$(date +%s.%N)
-timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
-EXIT_CODE=$?
-END_TIME=$(date +%s.%N)
-ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
+        echo "Running solver on $CNF_FILE"
 
-if [ $EXIT_CODE -eq 124 ]; then
-    echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
-else
-    echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
-fi
+        # Run solver with timeout, capturing wall-clock time
+        START_TIME=$(date +%s.%N)
+        timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+        EXIT_CODE=$?
+        END_TIME=$(date +%s.%N)
+        ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
 
-echo "Solver finished with exit code $EXIT_CODE"
-exit $EXIT_CODE
+        if [ $EXIT_CODE -eq 124 ]; then
+            echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+        else
+            echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
+        fi
+    ) &
+done < <(sed -n "${{START_LINE}},${{END_LINE}}p" "$TASK_LIST")
+
+wait  # wait for all background jobs on this node to finish
+echo "Node $SLURM_ARRAY_TASK_ID done"
 """
             with open(script_path, "w") as f:
                 f.write(script_content)
             os.chmod(script_path, 0o755)
 
-            # Submit job array
-            array_range = f"0-{len(chunk_tasks) - 1}"
+            # 1 array task = 1 node = SLURM_JOBS_PER_NODE parallel jobs
+            n_nodes = math.ceil(len(chunk_tasks) / SLURM_JOBS_PER_NODE)
+            array_range = f"0-{n_nodes - 1}"
             slurm_cmd = wrap_command_to_slurm_array(
                 script_path=script_path,
                 array_range=array_range,
@@ -645,6 +677,8 @@ exit $EXIT_CODE
                 job_name=f"batch_{chunk_num}",
                 output_file=f"{batch_dir}/slurm_array_%a.log",
                 max_concurrent=SLURM_MAX_CONCURRENT,
+                ntasks=SLURM_JOBS_PER_NODE,
+                cpus_per_task=1,
             )
             logger.info(f"SLURM command for chunk {chunk_num}: {slurm_cmd}")
 
@@ -666,7 +700,7 @@ exit $EXIT_CODE
 
         return job_ids
 
-    def run_single_solver(self, code_id: str, build_only: bool = False, dry_run: bool = False, skip_build: bool = False) -> Optional[Tuple[str, str, str]]:
+    def run_single_solver(self, code_id: str, build_only: bool = False, dry_run: bool = False, skip_build: bool = False, sample_size: Optional[int] = None, sample_seed: int = 42) -> Optional[Tuple[str, str, str]]:
         """
         Build and evaluate a single code result.
 
@@ -716,7 +750,7 @@ exit $EXIT_CODE
                 logger.info(f"Build-only mode: skipping SLURM evaluation")
                 return (solver_path, result_dir, code_id)
 
-            slurm_ids = self.slurm_run_evaluate(solver_path, SAT2025_BENCHMARK_PATH, result_dir, dry_run=dry_run)
+            slurm_ids = self.slurm_run_evaluate(solver_path, SAT2025_BENCHMARK_PATH, result_dir, dry_run=dry_run, sample_size=sample_size, sample_seed=sample_seed)
 
             if not dry_run:
                 if slurm_ids:
@@ -763,6 +797,8 @@ exit $EXIT_CODE
         build_only: bool = False,
         dry_run: bool = False,
         skip_build: bool = False,
+        sample_size: Optional[int] = None,
+        sample_seed: int = 42,
     ) -> None:
         """
         Build all solvers and submit evaluations in efficient batches.
@@ -775,6 +811,8 @@ exit $EXIT_CODE
             build_only: If True, build solvers but skip SLURM evaluation
             dry_run: If True, print SLURM commands without submitting
             skip_build: If True, assume solvers are already built and skip build step
+            sample_size: If set, randomly sample this many CNF files instead of using all
+            sample_seed: Random seed for reproducible sampling (default: 42)
         """
         # Collect CNF files from benchmark
         cnf_files = []
@@ -782,6 +820,11 @@ exit $EXIT_CODE
             if benchmark_file.endswith(".cnf"):
                 cnf_files.append(benchmark_file)
         logger.info(f"Found {len(cnf_files)} CNF files in benchmark")
+
+        if sample_size is not None and sample_size < len(cnf_files):
+            rng = random.Random(sample_seed)
+            cnf_files = rng.sample(cnf_files, sample_size)
+            logger.info(f"Sampled {sample_size} CNF files (seed={sample_seed})")
 
         # Build all solvers and collect successful ones
         solver_tasks = []
