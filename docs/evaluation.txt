@@ -90,7 +90,7 @@ python src/llmsat/pipelines/evaluation.py \
 
 ### Quick Evaluation (Development Mode)
 
-Use `--quick-eval` for fast iteration during development. Runs 100 representative CNFs with a 1000s timeout instead of 400 CNFs at 5000s:
+Use `--quick-eval` for fast iteration during development. Runs 50 representative CNFs with a 600s timeout instead of 400 CNFs at 5000s:
 
 ```bash
 python src/llmsat/pipelines/evaluation.py \
@@ -107,7 +107,7 @@ bash scripts/run_base_solver_eval.sh
 # 2. Wait for SLURM jobs to finish, then collect times
 bash scripts/run_base_solver_eval.sh --collect
 
-# 3. Generate the stratified 100-CNF subset
+# 3. Generate the stratified 50-CNF subset
 python scripts/generate_benchmark_subset.py
 ```
 
@@ -115,11 +115,11 @@ Quick-eval settings:
 
 | Parameter | Value |
 |-----------|-------|
-| CNFs | 100 (stratified subset) |
-| Timeout | 1000s (~17 min) |
-| Wall Time | 00:20:00 (20 min) |
-| PAR2 Penalty | 2000 (2× timeout) |
-| Benchmark List | `data/benchmarks/satcomp2025_quick100.txt` |
+| CNFs | 50 (stratified subset) |
+| Timeout | 600s (10 min) |
+| Wall Time | 00:12:00 (12 min) |
+| PAR2 Penalty | 1200 (2× timeout) |
+| Benchmark List | `data/benchmarks/satcomp2025_quick50.txt` |
 
 ### Collect Results
 
