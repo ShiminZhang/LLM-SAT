@@ -1,7 +1,12 @@
+.cache/
+outputs/
 credentials/
 models/
 data/benchmarks/*
 !data/benchmarks/**/*.uri
+!data/benchmarks/instance_categories.json
+!data/benchmarks/satcomp2025_quick50.txt
+!data/benchmarks/satcomp2025_quick100.txt
 data/results/
 logs/
 *.pyc

@@ -7,9 +7,9 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=96G
-#SBATCH --gpus-per-node=h100:1
+#SBATCH --gpus-per-node=nvidia_h100_80gb_hbm3_3g.40gb:1
 #SBATCH --time=02:00:00
-#SBATCH --mail-user=pnguyen337@gatech.edu
+#SBATCH --mail-user=mgopalan6@gatech.edu
 #SBATCH --mail-type=FAIL,END
 #SBATCH --export=ALL
 
@@ -27,7 +27,8 @@ TEAM_BATCH_DIR="$1"
 OUT_DIR="$2"
 shift 2
 
-source ~/.venvs/llmsat312/bin/activate
+module load scipy-stack/2024b
+source ~/general/bin/activate
 export PYTHONPATH="./src:${PYTHONPATH:-}"
 export HF_HOME="${HF_HOME:-$PWD/.cache/huggingface}"
 

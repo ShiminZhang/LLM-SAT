@@ -1,30 +1,55 @@
 #!/bin/bash
-# One-time script: evaluate base (unmodified) Kissat on all 400 CNFs.
+# Evaluate base (unmodified) Kissat on SAT competition benchmarks.
 # After SLURM jobs finish, run again with --collect to build solving_times.json.
 #
 # Usage:
-#   bash scripts/run_base_solver_eval.sh            # submit SLURM array
-#   bash scripts/run_base_solver_eval.sh --collect   # collect results into JSON
+#   bash scripts/run_base_solver_eval.sh                  # quick-eval (50 CNFs, 600s)
+#   bash scripts/run_base_solver_eval.sh --full            # full eval  (400 CNFs, 5000s)
+#   bash scripts/run_base_solver_eval.sh --collect         # collect quick-eval results
+#   bash scripts/run_base_solver_eval.sh --collect --full  # collect full-eval results
 
 set -euo pipefail
 
+# ---- Parse flags ----
+COLLECT=false
+FULL=false
+for arg in "$@"; do
+    case "$arg" in
+        --collect) COLLECT=true ;;
+        --full)    FULL=true ;;
+        *) echo "Unknown flag: $arg"; exit 1 ;;
+    esac
+done
+
+# ---- Mode-dependent parameters ----
 BASE_SOLVER="solvers/base"
 BENCHMARK_PATH="data/benchmarks/satcomp2025"
-RESULT_DIR="solvers/base/result"
-TIMEOUT=5000
-WALL_TIME="01:30:00"
 ACCOUNT="def-vganesh"
 MEM="4G"
 MAX_CONCURRENT=1000
 
+if $FULL; then
+    TIMEOUT=5000
+    WALL_TIME="01:30:00"
+    PAR2_PENALTY=10000
+    RESULT_DIR="solvers/base/result"
+    QUICK_LIST=""
+else
+    TIMEOUT=600
+    WALL_TIME="00:12:00"
+    PAR2_PENALTY=1200
+    RESULT_DIR="solvers/base/result_quick"
+    QUICK_LIST="data/benchmarks/satcomp2025_quick50.txt"
+fi
+
 # ---- Collect mode: parse logs into solving_times.json ----
-if [[ "${1:-}" == "--collect" ]]; then
-    echo "Collecting results from $RESULT_DIR ..."
+if $COLLECT; then
+    echo "Collecting results from $RESULT_DIR (PAR-2 penalty=$PAR2_PENALTY) ..."
     python3 -c "
 import os, re, json
 
 result_dir = '$RESULT_DIR'
-par2_penalty = 10000
+par2_penalty = $PAR2_PENALTY
 times = {}
 
 for f in sorted(os.listdir(result_dir)):
@@ -46,7 +71,14 @@ for f in sorted(os.listdir(result_dir)):
 out_path = os.path.join('$BASE_SOLVER', 'solving_times.json')
 with open(out_path, 'w') as fh:
     json.dump(times, fh, indent=2)
-print(f'Wrote {len(times)} entries to {out_path}')
+
+n = len(times)
+solved = sum(1 for t in times.values() if t < par2_penalty)
+timeouts = n - solved
+par2 = sum(times.values()) / n if n else 0
+print(f'Wrote {n} entries to {out_path}')
+print(f'Solved: {solved}/{n}  Timeouts: {timeouts}')
+print(f'PAR-2 score: {par2:.2f}')
 "
     exit 0
 fi
@@ -65,15 +97,34 @@ CNF_LIST="$RESULT_DIR/cnf_file_list.txt"
 > "$CNF_LIST"
 SKIPPED=0
 TOTAL=0
-for cnf in $(ls "$BENCHMARK_PATH"/*.cnf 2>/dev/null | sort); do
-    fname=$(basename "$cnf")
-    if [ -f "$RESULT_DIR/${fname}.solving.log" ]; then
-        SKIPPED=$((SKIPPED + 1))
-    else
-        echo "$fname" >> "$CNF_LIST"
+
+if $FULL; then
+    # Full mode: scan all CNFs in directory
+    for cnf in $(ls "$BENCHMARK_PATH"/*.cnf 2>/dev/null | sort); do
+        fname=$(basename "$cnf")
+        if [ -f "$RESULT_DIR/${fname}.solving.log" ]; then
+            SKIPPED=$((SKIPPED + 1))
+        else
+            echo "$fname" >> "$CNF_LIST"
+        fi
+        TOTAL=$((TOTAL + 1))
+    done
+else
+    # Quick-eval: read filenames from benchmark list file
+    if [ ! -f "$QUICK_LIST" ]; then
+        echo "ERROR: quick-eval benchmark list not found at $QUICK_LIST"
+        exit 1
     fi
-    TOTAL=$((TOTAL + 1))
-done
+    while IFS= read -r fname; do
+        [ -z "$fname" ] && continue
+        if [ -f "$RESULT_DIR/${fname}.solving.log" ]; then
+            SKIPPED=$((SKIPPED + 1))
+        else
+            echo "$fname" >> "$CNF_LIST"
+        fi
+        TOTAL=$((TOTAL + 1))
+    done < "$QUICK_LIST"
+fi
 
 NUM_TASKS=$(wc -l < "$CNF_LIST")
 if [ "$NUM_TASKS" -eq 0 ]; then
@@ -161,4 +212,8 @@ sbatch \
     "$SCRIPT_PATH"
 
 echo ""
-echo "After jobs complete, run:  bash scripts/run_base_solver_eval.sh --collect"
+if $FULL; then
+    echo "After jobs complete, run:  bash scripts/run_base_solver_eval.sh --collect --full"
+else
+    echo "After jobs complete, run:  bash scripts/run_base_solver_eval.sh --collect"
+fi
