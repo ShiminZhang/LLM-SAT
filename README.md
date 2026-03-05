@@ -104,6 +104,14 @@ python src/llmsat/pipelines/evaluation.py \
 
 Use `--dry-run` on any command to preview without submitting. Drop `--quick-eval` for full evaluation (400 CNFs, 5000s timeout) instead of the fast subset (50 CNFs, 600s timeout).
 
+Results are saved per-solver under `solvers/<TAG>/{leaders,members}/algorithm_<ID>/code_<ID>/results/`:
+
+- `solving_times_<code_id>.json` — per-instance CPU time in seconds (or PAR2 penalty for timeout/error)
+- `solver_stats_<code_id>.json` — kissat internal statistics per instance (conflicts, decisions, propagations, restarts, etc.), parsed from the `-s` flag output
+- `par2_breakdown_<code_id>.json` — PAR2 scores broken down by category: all, easy, hard, SAT, UNSAT
+
+The PAR2 score for a solver is the average of all its instance times, where unsolved instances (timeout, crash, OOM) receive a penalty of 2x the timeout (10000 for full eval, 1200 for quick eval).
+
 ### Step 3: Genetic Evolution
 
 Takes the promoted leaders from Step 2 and evolves them. An LLM first analyzes each leader to identify its strengths, weaknesses, and key mechanisms (causal analysis). It then proposes the most promising pairs of leaders to combine, generates offspring algorithms via crossover, translates them to C code, and evaluates them. Offspring that beat their parents' PAR2 are kept. Since SLURM evaluation is async, each invocation runs one iteration; run repeatedly to continue evolving.
