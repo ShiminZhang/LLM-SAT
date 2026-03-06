@@ -130,6 +130,7 @@ def wrap_command_to_slurm(
     error_file: str = None,
     dependencies: list[str] = None,
     dependency_type: str = "afterok",
+    constraint: str = "cpu",
 ) -> str:
     """
     Create an sbatch command for a single job.
