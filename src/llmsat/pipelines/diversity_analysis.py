@@ -281,7 +281,7 @@ def load_algorithms_by_generation_tag(generation_tag: str) -> List[Dict[str, Any
         if result:
             algorithms.append({
                 "id": result.id,
-                "algorithm": result.algorithm,
+                "algorithm": result.description,
                 "parent_id": result.parent_id,
             })
 

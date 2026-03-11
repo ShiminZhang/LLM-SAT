@@ -8,31 +8,16 @@ from dotenv import load_dotenv
 # Load .env file from project root
 load_dotenv()
 from typing import List, Dict, Any, Mapping, Optional
-from llmsat.llmsat import CodeResult, CodeStatus, AlgorithmResult, AlgorithmStatus
+from llmsat.llmsat import CodeResult, CodeStatus, AlgorithmResult, AlgorithmStatus, Role
 from datetime import datetime
 from llmsat.llmsat import get_logger, setup_logging
 logger = get_logger(__name__)
-# for reference only
-# @dataclass
-# class AlgorithmResult:
-#     id: str
-#     algorithm: str
-#     status: str
-#     last_updated: str
-#     prompt: str
-#     par2: float
-#     error_rate: float
-#     code_id_list: List[str] # list of code ids that have been generated for this algorithm
-#     other_metrics: Dict[str, float]
 
-# @dataclass
-# class CodeResult(TaskResult):
-#     id: str
-#     algorithm_id: str
-#     code: str
-#     status: str
-#     last_updated: str
-#     build_success: bool
+# DB column layout for algorithm_results (after migration):
+#   id, algorithm (now stores description), code_id_list, status, last_updated,
+#   prompt, par2 (now stores raw_par2_score as JSON list), error_rate (legacy),
+#   other_metrics, role, function_name, parent_ids, parent_descriptions,
+#   normalized_par2_scores, analysis
 
 
 def get_code_result_of_status(status: CodeStatus) -> List[CodeResult]:
@@ -111,20 +96,19 @@ def get_code_result(code_result_id: str) -> Optional[CodeResult]:
 
 def get_algorithms_by_prompt(prompt: str) -> List[AlgorithmResult]:
     conn = connect_to_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM algorithm_results WHERE prompt = %s;", (prompt,))
     rows = cur.fetchall()
-    return [ToAlgorithmResult(row) for row in rows]
+    return [_row_to_algorithm_result(row) for row in rows]
 
-def get_algorithm_result(algorithm_result_id: str):
+def get_algorithm_result(algorithm_result_id: str) -> Optional[AlgorithmResult]:
     conn = connect_to_db()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute("SELECT * FROM algorithm_results WHERE id = %s;", (algorithm_result_id,))
-    assert cur.rowcount <= 1, "hash collision"
-    if cur.rowcount == 1:
-        row = cur.fetchone()
-        # logger.info(f"Retrieved algorithm result {row}")
-        return ToAlgorithmResult(row)
+    rows = cur.fetchall()
+    assert len(rows) <= 1, "hash collision"
+    if len(rows) == 1:
+        return _row_to_algorithm_result(rows[0])
     else:
         return None
 
@@ -152,54 +136,72 @@ def update_algorithm_result(algorithm_result: AlgorithmResult):
     existing_algorithm_result = get_algorithm_result(algorithm_result.id)
     conn = connect_to_db()
     cur = conn.cursor()
-    # Include target_function and parent_id in other_metrics for DB persistence
-    other_metrics_obj = algorithm_result.other_metrics
-    if other_metrics_obj is None:
-        other_metrics_obj = {}
+
+    # Serialize other_metrics (no longer packing target_function/parent_id here)
+    other_metrics_obj = algorithm_result.other_metrics or {}
     if isinstance(other_metrics_obj, dict):
-        # Defensively remove stale keys before re-adding
+        # Clean out legacy keys that now have their own columns
         other_metrics_obj.pop("target_function", None)
         other_metrics_obj.pop("parent_id", None)
-        # Store target_function if not default
-        if algorithm_result.target_function != "kissat_restarting":
-            other_metrics_obj["target_function"] = algorithm_result.target_function
-        # Store parent_id if set
-        if algorithm_result.parent_id is not None:
-            other_metrics_obj["parent_id"] = algorithm_result.parent_id
+    other_metrics_text = _serialize_json_field(other_metrics_obj)
+
+    # Serialize new list/enum fields
+    role_text = algorithm_result.role.value if isinstance(algorithm_result.role, Role) else str(algorithm_result.role)
+    parent_ids_text = _serialize_json_field(algorithm_result.parent_id)
+    parent_descs_text = _serialize_json_field(algorithm_result.parent_algorithm_description)
+    raw_par2_text = _serialize_json_field(algorithm_result.raw_par2_score)
+    norm_par2_text = _serialize_json_field(algorithm_result.normalized_par2_score)
+
     algorithm_result.last_updated = datetime.now()
-    if other_metrics_obj is None:
-        other_metrics_text = None
-    elif isinstance(other_metrics_obj, (dict, list)):
-        other_metrics_text = json.dumps(other_metrics_obj, ensure_ascii=False)
-    else:
-        other_metrics_text = str(other_metrics_obj)
-    if existing_algorithm_result is None: # add the algorithm result
+
+    if existing_algorithm_result is None:
         cur.execute(
-            "INSERT INTO algorithm_results (id, algorithm, code_id_list, status, last_updated, prompt, par2, error_rate, other_metrics) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s);",
+            """INSERT INTO algorithm_results
+               (id, algorithm, code_id_list, status, last_updated, prompt, par2,
+                error_rate, other_metrics, role, function_name, parent_ids,
+                parent_descriptions, normalized_par2_scores, analysis)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);""",
             (
                 algorithm_result.id,
-                algorithm_result.algorithm,
+                algorithm_result.description,
                 _code_id_list_to_text(algorithm_result.code_id_list),
                 algorithm_result.status,
                 algorithm_result.last_updated,
                 algorithm_result.prompt,
-                algorithm_result.par2,
-                algorithm_result.error_rate,
+                raw_par2_text,
+                None,  # error_rate (legacy, always None for new records)
                 other_metrics_text,
+                role_text,
+                algorithm_result.function_name,
+                parent_ids_text,
+                parent_descs_text,
+                norm_par2_text,
+                algorithm_result.analysis,
             ),
         )
-    else: # update the algorithm result
+    else:
         cur.execute(
-            "UPDATE algorithm_results SET algorithm = %s, code_id_list = %s, status = %s, last_updated = %s, prompt = %s, par2 = %s, error_rate = %s, other_metrics = %s WHERE id = %s;",
+            """UPDATE algorithm_results
+               SET algorithm = %s, code_id_list = %s, status = %s, last_updated = %s,
+                   prompt = %s, par2 = %s, error_rate = %s, other_metrics = %s,
+                   role = %s, function_name = %s, parent_ids = %s,
+                   parent_descriptions = %s, normalized_par2_scores = %s, analysis = %s
+               WHERE id = %s;""",
             (
-                algorithm_result.algorithm,
+                algorithm_result.description,
                 _code_id_list_to_text(algorithm_result.code_id_list),
                 algorithm_result.status,
                 algorithm_result.last_updated,
                 algorithm_result.prompt,
-                algorithm_result.par2,
-                algorithm_result.error_rate,
+                raw_par2_text,
+                None,
                 other_metrics_text,
+                role_text,
+                algorithm_result.function_name,
+                parent_ids_text,
+                parent_descs_text,
+                norm_par2_text,
+                algorithm_result.analysis,
                 algorithm_result.id,
             ),
         )
@@ -207,15 +209,27 @@ def update_algorithm_result(algorithm_result: AlgorithmResult):
     print(f"Updated algorithm result {algorithm_result.id}")
 
 def init_tables():
-    # call once only
-    # algorithm table: id, algorithm, prompt, par2, error_rate, other_metrics
-    # code table: id, code, algorithm, solver_id, build_success
     conn = connect_to_db()
     cur = conn.cursor()
-    cur.execute("CREATE TABLE IF NOT EXISTS algorithm_results (id TEXT PRIMARY KEY, algorithm TEXT, code_id_list TEXT, status TEXT, last_updated TEXT, prompt TEXT, par2 TEXT, error_rate TEXT, other_metrics TEXT);")
+    cur.execute("""CREATE TABLE IF NOT EXISTS algorithm_results (
+        id TEXT PRIMARY KEY,
+        algorithm TEXT,
+        code_id_list TEXT,
+        status TEXT,
+        last_updated TEXT,
+        prompt TEXT,
+        par2 TEXT,
+        error_rate TEXT,
+        other_metrics TEXT,
+        role TEXT,
+        function_name TEXT,
+        parent_ids TEXT,
+        parent_descriptions TEXT,
+        normalized_par2_scores TEXT,
+        analysis TEXT
+    );""")
     cur.execute("CREATE TABLE IF NOT EXISTS code_results (id TEXT PRIMARY KEY, code TEXT, algorithm TEXT, status TEXT, last_updated TEXT, solver_id TEXT, build_success TEXT, par2 TEXT);")
     conn.commit()
-    pass
 
 def clear_tables():
     conn = connect_to_db()
@@ -225,29 +239,21 @@ def clear_tables():
     conn.commit()
     pass
 
-def ToAlgorithmResult(result: tuple) -> AlgorithmResult:
-    other_metrics = _to_other_metrics(result[8])
-    # Extract target_function from other_metrics if present
-    target_function = "kissat_restarting"  # default
-    if isinstance(other_metrics, dict) and "target_function" in other_metrics:
-        target_function = other_metrics.pop("target_function")
-    # Extract parent_id from other_metrics if present
-    parent_id = None
-    if isinstance(other_metrics, dict) and "parent_id" in other_metrics:
-        parent_id = other_metrics.pop("parent_id")
-    return AlgorithmResult(
-        id=result[0],
-        algorithm=result[1],
-        status=result[3],
-        last_updated=result[4],
-        code_id_list=_text_to_code_id_list(result[2]),
-        prompt=result[5],
-        par2=_to_float(result[6]),
-        error_rate=_to_float(result[7]),
-        other_metrics=other_metrics,
-        target_function=target_function,
-        parent_id=parent_id,
-    )
+def ToAlgorithmResult(result) -> AlgorithmResult:
+    """Convert a DB row (tuple or dict) to AlgorithmResult with backwards compat."""
+    if not isinstance(result, tuple):
+        return _row_to_algorithm_result(result)
+    # Tuple-based: convert to dict using known column order, then delegate.
+    # This handles both old schema (9 cols) and new schema (15 cols).
+    keys = ["id", "algorithm", "code_id_list", "status", "last_updated",
+            "prompt", "par2", "error_rate", "other_metrics",
+            "role", "function_name", "parent_ids", "parent_descriptions",
+            "normalized_par2_scores", "analysis"]
+    row = {}
+    for i, key in enumerate(keys):
+        if i < len(result):
+            row[key] = result[i]
+    return _row_to_algorithm_result(row)
 
 def ToCodeResult(result: tuple) -> CodeResult:
     if type(result) != tuple:
@@ -299,14 +305,13 @@ def test_utils():
     update_code_result(code_result)
     algorithm_result = AlgorithmResult(
         id="1",
-        algorithm="kissat_restarting_policy",
+        function_name="kissat_restarting",
+        description="Test Policy: Step 1: always restart",
+        role=Role.LEADER,
         status=AlgorithmStatus.Generated,
         last_updated=datetime.now(),
-        prompt="",
-        par2=22,
-        error_rate=0,
         code_id_list=[],
-        other_metrics={}
+        prompt="",
     )
     update_algorithm_result(algorithm_result)
     print(f"Tested utils")
@@ -371,6 +376,50 @@ def _text_to_code_id_list(value: Any) -> List[str]:
         return [part.strip() for part in s.split(",") if part.strip()]
     return [s] if s else []
 
+def _serialize_json_field(value: Any) -> Optional[str]:
+    """Serialize a value to JSON text for DB storage. Returns None for None."""
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+def _to_json_list(value: Any) -> Optional[List[str]]:
+    """Parse a JSON text column as a list of strings. Returns None if null/empty."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return value
+    try:
+        parsed = json.loads(value)
+        if isinstance(parsed, list):
+            return [str(x) for x in parsed]
+    except Exception:
+        pass
+    return None
+
+def _to_json_list_float(value: Any) -> Optional[List[float]]:
+    """Parse a JSON text column as a list of floats.
+
+    Backwards compat: if value is a single float/string-number, wraps as
+    [None, None, None, None, float] so the 'all' slot (index 4) is populated.
+    """
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return [_to_float(x) for x in value]
+    try:
+        parsed = json.loads(str(value))
+        if isinstance(parsed, list):
+            return [_to_float(x) for x in parsed]
+    except Exception:
+        pass
+    # Legacy: single float value — put it in the 'all' slot (index 4)
+    as_float = _to_float(value)
+    if as_float is not None:
+        return [None, None, None, None, as_float]
+    return None
+
 def _row_to_code_result(row: Mapping[str, Any]) -> CodeResult:
     return CodeResult(
         id=row.get("id"),
@@ -383,27 +432,80 @@ def _row_to_code_result(row: Mapping[str, Any]) -> CodeResult:
     )
     
 def _row_to_algorithm_result(row: Mapping[str, Any]) -> AlgorithmResult:
+    """Convert a dict-like DB row to AlgorithmResult.
+
+    Handles backwards compatibility: if new columns (role, function_name, etc.)
+    are missing or NULL, falls back to extracting from other_metrics / inferring.
+    """
     other_metrics = _to_other_metrics(row.get("other_metrics"))
-    # Extract target_function from other_metrics if present
-    target_function = "kissat_restarting"  # default
-    if isinstance(other_metrics, dict) and "target_function" in other_metrics:
-        target_function = other_metrics.pop("target_function")
-    # Extract parent_id from other_metrics if present
-    parent_id = None
-    if isinstance(other_metrics, dict) and "parent_id" in other_metrics:
-        parent_id = other_metrics.pop("parent_id")
+    if other_metrics is None:
+        other_metrics = {}
+
+    # --- function_name: prefer new column, fall back to other_metrics ---
+    function_name = row.get("function_name")
+    if not function_name:
+        function_name = "kissat_restarting"
+        if isinstance(other_metrics, dict) and "target_function" in other_metrics:
+            function_name = other_metrics.pop("target_function")
+
+    # --- parent_id: prefer new parent_ids column (JSON list), fall back to other_metrics ---
+    parent_id = _to_json_list(row.get("parent_ids"))
+    if parent_id is None:
+        # Legacy: other_metrics stored parent_id as a single string
+        legacy_pid = None
+        if isinstance(other_metrics, dict) and "parent_id" in other_metrics:
+            legacy_pid = other_metrics.pop("parent_id")
+        if legacy_pid is not None:
+            parent_id = [legacy_pid] if isinstance(legacy_pid, str) else list(legacy_pid)
+        # Also check for parent_a / parent_b (offspring records)
+        elif isinstance(other_metrics, dict):
+            pa = other_metrics.get("parent_a")
+            pb = other_metrics.get("parent_b")
+            if pa and pb:
+                parent_id = [pa, pb]
+
+    # --- role: prefer new column, fall back to inference ---
+    role_str = row.get("role")
+    if role_str:
+        role = Role(role_str)
+    else:
+        role = Role.LEADER if parent_id is None else Role.MEMBER
+
+    # --- description: stored in 'algorithm' column ---
+    description = row.get("algorithm") or ""
+
+    # --- raw_par2_score: prefer new JSON list in par2 column ---
+    raw_par2_score = _to_json_list_float(row.get("par2"))
+
+    # --- normalized_par2_score ---
+    normalized_par2_score = _to_json_list_float(row.get("normalized_par2_scores"))
+
+    # --- parent_algorithm_description ---
+    parent_algorithm_description = _to_json_list(row.get("parent_descriptions"))
+
+    # --- analysis ---
+    analysis = row.get("analysis")
+
+    # Clean legacy keys from other_metrics
+    if isinstance(other_metrics, dict):
+        other_metrics.pop("target_function", None)
+        other_metrics.pop("parent_id", None)
+
     return AlgorithmResult(
         id=row.get("id"),
-        algorithm=row.get("algorithm"),
+        function_name=function_name,
+        description=description,
+        role=role,
         status=row.get("status"),
         last_updated=row.get("last_updated"),
-        prompt=row.get("prompt"),
-        par2=_to_float(row.get("par2")),
-        error_rate=_to_float(row.get("error_rate")),
         code_id_list=_text_to_code_id_list(row.get("code_id_list")),
-        other_metrics=other_metrics,
-        target_function=target_function,
         parent_id=parent_id,
+        parent_algorithm_description=parent_algorithm_description,
+        raw_par2_score=raw_par2_score,
+        normalized_par2_score=normalized_par2_score,
+        analysis=analysis,
+        prompt=row.get("prompt"),
+        other_metrics=other_metrics,
     )
 
 def add_router_table(name: str):
@@ -453,14 +555,81 @@ def add_par2_to_code_results_table():
 def backup_db():
     conn = connect_to_db()
     cur = conn.cursor()
-    # create another tables
     cur.execute("CREATE TABLE IF NOT EXISTS algorithm_results_backup (id TEXT PRIMARY KEY, algorithm TEXT, code_id_list TEXT, status TEXT, last_updated TEXT, prompt TEXT, par2 TEXT, error_rate TEXT, other_metrics TEXT);")
     cur.execute("CREATE TABLE IF NOT EXISTS code_results_backup (id TEXT PRIMARY KEY, code TEXT, algorithm TEXT, status TEXT, last_updated TEXT, solver_id TEXT, build_success TEXT);")
-    # copy the data from the original tables to the new tables
     cur.execute("INSERT INTO algorithm_results_backup SELECT * FROM algorithm_results;")
     cur.execute("INSERT INTO code_results_backup SELECT * FROM code_results;")
     conn.commit()
-    pass
+
+def migrate_algorithm_table():
+    """Add new columns to algorithm_results table and backfill existing records.
+
+    Safe to run multiple times — uses IF NOT EXISTS / idempotent updates.
+    """
+    conn = connect_to_db()
+    cur = conn.cursor()
+
+    # Add new columns (idempotent via try/except per column)
+    new_columns = ["role", "function_name", "parent_ids",
+                   "parent_descriptions", "normalized_par2_scores", "analysis"]
+    for col in new_columns:
+        try:
+            cur.execute(f"ALTER TABLE algorithm_results ADD COLUMN {col} TEXT;")
+            conn.commit()
+            logger.info(f"Added column {col}")
+        except Exception:
+            conn.rollback()
+            logger.info(f"Column {col} already exists, skipping")
+
+    # Backfill existing records that have NULL in the new columns
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM algorithm_results WHERE role IS NULL;")
+    rows = cur.fetchall()
+    logger.info(f"Migrating {len(rows)} records...")
+
+    cur2 = conn.cursor()
+    for row in rows:
+        other_metrics = _to_other_metrics(row.get("other_metrics")) or {}
+
+        # Infer function_name
+        function_name = "kissat_restarting"
+        if isinstance(other_metrics, dict) and "target_function" in other_metrics:
+            function_name = other_metrics["target_function"]
+
+        # Infer parent_ids from other_metrics
+        parent_ids = None
+        if isinstance(other_metrics, dict):
+            pid = other_metrics.get("parent_id")
+            pa = other_metrics.get("parent_a")
+            pb = other_metrics.get("parent_b")
+            if pid is not None:
+                parent_ids = json.dumps([pid])
+            elif pa and pb:
+                parent_ids = json.dumps([pa, pb])
+
+        # Infer role
+        role = "leader" if parent_ids is None else "member"
+
+        # Convert algorithm JSON string to description format
+        description = row.get("algorithm") or ""
+        try:
+            spec = json.loads(description)
+            if isinstance(spec, dict) and "algorithm" in spec:
+                name = spec.get("name", "")
+                algo_text = spec.get("algorithm", "")
+                description = f"{name}: {algo_text}" if name else algo_text
+        except Exception:
+            pass  # already plain text or unparseable, keep as-is
+
+        cur2.execute(
+            """UPDATE algorithm_results
+               SET role = %s, function_name = %s, parent_ids = %s, algorithm = %s
+               WHERE id = %s;""",
+            (role, function_name, parent_ids, description, row.get("id")),
+        )
+
+    conn.commit()
+    logger.info(f"Migration complete: {len(rows)} records updated")
 
 
 if __name__ == "__main__":
@@ -474,6 +643,7 @@ if __name__ == "__main__":
     parser.add_argument("--show_code_results", type=str, help="Show the code results")
     parser.add_argument("--backup", action="store_true", help="Backup the tables")
     parser.add_argument("--add_router_table", type=str, default=None, help="Add a router table")
+    parser.add_argument("--migrate", action="store_true", help="Add new columns and backfill existing records")
     args = parser.parse_args()
     if args.show_code_results:
         code_results = get_code_result(args.show_code_results)
@@ -491,6 +661,8 @@ if __name__ == "__main__":
         init_tables()
     elif args.backup:
         backup_db()
+    elif args.migrate:
+        migrate_algorithm_table()
     elif args.add_router_table:
         add_router_table(args.add_router_table)
     else:

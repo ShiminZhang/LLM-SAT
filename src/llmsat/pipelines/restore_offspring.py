@@ -33,6 +33,7 @@ from llmsat.llmsat import (
     AlgorithmStatus,
     CodeResult,
     CodeStatus,
+    Role,
     NOT_INITIALIZED,
     get_id,
     get_logger,
@@ -87,22 +88,29 @@ def restore_offspring(output_dir: str, new_output_tag: str, iteration: int = 1) 
 
         code_id = get_id(code_str)
 
+        # Build description from algorithm_json
+        try:
+            spec = json.loads(crossover_entry["algorithm_json"])
+            description = f"{spec.get('name', '')}: {spec.get('algorithm', '')}"
+            fn = spec.get("target_function", crossover_entry.get("target_function", "kissat_restarting"))
+        except (json.JSONDecodeError, TypeError):
+            description = crossover_entry["algorithm_json"]
+            fn = crossover_entry.get("target_function", "kissat_restarting")
+
         algo_result = AlgorithmResult(
             id=algorithm_id,
-            algorithm=crossover_entry["algorithm_json"],
+            function_name=fn,
+            description=description,
+            role=Role.LEADER,
             status=AlgorithmStatus.CodeGenerated,
             last_updated=datetime.now(),
             prompt="genetic_evolution_crossover",
-            par2=NOT_INITIALIZED,
-            error_rate=NOT_INITIALIZED,
+            parent_id=[crossover_entry["parent_a_id"], crossover_entry["parent_b_id"]],
+            analysis=crossover_entry.get("reason", ""),
             other_metrics={
-                "parent_a": crossover_entry["parent_a_id"],
-                "parent_b": crossover_entry["parent_b_id"],
                 "evolution_method": "causal_crossover",
             },
             code_id_list=[code_id],
-            target_function=crossover_entry.get("target_function", "kissat_restarting"),
-            parent_id=crossover_entry["parent_a_id"],
         )
         update_algorithm_result(algo_result)
         update_router_table(CHATGPT_DATA_GENERATION_TABLE, algorithm_id, iter_output_tag)

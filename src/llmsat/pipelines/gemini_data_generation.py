@@ -9,6 +9,7 @@ from llmsat.utils.gemini_helper import (
     block_until_completion as helper_block_until_completion,
     download_batch_outputs as helper_download_batch_outputs,
     wait_for_all_batches,
+    get_response_from_gemini,
 )
 from llmsat.utils.paths import get_batch_output_dir, get_generation_output_dir
 from llmsat.utils.aws import (
@@ -23,6 +24,7 @@ from llmsat.llmsat import (
     AlgorithmResult,
     CodeResult,
     CodeStatus,
+    Role,
     get_id,
     NOT_INITIALIZED,
     setup_logging,
@@ -247,14 +249,15 @@ def _extract_text_from_gemini_response(response: Dict[str, Any]) -> str:
     return json.dumps(response, ensure_ascii=False)
 
 
-def parse_algorithm_response(response: Dict[str, Any]) -> Tuple[str, Optional[str]]:
+def parse_algorithm_response(response: Dict[str, Any]) -> Tuple[str, Optional[str], Optional[str]]:
     """
     Parse algorithm response from Gemini batch API.
 
     Returns:
-        Tuple of (algorithm_json_str, target_function)
-        - algorithm_json_str: JSON string of the algorithm spec
+        Tuple of (description, target_function, reason)
+        - description: "Name: algorithm text" human-readable description
         - target_function: Target function name (None if not specified)
+        - reason: LLM's reasoning for why this algorithm is good (None if absent)
     """
     from llmsat.data.algorithm_parse import parse_algorithm_spec_json
 
@@ -263,14 +266,19 @@ def parse_algorithm_response(response: Dict[str, Any]) -> Tuple[str, Optional[st
 
     try:
         spec, target_function = parse_algorithm_spec_json(raw_text)
-        # Remove optional fields not part of core spec
+        reason = None
         if isinstance(spec, dict):
-            spec.pop("Reason", None)
-            spec.pop("reason", None)
-        return json.dumps(spec, ensure_ascii=False), target_function
+            reason = spec.pop("Reason", None) or spec.pop("reason", None)
+            # Build description as "Name: algorithm text"
+            name = spec.get("name", "")
+            algo_text = spec.get("algorithm", "")
+            description = f"{name}: {algo_text}" if name else algo_text
+        else:
+            description = str(spec)
+        return description, target_function, reason
     except Exception as e:
         logger.warning(f"Failed to parse algorithm response: {e}")
-        return raw_text, None
+        return raw_text, None, None
 
 
 def parse_code_response(response: Dict[str, Any]) -> str:
@@ -296,6 +304,153 @@ def parse_code_response(response: Dict[str, Any]) -> str:
     return full_text
 
 
+def _generate_team_data_sync(
+    designer_prompt_path: str,
+    variant_prompt_path: str,
+    code_prompt_template_path: str,
+    generation_tag: str,
+    n_leaders: int = 5,
+    m_variants_per_leader: int = 3,
+    model: str = DEFAULT_MODEL,
+):
+    """Synchronous implementation of generate_team_data — no batch API, no waiting."""
+    designer_prompt = read_prompt_file(designer_prompt_path)
+    variant_prompt_template = read_prompt_file(variant_prompt_path)
+    code_prompt_template = read_prompt_file(code_prompt_template_path)
+
+    system_message = os.environ.get(
+        "LLMSAT_SYSTEM_MESSAGE",
+        "You are an AI researcher specialising in SAT solver heuristics.",
+    )
+
+    # Step 1: Generate Team Leaders
+    logger.info(f"[sync] Generating {n_leaders} Team Leaders")
+    leader_ids = []
+    leader_target_functions = {}
+    leader_descriptions = {}
+
+    temperatures = [
+        0.5 + (1.0 - 0.5) * i / max(n_leaders - 1, 1) for i in range(n_leaders)
+    ]
+
+    for i in range(n_leaders):
+        logger.info(f"[sync] Leader {i+1}/{n_leaders} (temp={temperatures[i]:.2f})")
+        raw_text = get_response_from_gemini(
+            designer_prompt,
+            system_message=system_message,
+            model=model,
+            temperature=temperatures[i],
+        )
+        description, target_function, reason = parse_algorithm_response({"text": raw_text})
+        leader_id = get_id(description)
+        fn = target_function or "kissat_restarting"
+
+        leader_ids.append(leader_id)
+        leader_target_functions[leader_id] = fn
+        leader_descriptions[leader_id] = description
+
+        update_router_table(CHATGPT_DATA_GENERATION_TABLE, leader_id, generation_tag)
+        update_algorithm_result(AlgorithmResult(
+            id=leader_id,
+            function_name=fn,
+            description=description,
+            role=Role.LEADER,
+            status=AlgorithmStatus.Generated,
+            last_updated=datetime.now(),
+            code_id_list=[],
+            parent_id=None,
+            analysis=reason,
+            prompt=designer_prompt,
+        ))
+
+    logger.info(f"[sync] Generated {len(leader_ids)} Team Leaders")
+
+    # Step 2: Generate Team Members
+    logger.info(f"[sync] Generating {m_variants_per_leader} Team Members per leader")
+    member_ids = []
+
+    for leader_id in leader_ids:
+        leader_algorithm = leader_descriptions[leader_id]
+        num_steps = count_steps(leader_algorithm)
+        if num_steps == 0:
+            raise ValueError(
+                f"Leader {leader_id} has no step markers. Expected 'Step N:' format."
+            )
+
+        if num_steps < m_variants_per_leader:
+            step_assignments = [
+                (i + 1) if i < num_steps else num_steps
+                for i in range(m_variants_per_leader)
+            ]
+        else:
+            start_step = num_steps - m_variants_per_leader + 1
+            step_assignments = [start_step + i for i in range(m_variants_per_leader)]
+
+        for j, target_step in enumerate(step_assignments):
+            logger.info(
+                f"[sync] Member {j+1}/{m_variants_per_leader} for leader {leader_id[:8]}... (step {target_step})"
+            )
+            prompt = variant_prompt_template.replace("{leader_algorithm}", leader_algorithm)
+            prompt = prompt.replace("{target_step_num}", str(target_step))
+
+            raw_text = get_response_from_gemini(
+                prompt, system_message=system_message, model=model
+            )
+            member_desc, _, member_reason = parse_algorithm_response({"text": raw_text})
+            member_id = get_id(member_desc)
+            member_ids.append(member_id)
+
+            update_router_table(CHATGPT_DATA_GENERATION_TABLE, member_id, generation_tag)
+            update_algorithm_result(AlgorithmResult(
+                id=member_id,
+                function_name=leader_target_functions[leader_id],
+                description=member_desc,
+                role=Role.MEMBER,
+                status=AlgorithmStatus.Generated,
+                last_updated=datetime.now(),
+                code_id_list=[],
+                parent_id=[leader_id],
+                parent_algorithm_description=[leader_descriptions.get(leader_id, "")],
+                analysis=member_reason,
+                prompt=variant_prompt_template,
+            ))
+
+    logger.info(f"[sync] Generated {len(member_ids)} Team Members")
+
+    # Step 3: Generate code for all algorithms
+    all_algorithm_ids = leader_ids + member_ids
+    logger.info(f"[sync] Generating code for {len(all_algorithm_ids)} algorithms")
+
+    for idx, algorithm_id in enumerate(all_algorithm_ids):
+        logger.info(f"[sync] Code {idx+1}/{len(all_algorithm_ids)} for {algorithm_id[:16]}...")
+        algorithm_result = get_algorithm_result(algorithm_id)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description)
+
+        raw_text = get_response_from_gemini(
+            code_prompt, system_message=system_message, model=model
+        )
+        code_str = parse_code_response({"text": raw_text})
+        code_id = get_id(code_str)
+
+        update_code_result(CodeResult(
+            id=code_id,
+            algorithm_id=algorithm_id,
+            code=code_str,
+            status=CodeStatus.Generated,
+            par2=None,
+            last_updated=datetime.now(),
+            build_success=NOT_INITIALIZED,
+        ))
+
+        if algorithm_result.code_id_list is None:
+            algorithm_result.code_id_list = []
+        algorithm_result.code_id_list.append(code_id)
+        algorithm_result.status = AlgorithmStatus.CodeGenerated
+        update_algorithm_result(algorithm_result)
+
+    logger.info(f"[sync] Code generation complete for {len(all_algorithm_ids)} algorithms")
+
+
 def generate_team_data(
     designer_prompt_path: str,
     variant_prompt_path: str,
@@ -304,6 +459,7 @@ def generate_team_data(
     n_leaders: int = 5,
     m_variants_per_leader: int = 3,
     model: str = DEFAULT_MODEL,
+    sync: bool = False,
 ):
     """
     Generate team-based algorithm data and code using Gemini:
@@ -319,10 +475,22 @@ def generate_team_data(
         n_leaders: Number of Team Leader strategies to generate
         m_variants_per_leader: Number of Team Member variants per leader
         model: Gemini model to use
+        sync: If True, use synchronous API calls instead of batch (faster for small runs)
     """
     if generation_tag is None:
         logger.error("Generation tag is None")
         return
+
+    if sync:
+        return _generate_team_data_sync(
+            designer_prompt_path=designer_prompt_path,
+            variant_prompt_path=variant_prompt_path,
+            code_prompt_template_path=code_prompt_template_path,
+            generation_tag=generation_tag,
+            n_leaders=n_leaders,
+            m_variants_per_leader=m_variants_per_leader,
+            model=model,
+        )
 
     designer_prompt = read_prompt_file(designer_prompt_path)
     variant_prompt_template = read_prompt_file(variant_prompt_path)
@@ -353,6 +521,7 @@ def generate_team_data(
     # Parse and store Team Leaders
     leader_ids = []
     leader_target_functions = {}
+    leader_descriptions = {}
 
     with open(leaders_output_path, "r") as f:
         for line in f:
@@ -364,24 +533,25 @@ def generate_team_data(
             except Exception:
                 continue
 
-            leader_str, target_function = parse_algorithm_response(leader_response)
-            leader_id = get_id(leader_str)
+            description, target_function, reason = parse_algorithm_response(leader_response)
+            leader_id = get_id(description)
             leader_ids.append(leader_id)
-            leader_target_functions[leader_id] = target_function or "kissat_restarting"
+            fn = target_function or "kissat_restarting"
+            leader_target_functions[leader_id] = fn
+            leader_descriptions[leader_id] = description
 
             update_router_table(CHATGPT_DATA_GENERATION_TABLE, leader_id, generation_tag)
             leader_result = AlgorithmResult(
                 id=leader_id,
-                algorithm=leader_str,
+                function_name=fn,
+                description=description,
+                role=Role.LEADER,
                 status=AlgorithmStatus.Generated,
                 last_updated=datetime.now(),
-                prompt=designer_prompt,
-                par2=NOT_INITIALIZED,
-                error_rate=NOT_INITIALIZED,
-                other_metrics={},
                 code_id_list=[],
                 parent_id=None,
-                target_function=target_function or "kissat_restarting",
+                analysis=reason,
+                prompt=designer_prompt,
             )
             update_algorithm_result(leader_result)
 
@@ -395,7 +565,7 @@ def generate_team_data(
 
     for leader_id in leader_ids:
         leader_result = get_algorithm_result(leader_id)
-        leader_algorithm = leader_result.algorithm
+        leader_algorithm = leader_result.description
 
         # Count steps in leader algorithm
         num_steps = count_steps(leader_algorithm)
@@ -485,8 +655,8 @@ def generate_team_data(
                 except Exception:
                     continue
 
-                member_str, _ = parse_algorithm_response(member_response)
-                member_id = get_id(member_str)
+                member_desc, _, member_reason = parse_algorithm_response(member_response)
+                member_id = get_id(member_desc)
                 member_ids.append(member_id)
 
                 update_router_table(
@@ -494,16 +664,16 @@ def generate_team_data(
                 )
                 member_result = AlgorithmResult(
                     id=member_id,
-                    algorithm=member_str,
+                    function_name=leader_target_function,
+                    description=member_desc,
+                    role=Role.MEMBER,
                     status=AlgorithmStatus.Generated,
                     last_updated=datetime.now(),
-                    prompt=variant_prompt_template,
-                    par2=NOT_INITIALIZED,
-                    error_rate=NOT_INITIALIZED,
-                    other_metrics={},
                     code_id_list=[],
-                    parent_id=leader_id,
-                    target_function=leader_target_function,
+                    parent_id=[leader_id],
+                    parent_algorithm_description=[leader_descriptions.get(leader_id, "")],
+                    analysis=member_reason,
+                    prompt=variant_prompt_template,
                 )
                 update_algorithm_result(member_result)
 
@@ -524,7 +694,7 @@ def generate_team_data(
 
     for algorithm_id in all_algorithm_ids:
         algorithm_result = get_algorithm_result(algorithm_id)
-        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.algorithm)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description)
 
         code_batch_input_path = os.path.join(
             get_batch_output_dir(generation_tag, batch_id=leader_batch_name),
@@ -700,13 +870,14 @@ def resume_code_collection(generation_tag: str, batch_map_path: str):
 
 def main():
     generate_team_data(
-        generation_tag="25trial",
+        generation_tag="pipeline_test",
         designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
         variant_prompt_path="./data/prompts/variant_prompt.txt",
         code_prompt_template_path="./data/prompts/coder_prompt_testing.txt",
-        n_leaders=25,
+        n_leaders=1,
         m_variants_per_leader=1,
-        model="gemini-3-pro-preview",
+        model="gemini-3.1-pro-preview",
+        sync=True,
     )
 
 

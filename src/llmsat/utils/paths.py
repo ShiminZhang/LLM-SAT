@@ -1,8 +1,8 @@
 import os
-from typing import Optional
+from typing import List, Optional, Union
 
 
-def get_role_dir(parent_id: Optional[str]) -> str:
+def get_role_dir(parent_id: Union[None, str, List[str]]) -> str:
     """Return 'leaders' if parent_id is None, else 'members'."""
     return "leaders" if parent_id is None else "members"
 

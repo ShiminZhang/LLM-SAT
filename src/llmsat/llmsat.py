@@ -1,9 +1,12 @@
+import json
 import logging
-from dataclasses import dataclass
-from typing import List, Dict, Optional
+from dataclasses import dataclass, field, asdict
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 import hashlib
 NOT_INITIALIZED = "NOT_INITIALIZED"
-BASE_SOLVER_PATH = "/pscratch/sd/j/jsong/LLM-SAT/solvers/base"
+BASE_SOLVER_PATH = "/home/meru/scratch/LLM-SAT/solvers/base"
 RECOVERED_ALGORITHM = "recovered_algorithm"
 SAT2025_BENCHMARK_PATH = "data/benchmarks/satcomp2025"
 PYENV_PATH = "../../general/bin/activate"
@@ -32,21 +35,47 @@ class TaskResult:
     status: str
     created_at: str
 
+class Role(Enum):
+    LEADER = "leader"
+    MEMBER = "member"
+
 @dataclass
 class AlgorithmResult:
+    # Identity
     id: str
-    algorithm: str
+    function_name: str  # name of the function this algorithm modifies (e.g. "kissat_restarting")
+    description: str  # "AlgorithmName: Step 1: ... Step 2: ..." (human-readable algorithm text)
+    role: Role  # whether this algorithm is a team leader or member
+
+    # Pipeline state
     status: str
     last_updated: str
-    # tag: str
-    # designer: str
-    prompt: str # not implemented yet
-    par2: list[float]
-    error_rate: float
-    code_id_list: List[str] # list of code ids that have been generated for this algorithm
-    other_metrics: Dict[str, float]
-    target_function: str = "kissat_restarting"  # function to modify, stored in other_metrics for DB persistence
-    parent_id: Optional[str] = None  # ID of parent algorithm (for team member -> leader relationship)
+    code_id_list: List[str]  # list of code ids generated for this algorithm
+
+    # Lineage
+    parent_id: Optional[List[str]] = None  # list of parent algorithm IDs (None for leaders, [leader_id] for members, [parent_a, parent_b] for combinations)
+    parent_algorithm_description: Optional[List[str]] = None  # descriptions of parent algorithms, indexed same as parent_id
+
+    # Scores — each is [easy, hard, sat, unsat, all] or None
+    raw_par2_score: Optional[List[float]] = None
+    normalized_par2_score: Optional[List[float]] = None
+
+    # LLM reasoning about why this algorithm is good
+    analysis: Optional[str] = None
+
+    # Metadata
+    prompt: str = ""
+    other_metrics: Dict[str, Any] = field(default_factory=dict)
+
+    def save_to_json(self, directory: Union[str, Path]) -> None:
+        """Save this AlgorithmResult as a JSON file named {self.id}.json in the given directory."""
+        dir_path = Path(directory)
+        dir_path.mkdir(parents=True, exist_ok=True)
+        file_path = dir_path / f"{self.id}.json"
+        data = asdict(self)
+        data["role"] = self.role.value
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
 
 @dataclass
 class CodeResult:

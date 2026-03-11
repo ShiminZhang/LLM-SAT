@@ -15,6 +15,7 @@ from llmsat.llmsat import (
     CodeStatus,
     AlgorithmResult,
     AlgorithmStatus,
+    Role,
     BASE_SOLVER_PATH,
     SAT2025_BENCHMARK_PATH,
     get_logger,
@@ -262,6 +263,25 @@ class EvaluationPipeline:
                 json.dump(par2_breakdown, f)
             logger.info(f"Wrote PAR2 breakdown to {breakdown_path}: {par2_breakdown}")
 
+            # Write raw_par2_score [easy, hard, sat, unsat, all] to AlgorithmResult
+            if algorithm is not None:
+                algorithm.raw_par2_score = [
+                    par2_breakdown.get("easy"),
+                    par2_breakdown.get("hard"),
+                    par2_breakdown.get("sat"),
+                    par2_breakdown.get("unsat"),
+                    par2_breakdown.get("all"),
+                ]
+                update_algorithm_result(algorithm)
+
+                # Save AlgorithmResult to disk as JSON memory bank
+                algo_dir = get_algorithm_dir(
+                    algorithm_id, generation_tag=self.generation_tag,
+                    parent_id=algorithm.parent_id,
+                )
+                algorithm.save_to_json(algo_dir)
+                logger.info(f"Saved AlgorithmResult JSON to {algo_dir}")
+
         return par2
 
     def slurm_collect_result(self, slurm_ids: List[int], code_id: str) -> None:
@@ -427,7 +447,7 @@ class EvaluationPipeline:
             logger.error(f"Algorithm not found: {code_result.algorithm_id}")
             return None
 
-        target_function = algorithm.target_function
+        target_function = algorithm.function_name
         logger.info(f"Target function: {target_function}")
 
         # Validate target function is in registry
@@ -510,6 +530,7 @@ class EvaluationPipeline:
         timeout: int = None,
         wall_time: str = None,
         cnf_files: List[str] = None,
+        solver_flags: str = "-s",
     ) -> List[int]:
         """
         Submit solver evaluation using a SLURM job array.
@@ -579,6 +600,7 @@ SOLVER="{solver_path}/kissat"
 BENCHMARK_PATH="{benchmark_path}"
 RESULT_DIR="{result_dir}"
 TIMEOUT={timeout}
+SOLVER_FLAGS="{solver_flags}"
 
 # Locate GNU time (path varies across systems; e.g. CVMFS on Compute Canada)
 GNU_TIME=$(which time 2>/dev/null)
@@ -605,7 +627,7 @@ echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
 # Run solver with timeout, measuring CPU time (user + system) via GNU time
 "$GNU_TIME" -f "%U %S" -o "${{OUTPUT_FILE}}.time" \
-    timeout ${{TIMEOUT}}s "$SOLVER" -s "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+    timeout ${{TIMEOUT}}s "$SOLVER" $SOLVER_FLAGS "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
 
 if [ -f "${{OUTPUT_FILE}}.time" ]; then
@@ -733,6 +755,7 @@ exit $EXIT_CODE
 TASK_LIST="{task_list_path}"
 BENCHMARK_PATH="{benchmark_path}"
 TIMEOUT={timeout}
+SOLVER_FLAGS="-s"
 
 # Locate GNU time (path varies across systems; e.g. CVMFS on Compute Canada)
 GNU_TIME=$(which time 2>/dev/null)
@@ -765,7 +788,7 @@ echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
 # Run solver with timeout, measuring CPU time (user + system) via GNU time
 "$GNU_TIME" -f "%U %S" -o "${{OUTPUT_FILE}}.time" \
-    timeout ${{TIMEOUT}}s "$SOLVER" -s "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+    timeout ${{TIMEOUT}}s "$SOLVER" $SOLVER_FLAGS "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
 
 if [ -f "${{OUTPUT_FILE}}.time" ]; then
@@ -1066,7 +1089,9 @@ exit $EXIT_CODE
             if algo.parent_id is None:
                 leaders[algo.id] = algo
             else:
-                members_by_leader.setdefault(algo.parent_id, []).append(algo)
+                # parent_id is a list; use first element as the leader ID for grouping
+                leader_ref = algo.parent_id[0] if isinstance(algo.parent_id, list) and algo.parent_id else str(algo.parent_id)
+                members_by_leader.setdefault(leader_ref, []).append(algo)
 
         logger.info(f"Found {len(leaders)} leaders and {sum(len(m) for m in members_by_leader.values())} members")
 
@@ -1212,18 +1237,23 @@ exit $EXIT_CODE
             else:
                 logger.warning(f"Leader directory not found: {leader_old_dir}")
 
-            # DB: update promoted member's parent_id to None
+            # DB: update promoted member to leader
             best_member.parent_id = None
+            best_member.role = Role.LEADER
+            best_member.parent_algorithm_description = None
             update_algorithm_result(best_member)
 
-            # DB: update demoted leader's parent_id to new leader
-            leader.parent_id = best_member.id
+            # DB: update demoted leader to member
+            leader.parent_id = [best_member.id]
+            leader.role = Role.MEMBER
+            leader.parent_algorithm_description = [best_member.description]
             update_algorithm_result(leader)
 
             # DB: update remaining members' parent_id to point to new leader
             for member in team_members:
                 if member.id != best_member.id:
-                    member.parent_id = best_member.id
+                    member.parent_id = [best_member.id]
+                    member.parent_algorithm_description = [best_member.description]
                     update_algorithm_result(member)
 
         if dry_run:

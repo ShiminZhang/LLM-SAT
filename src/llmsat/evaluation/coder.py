@@ -100,7 +100,7 @@ class Coder:
         first_n = min(first_n, length)
         self.logger.info(f"Starting evaluation for {first_n} algorithms out of {length}")
         for algorithm in algorithms[:first_n]:
-            # print(algorithm.algorithm)
+            # print(algorithm.description)
             algorithm_result = deepcopy(algorithm)
             algorithm_result.code_id_list = []
             for i in range(10):

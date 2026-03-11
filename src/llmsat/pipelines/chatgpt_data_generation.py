@@ -11,7 +11,7 @@ from llmsat.utils.chatgpt_helper import (
 )
 from llmsat.utils.paths import get_batch_output_dir, get_generation_output_dir, get_solver_solving_times_path
 from llmsat.utils.aws import get_ids_from_router_table, update_router_table, get_algorithm_result, get_code_result, clear_router_table, get_algorithms_by_prompt, remove_code_result, remove_algorithm_result  
-from llmsat.llmsat import CHATGPT_DATA_GENERATION_TABLE, AlgorithmStatus, AlgorithmResult, ALGORITHM, CodeResult, CodeStatus
+from llmsat.llmsat import CHATGPT_DATA_GENERATION_TABLE, AlgorithmStatus, AlgorithmResult, ALGORITHM, CodeResult, CodeStatus, Role
 from datetime import datetime
 import json
 from llmsat.llmsat import get_id
@@ -217,17 +217,17 @@ def _strip_markdown_code_block(text: str) -> str:
         return match.group(1).strip()
     return text.strip()
 
-def parse_algorithm_response(response: Dict[str, Any]) -> Tuple[str, Optional[str]]:
+def parse_algorithm_response(response: Dict[str, Any]) -> Tuple[str, Optional[str], Optional[str]]:
     """
     Parse algorithm response from LLM API.
 
     Returns:
-        Tuple of (algorithm_json_str, target_function)
-        - algorithm_json_str: JSON string of the algorithm spec
+        Tuple of (description, target_function, reason)
+        - description: "Name: algorithm text" human-readable description
         - target_function: Target function name (None if not specified or legacy format)
+        - reason: LLM's reasoning for why this algorithm is good (None if absent)
     """
     # Extract text from the batch API response structure
-    # Structure: {"response": {"body": {"output": [{"content": [{"type": "output_text", "text": "..."}]}]}}}
     if not isinstance(response, dict):
         raw_text = str(response)
     else:
@@ -268,19 +268,21 @@ def parse_algorithm_response(response: Dict[str, Any]) -> Tuple[str, Optional[st
     # Strip markdown code block wrapper if present
     raw_text = _strip_markdown_code_block(raw_text)
 
-    # Parse into validated algorithm spec dict, then normalize to JSON string
+    # Parse into validated algorithm spec dict, then build description
     try:
         spec, target_function = parse_algorithm_spec_json(raw_text)
-        # Drop optional fields that aren't part of the core spec if present
-        if isinstance(spec, dict) and "Reason" in spec:
-            spec.pop("Reason")
-        if isinstance(spec, dict) and "reason" in spec:
-            spec.pop("reason")
-        return json.dumps(spec, ensure_ascii=False), target_function
+        reason = None
+        if isinstance(spec, dict):
+            reason = spec.pop("Reason", None) or spec.pop("reason", None)
+            name = spec.get("name", "")
+            algo_text = spec.get("algorithm", "")
+            description = f"{name}: {algo_text}" if name else algo_text
+        else:
+            description = str(spec)
+        return description, target_function, reason
     except Exception as e:
-        # If parsing fails, return the raw text for debugging/upstream handling
         logger.warning(f"Failed to parse algorithm response: {e}")
-        return raw_text, None
+        return raw_text, None, None
 
 # given algorithm batch id, generate data for the algorithm batch, everything is already generated, but we need to reupdate the algorithm and code results to the database
 def fake_generate_data(designer_prompt_path: str, code_prompt_template_path: str, generation_tag: str, n_algorithms: int = 500, n_codes: int = 10, algorithm_batch_id: str = None):
@@ -309,20 +311,19 @@ def fake_generate_data(designer_prompt_path: str, code_prompt_template_path: str
             except Exception:
                 # Skip malformed lines
                 continue
-            algorithm_str, target_function = parse_algorithm_response(algorithm_response)
-            algorithm_id = get_id(algorithm_str)
+            description, target_function, reason = parse_algorithm_response(algorithm_response)
+            algorithm_id = get_id(description)
             update_router_table(CHATGPT_DATA_GENERATION_TABLE, algorithm_id, generation_tag)
             algorithm_result = AlgorithmResult(
                 id=algorithm_id,
-                algorithm=algorithm_str,
+                function_name=target_function or "kissat_restarting",
+                description=description,
+                role=Role.LEADER,
                 status=AlgorithmStatus.Generated,
                 last_updated=datetime.now(),
-                prompt=designer_prompt,
-                par2=NOT_INITIALIZED,
-                error_rate=NOT_INITIALIZED,
-                other_metrics=NOT_INITIALIZED,
                 code_id_list=[],
-                target_function=target_function or "kissat_restarting",
+                analysis=reason,
+                prompt=designer_prompt,
             )
             update_algorithm_result(algorithm_result)
     # 2) Recreate codes by pairing input files with output batch files using mtime
@@ -438,21 +439,20 @@ def generate_data(designer_prompt_path: str, code_prompt_template_path: str, gen
             if not line:
                 continue
             algorithm_response = json.loads(line)
-            algorithm_str, target_function = parse_algorithm_response(algorithm_response)
-            algorithm_id = get_id(algorithm_str)
+            description, target_function, reason = parse_algorithm_response(algorithm_response)
+            algorithm_id = get_id(description)
             algorithm_ids_local.append(algorithm_id)
             update_router_table(CHATGPT_DATA_GENERATION_TABLE, algorithm_id, generation_tag)
             algorithm_result = AlgorithmResult(
                 id=algorithm_id,
-                algorithm=algorithm_str,
+                function_name=target_function or "kissat_restarting",
+                description=description,
+                role=Role.LEADER,
                 status=AlgorithmStatus.Generated,
                 last_updated=datetime.now(),
-                prompt=designer_prompt,
-                par2=NOT_INITIALIZED,
-                error_rate=NOT_INITIALIZED,
-                other_metrics=NOT_INITIALIZED,
                 code_id_list=[],
-                target_function=target_function or "kissat_restarting",
+                analysis=reason,
+                prompt=designer_prompt,
             )
             update_algorithm_result(algorithm_result)
     # Use only algorithms from this batch/run instead of all-time router table
@@ -463,7 +463,7 @@ def generate_data(designer_prompt_path: str, code_prompt_template_path: str, gen
 
     for algorithm_id in algorithm_ids:
         algorithm_result = get_algorithm_result(algorithm_id)
-        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.algorithm)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description)
         code_batch_input_path = os.path.join(get_batch_output_dir(generation_tag, batch_id=algorithm_batch_id), f"code_batch_input_{algorithm_id}.txt")
         create_batch_input_file(code_prompt, code_batch_input_path, n_requests=n_codes)
         batch_id = submit_batch_input(code_batch_input_path)
@@ -596,6 +596,7 @@ def generate_team_data(
     # Parse and store Team Leaders
     leader_ids = []
     leader_target_functions = {}  # Map leader_id -> target_function for member inheritance
+    leader_descriptions = {}  # Map leader_id -> description for member parent_algorithm_description
     with open(leaders_output_path, "r") as f:
         for line in f:
             line = line.strip()
@@ -605,27 +606,28 @@ def generate_team_data(
                 leader_response = json.loads(line)
             except Exception:
                 continue
-            leader_str, target_function = parse_algorithm_response(leader_response)
-            leader_id = get_id(leader_str)
+            description, target_function, reason = parse_algorithm_response(leader_response)
+            leader_id = get_id(description)
             leader_ids.append(leader_id)
-            leader_target_functions[leader_id] = target_function or "kissat_restarting"
-            
+            fn = target_function or "kissat_restarting"
+            leader_target_functions[leader_id] = fn
+            leader_descriptions[leader_id] = description
+
             update_router_table(CHATGPT_DATA_GENERATION_TABLE, leader_id, generation_tag)
             leader_result = AlgorithmResult(
                 id=leader_id,
-                algorithm=leader_str,
+                function_name=fn,
+                description=description,
+                role=Role.LEADER,
                 status=AlgorithmStatus.Generated,
                 last_updated=datetime.now(),
-                prompt=designer_prompt,
-                par2=NOT_INITIALIZED,
-                error_rate=NOT_INITIALIZED,
-                other_metrics={},
                 code_id_list=[],
-                parent_id=None,  # Leaders have no parent
-                target_function=target_function or "kissat_restarting",
+                parent_id=None,
+                analysis=reason,
+                prompt=designer_prompt,
             )
             update_algorithm_result(leader_result)
-    
+
     logger.info(f"Generated {len(leader_ids)} Team Leaders")
     
     # Step 2: Generate Team Members for each leader with controlled mutation
@@ -636,7 +638,7 @@ def generate_team_data(
 
     for leader_id in leader_ids:
         leader_result = get_algorithm_result(leader_id)
-        leader_algorithm = leader_result.algorithm
+        leader_algorithm = leader_result.description
 
         # Count steps in leader algorithm
         num_steps = count_steps(leader_algorithm)
@@ -713,23 +715,23 @@ def generate_team_data(
                     member_response = json.loads(line)
                 except Exception:
                     continue
-                member_str, _ = parse_algorithm_response(member_response)
-                member_id = get_id(member_str)
+                member_desc, _, member_reason = parse_algorithm_response(member_response)
+                member_id = get_id(member_desc)
                 member_ids.append(member_id)
 
                 update_router_table(CHATGPT_DATA_GENERATION_TABLE, member_id, generation_tag)
                 member_result = AlgorithmResult(
                     id=member_id,
-                    algorithm=member_str,
+                    function_name=leader_target_function,
+                    description=member_desc,
+                    role=Role.MEMBER,
                     status=AlgorithmStatus.Generated,
                     last_updated=datetime.now(),
-                    prompt=variant_prompt_template,
-                    par2=NOT_INITIALIZED,
-                    error_rate=NOT_INITIALIZED,
-                    other_metrics={},
                     code_id_list=[],
-                    parent_id=leader_id,  # Link to parent leader
-                    target_function=leader_target_function,  # Inherit from leader
+                    parent_id=[leader_id],
+                    parent_algorithm_description=[leader_descriptions.get(leader_id, "")],
+                    analysis=member_reason,
+                    prompt=variant_prompt_template,
                 )
                 update_algorithm_result(member_result)
 
@@ -749,7 +751,7 @@ def generate_team_data(
 
     for algorithm_id in all_algorithm_ids:
         algorithm_result = get_algorithm_result(algorithm_id)
-        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.algorithm)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description)
 
         code_batch_input_path = os.path.join(
             get_batch_output_dir(generation_tag, batch_id=leader_batch_id),

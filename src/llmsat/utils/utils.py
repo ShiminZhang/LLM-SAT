@@ -81,8 +81,7 @@ def wrap_command_to_slurm_array(
     output_file: str = None,
     error_file: str = None,
     max_concurrent: int = None,
-    constraint: str = "cpu",
-    qos: str = "regular",
+    constraint: str = None,
 ) -> str:
     """
     Create an sbatch command for a job array.
@@ -92,12 +91,12 @@ def wrap_command_to_slurm_array(
         array_range: SLURM array range (e.g., "0-199" or "0-199%50" for max 50 concurrent)
         account: Compute Canada account (required)
         max_concurrent: Maximum number of concurrent array tasks (optional)
-        constraint: Node architecture constraint (default: "cpu" for NERSC Perlmutter)
-        qos: SLURM QOS (default: "regular" for NERSC Perlmutter)
+        constraint: Node architecture constraint (e.g. "cpu" for NERSC Perlmutter). None to omit.
     """
     job_name_parameter = f"--job-name={job_name}" if job_name else ""
     output_parameter = f"--output={output_file}" if output_file else ""
     error_parameter = f"--error={error_file}" if error_file else ""
+    constraint_parameter = f"--constraint={constraint}" if constraint else ""
     # Add max concurrent limit to array spec if provided
     array_spec = array_range
     if max_concurrent:
@@ -113,7 +112,7 @@ def wrap_command_to_slurm_array(
         --nodes={nodes} \
         --ntasks={ntasks} \
         --cpus-per-task={cpus_per_task} \
-        --constraint={constraint} \
+        {constraint_parameter} \
         --array={array_spec} \
         {script_path}"
 
@@ -130,7 +129,7 @@ def wrap_command_to_slurm(
     error_file: str = None,
     dependencies: list[str] = None,
     dependency_type: str = "afterok",
-    constraint: str = "cpu",
+    constraint: str = None,
 ) -> str:
     """
     Create an sbatch command for a single job.
@@ -153,6 +152,7 @@ def wrap_command_to_slurm(
     error_parameter = ""
     if error_file is not None:
         error_parameter = f"--error={error_file}"
+    constraint_parameter = f"--constraint={constraint}" if constraint else ""
     return f"sbatch \
         --account={account} \
         {job_name_parameter} \
@@ -163,7 +163,7 @@ def wrap_command_to_slurm(
         --nodes={nodes} \
         --ntasks={ntasks} \
         --cpus-per-task={cpus_per_task} \
-        --constraint={constraint} \
+        {constraint_parameter} \
         {dependencies_parameter} \
         --wrap='{command}'"
 

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import List, Any, Optional, Tuple
 import json
 from llmsat.utils.aws import update_algorithm_result, get_algorithm_result
-from llmsat.llmsat import *
+from llmsat.llmsat import *  # includes Role, AlgorithmResult, AlgorithmStatus, get_id, NOT_INITIALIZED
 from datetime import datetime
 import argparse
 
@@ -155,23 +155,26 @@ def parse_algorithms(input_file: str, output_file: str) -> None:
             if not line:
                 continue
             algorithm = parse_kissat_restart_policy_json(line)
-            algorithm.pop("Reason")
+            reason = algorithm.pop("Reason", None) or algorithm.pop("reason", None)
+            name = algorithm.get("name", algorithm.get("Algorithm Name", ""))
+            algo_text = algorithm.get("algorithm", str(algorithm))
+            description = f"{name}: {algo_text}" if name else algo_text
             algorithm_result = AlgorithmResult(
-                id=get_id(str(algorithm)),
-                algorithm=str(algorithm),
+                id=get_id(description),
+                function_name="kissat_restarting",
+                description=description,
+                role=Role.LEADER,
                 status=AlgorithmStatus.Generated,
                 last_updated=datetime.now(),
+                code_id_list=[],
+                analysis=reason,
                 prompt="",
-                par2=NOT_INITIALIZED, 
-                error_rate=NOT_INITIALIZED,
-                code_id_list=NOT_INITIALIZED,
-                other_metrics=NOT_INITIALIZED
             )
             update_algorithm_result(algorithm_result)
             retrieved_algorithm_result = get_algorithm_result(algorithm_result.id)
-            print(retrieved_algorithm_result.algorithm)
+            print(retrieved_algorithm_result.description)
             with open(output_file, "a") as f:
-                f.write(retrieved_algorithm_result.algorithm + "\n")
+                f.write(retrieved_algorithm_result.description + "\n")
 
 def main():
     # read file from argument

@@ -5,13 +5,17 @@ def parse_response(prompt: str, response: str) -> AlgorithmResult:
     # parse the llm response and return the algorithm result
     algorithm = ""
 
-    # 
+    #
     algorithm_id = get_id(algorithm)
     AlgorithmResult(
-        algorithm_id=algorithm_id,
+        id=algorithm_id,
+        function_name="",
+        description="",
+        role=Role.LEADER,
+        status=AlgorithmStatus.Generated,
+        last_updated="",
+        code_id_list=[],
         prompt=prompt,
-        par2=0,
-        error_rate=0,
         other_metrics={}
     )
 

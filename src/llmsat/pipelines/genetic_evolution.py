@@ -50,6 +50,7 @@ from llmsat.llmsat import (
     AlgorithmStatus,
     CodeResult,
     CodeStatus,
+    Role,
     NOT_INITIALIZED,
     get_id,
     get_logger,
@@ -243,7 +244,7 @@ def load_population(generation_tag: str, leaders_only: bool = True) -> List[Indi
             logger.warning(f"Algorithm {algo_id} not found in DB, skipping")
             continue
 
-        if leaders_only and algo_result.parent_id is not None:
+        if leaders_only and algo_result.role != Role.LEADER:
             skipped_members += 1
             continue
 
@@ -270,12 +271,12 @@ def load_population(generation_tag: str, leaders_only: bool = True) -> List[Indi
 
         individual = Individual(
             algorithm_id=algo_id,
-            algorithm_json=algo_result.algorithm,
+            algorithm_json=algo_result.description,
             code_id=best_code.id,
             code=best_code.code,
             par2=best_par2,
-            target_function=algo_result.target_function,
-            parent_id=algo_result.parent_id,
+            target_function=algo_result.function_name,
+            parent_id=algo_result.parent_id[0] if algo_result.parent_id else None,
         )
         population.append(individual)
 
@@ -452,7 +453,7 @@ def load_population_from_folder(
                     continue
                 try:
                     resp = json.loads(line)
-                    algo_str, target_fn = parse_algorithm_response(resp)
+                    algo_str, target_fn, _reason = parse_algorithm_response(resp)
                     algo_id = get_id(algo_str)
                     algorithms[algo_id] = algo_str
                     parent_map[algo_id] = None
@@ -1067,13 +1068,17 @@ def parse_crossover_response(
         return None
 
     tf = data.get("target_function", target_function)
+    name = data.get("name", "Crossover Offspring")
+    algo_text = data.get("algorithm", "")
+    description = f"{name}: {algo_text}"
+    algorithm_id = get_id(description)
+
     algo_spec = {
-        "name": data.get("name", "Crossover Offspring"),
-        "algorithm": data.get("algorithm", ""),
+        "name": name,
+        "algorithm": algo_text,
         "target_function": tf,
     }
     algorithm_json = json.dumps(algo_spec, ensure_ascii=False)
-    algorithm_id = get_id(algorithm_json)
 
     return OffspringResult(
         parent_a_id=parent_a_id,
@@ -1494,6 +1499,7 @@ def store_offspring(
     offspring_list: List[OffspringResult],
     offspring_codes: Dict[str, str],
     output_tag: str,
+    population: Optional[List[Individual]] = None,
 ) -> List[Tuple[str, str]]:
     """
     Store offspring algorithms and codes in the database.
@@ -1501,6 +1507,16 @@ def store_offspring(
     """
     logger.info(f"Storing {len(offspring_list)} offspring with tag: {output_tag}")
     stored_pairs: List[Tuple[str, str]] = []
+
+    # Build lookup for parent descriptions from population
+    pop_lookup: Dict[str, str] = {}
+    if population:
+        for ind in population:
+            try:
+                spec = json.loads(ind.algorithm_json)
+                pop_lookup[ind.algorithm_id] = f"{spec.get('name', '')}: {spec.get('algorithm', '')}"
+            except (json.JSONDecodeError, TypeError):
+                pop_lookup[ind.algorithm_id] = ind.algorithm_json
 
     for offspring in offspring_list:
         code_str = offspring_codes.get(offspring.algorithm_id)
@@ -1510,22 +1526,36 @@ def store_offspring(
 
         code_id = get_id(code_str)
 
+        # Build description from algorithm_json
+        try:
+            spec = json.loads(offspring.algorithm_json)
+            description = f"{spec.get('name', '')}: {spec.get('algorithm', '')}"
+            fn = spec.get("target_function", offspring.target_function)
+        except (json.JSONDecodeError, TypeError):
+            description = offspring.algorithm_json
+            fn = offspring.target_function
+
+        parent_ids = [offspring.parent_a_id, offspring.parent_b_id]
+        parent_descs = [
+            pop_lookup.get(offspring.parent_a_id, ""),
+            pop_lookup.get(offspring.parent_b_id, ""),
+        ]
+
         algo_result = AlgorithmResult(
             id=offspring.algorithm_id,
-            algorithm=offspring.algorithm_json,
+            function_name=fn,
+            description=description,
+            role=Role.LEADER,
             status=AlgorithmStatus.CodeGenerated,
             last_updated=datetime.now(),
             prompt="genetic_evolution_crossover",
-            par2=NOT_INITIALIZED,
-            error_rate=NOT_INITIALIZED,
+            parent_id=parent_ids,
+            parent_algorithm_description=parent_descs,
+            analysis=offspring.reason,
             other_metrics={
-                "parent_a": offspring.parent_a_id,
-                "parent_b": offspring.parent_b_id,
                 "evolution_method": "causal_crossover",
             },
             code_id_list=[code_id],
-            target_function=offspring.target_function,
-            parent_id=offspring.parent_a_id,
         )
         update_algorithm_result(algo_result)
         update_router_table(CHATGPT_DATA_GENERATION_TABLE, offspring.algorithm_id, output_tag)
@@ -2141,6 +2171,24 @@ def run_evolution(
                 f"({len(population) - len(new_individuals)} already loaded)"
             )
             new_reports = generate_causal_reports(new_individuals, model=model, baseline_par2=baseline_par2)
+            # Store causal analysis on each AlgorithmResult in DB
+            for algo_id, report in new_reports.items():
+                try:
+                    algo_result = get_algorithm_result(algo_id)
+                    if algo_result is not None:
+                        analysis_parts = []
+                        if report.strengths:
+                            analysis_parts.append("Strengths: " + "; ".join(report.strengths))
+                        if report.weaknesses:
+                            analysis_parts.append("Weaknesses: " + "; ".join(report.weaknesses))
+                        if report.key_mechanisms:
+                            analysis_parts.append("Key Mechanisms: " + "; ".join(report.key_mechanisms))
+                        if report.improvement_suggestions:
+                            analysis_parts.append("Suggestions: " + "; ".join(report.improvement_suggestions))
+                        algo_result.analysis = "\n".join(analysis_parts)
+                        update_algorithm_result(algo_result)
+                except Exception as e:
+                    logger.warning(f"Failed to store causal analysis for {algo_id[:16]}: {e}")
             causal_reports.update(new_reports)
         else:
             logger.info(f"All {len(population)} individuals already have causal reports, skipping generation")
@@ -2261,7 +2309,7 @@ def run_evolution(
         }
 
         # Stage 5: Store in DB
-        stored_pairs = store_offspring(filtered_offspring, offspring_codes, iter_output_tag)
+        stored_pairs = store_offspring(filtered_offspring, offspring_codes, iter_output_tag, population=current_population)
         iter_summary["stored"] = len(stored_pairs)
 
         # Stage 6: Evaluate with simulation
