@@ -1891,6 +1891,7 @@ def save_population_to_memory_bank(
     output_dir: str,
     population_lookup: Optional[Dict[str, Individual]] = None,
     parent_b_lookup: Optional[Dict[str, str]] = None,
+    analysis_lookup: Optional[Dict[str, str]] = None,
 ) -> None:
     """
     Save each Individual in the population as an Algorithm JSON in the memory bank.
@@ -1908,12 +1909,15 @@ def save_population_to_memory_bank(
         parent_b_lookup: Optional dict mapping algorithm_id -> parent_b_id for offspring
             that have two parents.  Individual.parent_id holds parent_a; pass this to
             also record parent_b.
+        analysis_lookup: Optional dict mapping algorithm_id -> analysis string (e.g.
+            OffspringResult.reason) to populate the Algorithm.analysis field.
     """
     memory_dir = os.path.join(output_dir, "memory_bank")
     os.makedirs(memory_dir, exist_ok=True)
 
     lookup = population_lookup or {ind.algorithm_id: ind for ind in population}
     parent_b_lookup = parent_b_lookup or {}
+    analysis_lookup = analysis_lookup or {}
 
     saved = 0
     for ind in population:
@@ -1948,6 +1952,7 @@ def save_population_to_memory_bank(
             # PAR2 intentionally omitted here; use update_memory_bank_par2 after eval
             raw_par2_score=None,
             normalized_par2_score=None,
+            analysis=analysis_lookup.get(ind.algorithm_id),
         )
         algo.save_to_json(memory_dir)
         saved += 1
@@ -2016,12 +2021,75 @@ def update_memory_bank_par2(
             parent_algorithm_description=parent_descriptions,
             raw_par2_score=ind.par2,
             normalized_par2_score=None,  # normalization happens externally if needed
+            analysis=data.get("analysis"),  # preserve any existing analysis
         )
         algo.save_to_json(memory_dir)
         updated += 1
 
     if updated:
         logger.info(f"Back-filled PAR2 for {updated} memory bank entries in {memory_dir}")
+
+
+def update_memory_bank_analysis(
+    causal_reports: Dict[str, "CausalReport"],
+    output_dir: str,
+) -> None:
+    """
+    Patch memory bank entries with causal analysis text once causal reports are available.
+
+    Builds a human-readable analysis string from the CausalReport (strengths, weaknesses,
+    key mechanisms, improvement suggestions) and writes it into the 'analysis' field of
+    each matching JSON file.  Only updates files that currently have analysis=None so
+    that manually-set or crossover-derived analysis strings are never overwritten.
+    """
+    memory_dir = os.path.join(output_dir, "memory_bank")
+    if not os.path.isdir(memory_dir):
+        logger.debug("No memory bank directory found, skipping analysis update")
+        return
+
+    updated = 0
+    for algo_id, report in causal_reports.items():
+        json_path = os.path.join(memory_dir, f"{algo_id}.json")
+        if not os.path.exists(json_path):
+            continue
+
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            logger.warning(f"Could not read memory bank file {json_path}: {e}")
+            continue
+
+        if data.get("analysis") is not None:
+            continue  # already has analysis, don't overwrite
+
+        # Build a structured analysis string from the causal report
+        parts = []
+        if report.strengths:
+            parts.append("Strengths:\n" + "\n".join(f"- {s}" for s in report.strengths))
+        if report.weaknesses:
+            parts.append("Weaknesses:\n" + "\n".join(f"- {w}" for w in report.weaknesses))
+        if report.key_mechanisms:
+            parts.append("Key Mechanisms:\n" + "\n".join(f"- {m}" for m in report.key_mechanisms))
+        if report.improvement_suggestions:
+            parts.append("Improvement Suggestions:\n" + "\n".join(f"- {s}" for s in report.improvement_suggestions))
+
+        if not parts:
+            continue
+
+        analysis_str = "\n\n".join(parts)
+
+        # Patch just the analysis field directly in the JSON dict and re-save
+        data["analysis"] = analysis_str
+        try:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+            updated += 1
+        except Exception as e:
+            logger.warning(f"Could not write memory bank file {json_path}: {e}")
+
+    if updated:
+        logger.info(f"Updated analysis for {updated} memory bank entries in {memory_dir}")
 
 
 # ---------------------------------------------------------------------------
@@ -2292,6 +2360,7 @@ def run_evolution(
             logger.info(f"All {len(population)} individuals already have causal reports, skipping generation")
         save_causal_reports(causal_reports, output_dir)
 
+    update_memory_bank_analysis(causal_reports, output_dir)
     summary["causal_reports_count"] = len(causal_reports)
 
     if causal_only:
@@ -2339,6 +2408,7 @@ def run_evolution(
             new_causal = generate_causal_reports(missing_causal, model=model, baseline_par2=baseline_par2)
             causal_reports.update(new_causal)
             save_causal_reports(causal_reports, output_dir)
+            update_memory_bank_analysis(new_causal, output_dir)
 
         # Stage 3: LLM-proposed combinations
         # The LLM receives all leaders + their causal analyses and proposes the top-k
@@ -2426,7 +2496,15 @@ def run_evolution(
         ]
         pop_lookup_for_mb = {ind.algorithm_id: ind for ind in current_population}
         parent_b_lookup = {off.algorithm_id: off.parent_b_id for off in filtered_offspring}
-        save_population_to_memory_bank(offspring_individuals, output_dir, population_lookup=pop_lookup_for_mb, parent_b_lookup=parent_b_lookup)
+        analysis_lookup = {
+            off.algorithm_id: (
+                off.reason
+                + (f"\nStrengths from parent A: {off.parent_a_strengths_used}" if off.parent_a_strengths_used else "")
+                + (f"\nStrengths from parent B: {off.parent_b_strengths_used}" if off.parent_b_strengths_used else "")
+            )
+            for off in filtered_offspring
+        }
+        save_population_to_memory_bank(offspring_individuals, output_dir, population_lookup=pop_lookup_for_mb, parent_b_lookup=parent_b_lookup, analysis_lookup=analysis_lookup)
 
         # Stage 6: Evaluate with simulation
         if evaluate and stored_pairs:
