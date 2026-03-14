@@ -273,4 +273,424 @@ python src/llmsat/pipelines/evaluation.py \
 | `src/llmsat/utils/gemini_helper.py` | Gemini API helper |
 | `src/llmsat/code_injection.py` | Function registry + code injection |
 | `src/llmsat/debugging.py` | LLM-assisted compiler debugging |
+| `run_loop_a.sh` | Loop A orchestration script |
+| `run_bridge.sh` | GE-to-Loop-A bridge script |
 | `docs/evaluation.txt` | Evaluation pipeline details |
+
+
+========================================================================
+                    ITERATIVE PIPELINE
+========================================================================
+
+The sections above describe the linear pipeline (Phases 1-4). The
+sections below describe the ITERATIVE pipeline, which allows you to
+refine leaders through repeated mutation cycles and feed genetic
+evolution offspring back into the mutation loop.
+
+
+# Iterative Pipeline Overview
+
+The iterative pipeline separates the linear pipeline into two
+independent loops connected by a bridge:
+
+  Loop A: Leader Refinement (runs N times)
+    Generates new mutants for existing leaders, evaluates them, and
+    promotes the best. The leaders get stronger each iteration without
+    generating new leaders from scratch.
+
+  Loop B: Genetic Evolution (runs once)
+    Takes refined leaders and crosses them over to produce offspring.
+    Same as Phase 4 above — no changes to this step.
+
+  Bridge: GE → Loop A
+    Takes the top N offspring from genetic evolution and converts them
+    into clean leaders. These leaders then enter Loop A for further
+    refinement.
+
+The overall cycle looks like:
+
+  Initial Generation (Phase 1)
+        |
+        v
+  Loop A  (mutate → evaluate → promote) x N
+        |
+        v
+  Loop B  (genetic evolution, once)
+        |
+        v
+  Bridge  (top offspring → new leaders)
+        |
+        v
+  Loop A  (mutate → evaluate → promote) x N
+        |
+        v
+  Loop B  ...
+        |
+  (repeat as needed)
+
+
+# Generation Tag Naming Convention
+
+Each iteration step uses its own generation tag so that algorithms
+from different iterations don't mix. Tags follow this pattern:
+
+  {base}_iter0     Initial leaders (from Phase 1 or from Bridge)
+  {base}_iter1     After 1st mutant→evaluate→promote cycle
+  {base}_iter2     After 2nd cycle
+  ...
+  {base}_ge1       Genetic evolution output
+  {base}_ge1_iter0 GE offspring promoted to leaders (Bridge output)
+  {base}_ge1_iter1 After 1st Loop A refinement of GE offspring
+  ...
+
+Example for a full run:
+
+  gemini_trial5          Original generation (Phase 1)
+  gemini_trial5_iter1    Loop A iteration 1
+  gemini_trial5_iter2    Loop A iteration 2
+  gemini_trial5_iter3    Loop A iteration 3 (leaders are now refined)
+  gemini_trial5_gen1_v1  Genetic evolution output
+  gemini_trial5_ge1_iter0  Bridge: top GE offspring as leaders
+  gemini_trial5_ge1_iter1  Loop A on GE offspring, iteration 1
+  gemini_trial5_ge1_iter2  Loop A on GE offspring, iteration 2
+
+
+# Loop A: Leader Refinement
+
+## What it does
+
+Loop A takes an existing set of leaders and repeatedly:
+  1. Generates new mutant variants for each leader
+  2. Evaluates ONLY the new mutants (leaders keep their existing scores)
+  3. Promotes the best algorithm in each team to leader
+
+Leaders are never regenerated. They only change through promotion —
+if a mutant outperforms its leader on PAR2, they swap roles.
+
+## Script: run_loop_a.sh
+
+Usage:
+  ./run_loop_a.sh <base_tag> <n_iterations> [source_tag]
+
+Arguments:
+  base_tag       Base name for iteration tags. Each iteration creates
+                 {base_tag}_iter1, {base_tag}_iter2, etc.
+  n_iterations   How many mutate→evaluate→promote cycles to run.
+  source_tag     (Optional) Where to load the initial leaders from.
+                 Defaults to {base_tag}_iter0.
+
+Environment variables:
+  POLL_INTERVAL  Seconds between SLURM status checks (default: 120)
+  M_VARIANTS     Mutant variants per leader (default: 3)
+  MODEL          Gemini model name (default: gemini-3-flash-preview)
+
+Examples:
+
+  # Refine initial leaders 3 times
+  ./run_loop_a.sh gemini_trial5 3
+
+  # Refine GE offspring (loaded from bridge output)
+  ./run_loop_a.sh gemini_trial5_ge1 3 gemini_trial5_ge1_iter0
+
+  # Use more mutants and a different model
+  M_VARIANTS=5 MODEL=gemini-3.1-pro-preview ./run_loop_a.sh gemini_trial5 3
+
+## What happens each iteration
+
+For iteration i (tag = {base_tag}_iter{i}):
+
+  Step 1: gemini_data_generation.py --mutants-only
+    - Loads leaders from the previous iteration's tag
+    - Registers those leaders under the new iteration tag
+    - Generates M mutant variants per leader (LLM call)
+    - Generates C code for each mutant (LLM call)
+    - Leaders' existing code is untouched
+
+  Step 2: evaluation.py --run_all --skip-evaluated
+    - Builds Kissat solvers for new mutants only
+    - Leaders are skipped because their code already has PAR2 scores
+    - Submits SLURM job arrays for the new mutants
+    - Writes job IDs to outputs/{tag}/submitted_job_ids.json
+
+  Step 3: SLURM polling
+    - Reads submitted_job_ids.json
+    - Polls squeue every POLL_INTERVAL seconds
+    - Waits until all jobs finish
+
+  Step 4: evaluation.py --collect_all_results
+    - Parses solving logs, computes PAR2 for each mutant
+
+  Step 5: evaluation.py --promote-leaders
+    - Compares leader PAR2 vs member PAR2 in each team
+    - If a mutant beats the leader, they swap roles in the DB
+    - Leaders are now the best-known algorithms
+
+## Running Loop A manually (without the script)
+
+If you prefer to run each step yourself:
+
+  # Generate mutants for leaders in gemini_trial5_iter0
+  python src/llmsat/pipelines/gemini_data_generation.py \
+      --mutants-only \
+      --source_tag gemini_trial5_iter0 \
+      --output_tag gemini_trial5_iter1 \
+      --m_variants 3 \
+      --sync
+
+  # Evaluate new mutants only
+  python src/llmsat/pipelines/evaluation.py \
+      --run_all --generation_tag gemini_trial5_iter1 \
+      --quick-eval --batch-mode --skip-evaluated
+
+  # ... wait for SLURM ...
+
+  # Collect results
+  python src/llmsat/pipelines/evaluation.py \
+      --collect_all_results --generation_tag gemini_trial5_iter1 --quick-eval
+
+  # Promote
+  python src/llmsat/pipelines/evaluation.py \
+      --promote-leaders --generation_tag gemini_trial5_iter1
+
+  # Repeat with --source_tag gemini_trial5_iter1 -> --output_tag gemini_trial5_iter2
+
+
+# Bridge: Genetic Evolution → Loop A
+
+## What it does
+
+After genetic evolution produces offspring, the Bridge takes the top N
+offspring (ranked by PAR2) and converts them into clean leaders that
+can enter Loop A. This REPLACES the leader pool — only the selected
+offspring become leaders.
+
+The bridge preserves lineage: each offspring's original parent IDs are
+saved in the algorithm's other_metrics field before being cleared.
+
+## Script: run_bridge.sh
+
+Usage:
+  ./run_bridge.sh <ge_output_tag> <target_base_tag> [top_n]
+
+Arguments:
+  ge_output_tag    The generation tag where GE offspring were stored
+                   and evaluated (e.g., gemini_trial5_gen1_v1_iter1).
+  target_base_tag  Base name for the new leader pool. Leaders are
+                   registered under {target_base_tag}_iter0.
+  top_n            (Optional) How many top offspring to promote.
+                   Default: 10.
+
+Examples:
+
+  # Take top 10 offspring, then refine with 3 Loop A iterations
+  ./run_bridge.sh gemini_trial5_gen1_v1_iter1 gemini_trial5_ge1 10
+  ./run_loop_a.sh gemini_trial5_ge1 3 gemini_trial5_ge1_iter0
+
+  # Take top 5 offspring only
+  ./run_bridge.sh gemini_trial5_gen1_v1_iter1 gemini_trial5_ge1 5
+
+## Running the bridge manually
+
+  python src/llmsat/pipelines/genetic_evolution.py \
+      --promote-offspring \
+      --source_tag gemini_trial5_gen1_v1_iter1 \
+      --target_tag gemini_trial5_ge1_iter0 \
+      --top_n_promote 10
+
+
+# CLI Flag Reference
+
+## gemini_data_generation.py
+
+  Full generation mode (default):
+    --generation_tag TAG    Tag for this generation run
+    --designer_prompt_path  Path to leader designer prompt
+    --variant_prompt_path   Path to variant prompt template
+    --code_prompt_path      Path to coder prompt template
+    --n_leaders N           Number of leaders to generate (default: 5)
+    --m_variants M          Mutant variants per leader (default: 3)
+    --model MODEL           Gemini model (default: gemini-3-pro-preview)
+    --sync                  Use sync API instead of batch
+
+  Mutant-only mode (for Loop A):
+    --mutants-only          Enable mutant-only mode (no leader generation)
+    --source_tag TAG        Tag to load existing leaders from (required)
+    --output_tag TAG        Tag for the new mutants (required)
+    --variant_prompt_path   Path to variant prompt template
+    --code_prompt_path      Path to coder prompt template
+    --m_variants M          Mutant variants per leader (default: 3)
+    --model MODEL           Gemini model
+    --sync                  Use sync API instead of batch
+
+## evaluation.py
+
+  Evaluation:
+    --run_all               Evaluate all algorithms under a tag
+    --generation_tag TAG    Which tag to operate on
+    --algorithm_id ID       Evaluate a single algorithm
+    --batch-mode            Use efficient batch SLURM submission
+    --quick-eval            Use 100-CNF quick evaluation mode
+    --build-only            Compile solvers but don't submit to SLURM
+    --skip-build            Skip compilation (solvers already built)
+    --skip-evaluated        Skip code that already has PAR2 scores.
+                            Use this in Loop A to avoid re-evaluating
+                            leaders that were already scored in a
+                            previous iteration.
+    --timeout N             Custom timeout in seconds (default: 5000)
+    --dry-run               Print SLURM commands without submitting
+
+  Result collection:
+    --collect_all_results   Collect PAR2 for all algorithms under a tag
+    --collect_result        Collect for a single algorithm/code pair
+    --code_id ID            Code ID (used with --collect_result)
+
+  Promotion:
+    --promote-leaders       Promote best member to leader in each team
+    --dry-run               Preview promotions without making changes
+
+## genetic_evolution.py
+
+  Evolution mode (default):
+    --generation_tag TAG    Source population tag
+    --output_tag TAG        Tag for offspring output
+    --code_prompt_path      Path to coder prompt template
+    --evaluate              Build and evaluate offspring via SLURM
+    --model MODEL           LLM model for evolution stages
+    --top_k K               Combinations to request per minibatch (default: 5)
+    --minibatch_size N      Max leaders per LLM call (default: 10)
+    --rubric_min SCORE      Minimum combination score 1-10 (default: 6.0)
+    --rubric_keep_top_n N   Keep at most N proposals after filtering
+    --par2_threshold T      Hard PAR2 gate (default: best parent PAR2)
+    --par2_keep_top_n N     Keep at most N offspring in selection
+    --prev_output_tags T..  Load offspring from previous runs
+    --causal_only           Only run causal analysis (Stage 1)
+    --skip_causal           Load causal reports from file
+    --evaluate_only         Skip LLM stages, evaluate existing offspring
+    --baseline_par2 F       Baseline PAR2 for causal analysis
+    --sample_size N         Sample N CNFs for evaluation
+    --sample_seed S         Seed for CNF sampling (default: 42)
+    --shuffle_seed S        Seed for minibatch shuffling (default: 42)
+    --shuffle_passes N      Number of shuffle passes (default: 3)
+
+  Bridge mode (GE → Loop A):
+    --promote-offspring     Enable bridge mode
+    --source_tag TAG        Tag containing evaluated GE offspring (required)
+    --target_tag TAG        Tag for promoted leaders (required)
+    --top_n_promote N       How many top offspring to promote (default: 10)
+
+
+# Full Iterative Example (End-to-End)
+
+  TAG="gemini_trial5"
+
+  # ─── Phase 1: Initial generation ───
+  python src/llmsat/pipelines/gemini_data_generation.py \
+      --generation_tag $TAG \
+      --n_leaders 10 --m_variants 3 --sync
+
+  # ─── Phase 2: Evaluate initial population ───
+  python src/llmsat/pipelines/evaluation.py \
+      --run_all --generation_tag $TAG --quick-eval --batch-mode
+  # ... wait for SLURM ...
+  python src/llmsat/pipelines/evaluation.py \
+      --collect_all_results --generation_tag $TAG --quick-eval
+
+  # ─── Phase 3: Promote best members ───
+  python src/llmsat/pipelines/evaluation.py \
+      --promote-leaders --generation_tag $TAG
+
+  # ─── Loop A: Refine leaders (3 iterations) ───
+  # Register current leaders as iter0 source, then iterate
+  # (The script handles tag progression automatically)
+  ./run_loop_a.sh $TAG 3 $TAG
+  # Leaders are now in gemini_trial5_iter3
+
+  # ─── Loop B: Genetic evolution on refined leaders ───
+  python src/llmsat/pipelines/genetic_evolution.py \
+      --generation_tag ${TAG}_iter3 \
+      --output_tag ${TAG}_gen1 \
+      --code_prompt_path data/prompts/coder_prompt.txt \
+      --evaluate \
+      --top_k 5 --minibatch_size 10 \
+      --rubric_min 6.0 --rubric_keep_top_n 10 --par2_keep_top_n 7 \
+      --model gemini-3-flash-preview
+  # ... wait for SLURM ...
+  python src/llmsat/pipelines/evaluation.py \
+      --collect_all_results --generation_tag ${TAG}_gen1_iter1 --quick-eval
+
+  # ─── Bridge: Top 10 GE offspring become new leaders ───
+  ./run_bridge.sh ${TAG}_gen1_iter1 ${TAG}_ge1 10
+  # Leaders are now in gemini_trial5_ge1_iter0
+
+  # ─── Loop A again: Refine GE offspring (3 iterations) ───
+  ./run_loop_a.sh ${TAG}_ge1 3 ${TAG}_ge1_iter0
+  # Leaders are now in gemini_trial5_ge1_iter3
+
+  # ─── Loop B again if desired ───
+  python src/llmsat/pipelines/genetic_evolution.py \
+      --generation_tag ${TAG}_ge1_iter3 \
+      --output_tag ${TAG}_gen2 \
+      --code_prompt_path data/prompts/coder_prompt.txt \
+      --evaluate ...
+
+  # Continue the cycle as long as improvements are found.
+
+
+# How --skip-evaluated Works
+
+When running evaluation with --skip-evaluated, the pipeline checks
+each code result's PAR2 score in the database BEFORE building or
+submitting SLURM jobs:
+
+  - If CodeResult.par2 is not None → skip (already scored)
+  - If CodeResult.par2 is None → build and evaluate normally
+
+This is critical for Loop A efficiency: leaders carry their PAR2
+scores from previous iterations (stored globally on the CodeResult),
+so only newly-generated mutants need evaluation. Without this flag,
+leaders would be redundantly rebuilt and re-evaluated every iteration.
+
+PAR2 scores are stored on CodeResult objects in the database, not
+tied to a specific generation tag. This means a leader's score
+persists even when the leader is registered under a new iteration tag.
+
+
+# How SLURM Polling Works
+
+When evaluation.py submits SLURM job arrays, it now saves the job
+IDs to:
+
+  outputs/{generation_tag}/submitted_job_ids.json
+
+Format: {"job_ids": [12345, 12346, ...], "timestamp": "..."}
+
+The run_loop_a.sh script reads this file and polls squeue until all
+listed jobs are no longer running or pending. If the file doesn't
+exist (e.g., no jobs were submitted because all code was already
+evaluated), polling is skipped.
+
+If you're running manually, you can poll with:
+  squeue -j 12345,12346 -h    # empty output means jobs are done
+
+
+# Important Notes
+
+  - The router table maps each algorithm to exactly ONE tag at a time.
+    When Loop A moves a leader to a new iteration tag, it disappears
+    from the old tag. This is expected — each iteration is a
+    self-contained snapshot. Old mutants remain under their original
+    tag as historical records.
+
+  - Promotion is safe to run multiple times. If no member beats the
+    leader, nothing changes. Running promote-leaders on an already-
+    promoted tag is a no-op.
+
+  - The Bridge (--promote-offspring) sets parent_id=None on selected
+    offspring so they're recognized as leaders by all downstream code.
+    Original parent IDs are preserved in other_metrics["original_parent_ids"]
+    for traceability.
+
+  - If a mutant across two iterations happens to have an identical
+    description (same SHA256 hash), it will share the same algorithm_id.
+    The database upsert overwrites the old entry. This is rare with
+    LLM-generated content but worth knowing.

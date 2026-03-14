@@ -6,6 +6,7 @@ import json
 import subprocess
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import argparse
 
@@ -288,6 +289,9 @@ class EvaluationPipeline:
         """Submit SLURM job to collect results after evaluation jobs complete."""
         activate_cmd = _get_activation_cmd()
         code_result = get_code_result(code_id)
+        if code_result is None:
+            logger.error(f"Code result not found for code_id={code_id}, skipping collect job")
+            return
         algorithm_id = code_result.algorithm_id
         algorithm = get_algorithm_result(algorithm_id)
         parent_id = algorithm.parent_id if algorithm else None
@@ -927,7 +931,7 @@ exit $EXIT_CODE
             logger.error("Solver build failed")
             return None
 
-    def run_all_solvers(self, algorithm_id: str, build_only: bool = False, dry_run: bool = False, skip_build: bool = False) -> None:
+    def run_all_solvers(self, algorithm_id: str, build_only: bool = False, dry_run: bool = False, skip_build: bool = False, skip_evaluated: bool = False) -> None:
         """Build and evaluate all code results for an algorithm."""
         logger.info(f"Running evaluation for algorithm {algorithm_id}")
         algorithm = get_algorithm_result(algorithm_id)
@@ -943,6 +947,11 @@ exit $EXIT_CODE
         logger.info(f"Found {len(code_id_list)} code ids to evaluate for algorithm {algorithm_id}")
 
         for code_id in code_id_list:
+            if skip_evaluated:
+                code_result = get_code_result(code_id)
+                if code_result and code_result.par2 is not None:
+                    logger.info(f"Skipping already-evaluated code {code_id[:16]}... (PAR2={code_result.par2:.2f})")
+                    continue
             logger.info(f"Starting {'evaluation' if skip_build else 'build'} for code_id={code_id}")
             self.run_single_solver(code_id, build_only=build_only, dry_run=dry_run, skip_build=skip_build)
 
@@ -956,6 +965,7 @@ exit $EXIT_CODE
         build_only: bool = False,
         dry_run: bool = False,
         skip_build: bool = False,
+        skip_evaluated: bool = False,
     ) -> None:
         """
         Build all solvers and submit evaluations in efficient batches.
@@ -968,6 +978,7 @@ exit $EXIT_CODE
             build_only: If True, build solvers but skip SLURM evaluation
             dry_run: If True, print SLURM commands without submitting
             skip_build: If True, assume solvers are already built and skip build step
+            skip_evaluated: If True, skip code results that already have PAR2 scores
         """
         # Collect CNF files from benchmark
         if self.cnf_files is not None:
@@ -997,6 +1008,10 @@ exit $EXIT_CODE
                 code_result = get_code_result(code_id)
                 if code_result is None:
                     logger.error(f"Code result not found for code_id={code_id}")
+                    continue
+
+                if skip_evaluated and code_result.par2 is not None:
+                    logger.info(f"Skipping already-evaluated code {code_id[:16]}... (PAR2={code_result.par2:.2f})")
                     continue
 
                 if skip_build:
@@ -1055,6 +1070,17 @@ exit $EXIT_CODE
             if job_ids:
                 for solver_path, result_dir, code_id in solver_tasks:
                     self.slurm_collect_result(job_ids, code_id)
+
+        # Persist job IDs for SLURM polling scripts
+        if job_ids and not dry_run:
+            job_ids_path = os.path.join(
+                get_generation_output_dir(self.generation_tag),
+                "submitted_job_ids.json"
+            )
+            os.makedirs(os.path.dirname(job_ids_path), exist_ok=True)
+            with open(job_ids_path, "w") as f:
+                json.dump({"job_ids": job_ids, "timestamp": datetime.now().isoformat()}, f)
+            logger.info(f"Saved job IDs to {job_ids_path}")
 
         logger.info(f"Batch submission complete. Job IDs: {job_ids}")
 
@@ -1285,6 +1311,8 @@ def main():
                         help="Promote best-performing member to leader in each team")
     parser.add_argument("--quick-eval", action="store_true",
                         help="Fast evaluation: 100 representative CNFs, 1000s timeout")
+    parser.add_argument("--skip-evaluated", action="store_true",
+                        help="Skip algorithms whose code already has PAR2 scores (avoids re-evaluating leaders across iterations)")
     args = parser.parse_args()
 
     evaluation_pipeline = EvaluationPipeline(generation_tag=args.generation_tag)
@@ -1367,12 +1395,12 @@ def main():
     if args.batch_mode and not args.build_only:
         # Use batch submission for efficiency
         logger.info("Using batch submission mode")
-        evaluation_pipeline.run_all_solvers_batch(algorithms, build_only=args.build_only, dry_run=args.dry_run, skip_build=args.skip_build)
+        evaluation_pipeline.run_all_solvers_batch(algorithms, build_only=args.build_only, dry_run=args.dry_run, skip_build=args.skip_build, skip_evaluated=args.skip_evaluated)
     else:
         # Use per-algorithm submission (original behavior)
         for algorithm in algorithms:
             logger.info(f"Processing algorithm: {algorithm.id}")
-            evaluation_pipeline.run_all_solvers(algorithm.id, build_only=args.build_only, dry_run=args.dry_run, skip_build=args.skip_build)
+            evaluation_pipeline.run_all_solvers(algorithm.id, build_only=args.build_only, dry_run=args.dry_run, skip_build=args.skip_build, skip_evaluated=args.skip_evaluated)
 
 
 if __name__ == "__main__":

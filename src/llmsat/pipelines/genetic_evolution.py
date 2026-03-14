@@ -1579,6 +1579,98 @@ def store_offspring(
 
 
 # ---------------------------------------------------------------------------
+# Bridge: Promote GE offspring to leaders for Loop A
+# ---------------------------------------------------------------------------
+
+def promote_offspring_to_leaders(
+    source_tag: str,
+    target_tag: str,
+    top_n: int = 10,
+):
+    """
+    Convert top-N genetic evolution offspring into clean leaders for Loop A.
+
+    Loads evaluated offspring from source_tag, sorts by PAR2, takes the top N,
+    sets their parent_id=None (making them leaders), and registers them under
+    target_tag. This REPLACES the leader pool — only promoted offspring are
+    registered under target_tag.
+
+    Original parent IDs are preserved in other_metrics["original_parent_ids"].
+
+    Args:
+        source_tag: Generation tag containing GE offspring (e.g., "trial5_ge1_iter1")
+        target_tag: Target tag for the new leader pool (e.g., "trial5_ge1_iter0")
+        top_n: Number of top offspring to promote (by PAR2, ascending)
+    """
+    from llmsat.utils.aws import (
+        get_ids_from_router_table,
+        get_algorithm_result,
+        get_code_result,
+        update_algorithm_result,
+        update_router_table,
+    )
+
+    logger.info(f"Promoting top {top_n} offspring from {source_tag} to {target_tag}")
+
+    all_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, source_tag)
+    logger.info(f"Found {len(all_ids)} algorithms under {source_tag}")
+
+    # Load algorithms and find their best PAR2 scores
+    candidates = []
+    for algorithm_id in all_ids:
+        result = get_algorithm_result(algorithm_id)
+        if result is None:
+            continue
+
+        # Find best PAR2 across code variants
+        best_par2 = None
+        for code_id in (result.code_id_list or []):
+            code_result = get_code_result(code_id)
+            if code_result and code_result.par2 is not None:
+                if best_par2 is None or code_result.par2 < best_par2:
+                    best_par2 = code_result.par2
+
+        if best_par2 is None:
+            logger.warning(f"Algorithm {algorithm_id[:16]}... has no PAR2 score, skipping")
+            continue
+
+        candidates.append((algorithm_id, result, best_par2))
+
+    logger.info(f"Found {len(candidates)} evaluated candidates")
+
+    if not candidates:
+        logger.error("No evaluated candidates found, nothing to promote")
+        return
+
+    # Sort by PAR2 ascending (lower is better) and take top N
+    candidates.sort(key=lambda x: x[2])
+    selected = candidates[:top_n]
+
+    logger.info(f"Selected top {len(selected)} offspring for promotion:")
+    for algorithm_id, result, par2 in selected:
+        logger.info(f"  {algorithm_id[:16]}... PAR2={par2:.2f}")
+
+    # Promote each selected offspring to leader
+    for algorithm_id, result, par2 in selected:
+        # Preserve original parent IDs in other_metrics
+        if result.other_metrics is None:
+            result.other_metrics = {}
+        if result.parent_id is not None:
+            result.other_metrics["original_parent_ids"] = result.parent_id
+
+        # Set as leader
+        result.parent_id = None
+        result.role = Role.LEADER
+        update_algorithm_result(result)
+
+        # Register under target tag
+        update_router_table(CHATGPT_DATA_GENERATION_TABLE, algorithm_id, target_tag)
+        logger.info(f"Promoted {algorithm_id[:16]}... to leader under {target_tag}")
+
+    logger.info(f"Promotion complete: {len(selected)} offspring are now leaders under {target_tag}")
+
+
+# ---------------------------------------------------------------------------
 # Stage 6: Evaluate with Simulation (using EvaluationPipeline)
 # ---------------------------------------------------------------------------
 
@@ -2637,8 +2729,48 @@ def main():
         default=3,
         help="Number of passes for shuffle mini-batches.",
     )
+    parser.add_argument(
+        "--promote-offspring",
+        action="store_true",
+        default=False,
+        help=(
+            "Bridge mode: convert top-N GE offspring to leaders for Loop A. "
+            "Requires --source_tag and --target_tag."
+        ),
+    )
+    parser.add_argument(
+        "--source_tag",
+        type=str,
+        default=None,
+        help="Source tag for offspring to promote (used with --promote-offspring)",
+    )
+    parser.add_argument(
+        "--target_tag",
+        type=str,
+        default=None,
+        help="Target tag for promoted leaders (used with --promote-offspring)",
+    )
+    parser.add_argument(
+        "--top_n_promote",
+        type=int,
+        default=10,
+        help="Number of top offspring to promote by PAR2 (default: 10)",
+    )
 
     args = parser.parse_args()
+
+    # Handle --promote-offspring mode (bridge from GE to Loop A)
+    if args.promote_offspring:
+        if not args.source_tag:
+            parser.error("--promote-offspring requires --source_tag")
+        if not args.target_tag:
+            parser.error("--promote-offspring requires --target_tag")
+        promote_offspring_to_leaders(
+            source_tag=args.source_tag,
+            target_tag=args.target_tag,
+            top_n=args.top_n_promote,
+        )
+        return
 
     # Resolve generation_tag
     if args.generation_tag is None:

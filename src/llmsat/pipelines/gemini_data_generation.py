@@ -39,7 +39,7 @@ setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
 
 # Default model for Gemini
-DEFAULT_MODEL = "gemini-3-pro-preview"
+DEFAULT_MODEL = "gemini-3-flash-preview"
 
 
 def read_prompt_file(path: str) -> str:
@@ -773,6 +773,386 @@ def generate_team_data(
     logger.info(f"Code generation complete for {len(all_algorithm_ids)} algorithms")
 
 
+def _generate_mutants_sync(
+    leaders: Dict[str, AlgorithmResult],
+    variant_prompt_template: str,
+    code_prompt_template: str,
+    generation_tag: str,
+    m_variants_per_leader: int = 3,
+    model: str = DEFAULT_MODEL,
+):
+    """Sync implementation: generate mutant variants + code for existing leaders."""
+    system_message = os.environ.get(
+        "LLMSAT_SYSTEM_MESSAGE",
+        "You are an AI researcher specialising in SAT solver heuristics.",
+    )
+
+    member_ids = []
+
+    for leader_id, leader_result in leaders.items():
+        leader_algorithm = leader_result.description
+        num_steps = count_steps(leader_algorithm)
+        if num_steps == 0:
+            logger.warning(
+                f"Leader {leader_id[:8]}... has no step markers, skipping"
+            )
+            continue
+
+        if num_steps < m_variants_per_leader:
+            step_assignments = [
+                (i + 1) if i < num_steps else num_steps
+                for i in range(m_variants_per_leader)
+            ]
+        else:
+            start_step = num_steps - m_variants_per_leader + 1
+            step_assignments = [start_step + i for i in range(m_variants_per_leader)]
+
+        logger.info(
+            f"Leader {leader_id[:8]}... has {num_steps} steps, "
+            f"assigning variants to steps: {step_assignments}"
+        )
+
+        for j, target_step in enumerate(step_assignments):
+            logger.info(
+                f"[sync] Member {j+1}/{m_variants_per_leader} for leader {leader_id[:8]}... (step {target_step})"
+            )
+            prompt = variant_prompt_template.replace("{leader_algorithm}", leader_algorithm)
+            prompt = prompt.replace("{target_step_num}", str(target_step))
+
+            raw_text = get_response_from_gemini(
+                prompt, system_message=system_message, model=model
+            )
+            member_desc, _, member_reason = parse_algorithm_response({"text": raw_text})
+            member_id = get_id(member_desc)
+            member_ids.append(member_id)
+
+            update_router_table(CHATGPT_DATA_GENERATION_TABLE, member_id, generation_tag)
+            update_algorithm_result(AlgorithmResult(
+                id=member_id,
+                function_name=leader_result.function_name,
+                description=member_desc,
+                role=Role.MEMBER,
+                status=AlgorithmStatus.Generated,
+                last_updated=datetime.now(),
+                code_id_list=[],
+                parent_id=[leader_id],
+                parent_algorithm_description=[leader_algorithm],
+                analysis=member_reason,
+                prompt=variant_prompt_template,
+            ))
+
+    logger.info(f"[sync] Generated {len(member_ids)} mutants")
+
+    # Generate code for mutants only (leaders already have code)
+    logger.info(f"[sync] Generating code for {len(member_ids)} mutants")
+    for idx, member_id in enumerate(member_ids):
+        logger.info(f"[sync] Code {idx+1}/{len(member_ids)} for {member_id[:16]}...")
+        algorithm_result = get_algorithm_result(member_id)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description)
+
+        raw_text = get_response_from_gemini(
+            code_prompt, system_message=system_message, model=model
+        )
+        code_str = parse_code_response({"text": raw_text})
+        code_id = get_id(code_str)
+
+        update_code_result(CodeResult(
+            id=code_id,
+            algorithm_id=member_id,
+            code=code_str,
+            status=CodeStatus.Generated,
+            par2=None,
+            last_updated=datetime.now(),
+            build_success=NOT_INITIALIZED,
+        ))
+
+        if algorithm_result.code_id_list is None:
+            algorithm_result.code_id_list = []
+        algorithm_result.code_id_list.append(code_id)
+        algorithm_result.status = AlgorithmStatus.CodeGenerated
+        update_algorithm_result(algorithm_result)
+
+    logger.info(f"[sync] Mutant generation complete: {len(member_ids)} mutants")
+    return member_ids
+
+
+def _generate_mutants_batch(
+    leaders: Dict[str, AlgorithmResult],
+    variant_prompt_template: str,
+    code_prompt_template: str,
+    generation_tag: str,
+    m_variants_per_leader: int = 3,
+    model: str = DEFAULT_MODEL,
+):
+    """Batch implementation: generate mutant variants + code for existing leaders."""
+
+    # Submit variant generation batches
+    waiting_batch_names = []
+    batch_name_to_leader_id = {}
+
+    for leader_id, leader_result in leaders.items():
+        leader_algorithm = leader_result.description
+        num_steps = count_steps(leader_algorithm)
+        if num_steps == 0:
+            logger.warning(f"Leader {leader_id[:8]}... has no step markers, skipping")
+            continue
+
+        step_assignments = []
+        if num_steps < m_variants_per_leader:
+            for i in range(m_variants_per_leader):
+                step_assignments.append((i + 1) if i < num_steps else num_steps)
+        else:
+            start_step = num_steps - m_variants_per_leader + 1
+            for i in range(m_variants_per_leader):
+                step_assignments.append(start_step + i)
+
+        logger.info(
+            f"Leader {leader_id[:8]}... has {num_steps} steps, "
+            f"assigning variants to steps: {step_assignments}"
+        )
+
+        variant_prompts = []
+        for target_step in step_assignments:
+            prompt = variant_prompt_template.replace("{leader_algorithm}", leader_algorithm)
+            prompt = prompt.replace("{target_step_num}", str(target_step))
+            variant_prompts.append(prompt)
+
+        member_batch_input_path = os.path.join(
+            get_generation_output_dir(generation_tag),
+            f"member_batch_input_{leader_id}.txt",
+        )
+        create_batch_input_file_variant(variant_prompts, member_batch_input_path, model=model)
+
+        batch_name = submit_batch_input(member_batch_input_path, model=model)
+        waiting_batch_names.append(batch_name)
+        batch_name_to_leader_id[batch_name] = leader_id
+
+    # Save batch mapping
+    batch_id_map = {
+        "member_batch_names": waiting_batch_names,
+        "member_batch_map": batch_name_to_leader_id,
+    }
+    json.dump(
+        batch_id_map,
+        open(
+            os.path.join(
+                get_generation_output_dir(generation_tag),
+                f"mutant_batch_map_{datetime.now().strftime('%Y%m%d%H%M%S')}.json",
+            ),
+            "w",
+        ),
+    )
+
+    # Process member batches
+    member_ids = []
+
+    for batch_name in waiting_batch_names:
+        block_until_completion(batch_name)
+
+        leader_id = batch_name_to_leader_id[batch_name]
+        leader_result = leaders[leader_id]
+        member_output_path = os.path.join(
+            get_generation_output_dir(generation_tag),
+            f"member_output_{batch_name}.txt",
+        )
+        download_batch_outputs(batch_name, member_output_path)
+
+        with open(member_output_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    member_response = json.loads(line)
+                except Exception:
+                    continue
+
+                member_desc, _, member_reason = parse_algorithm_response(member_response)
+                member_id = get_id(member_desc)
+                member_ids.append(member_id)
+
+                update_router_table(
+                    CHATGPT_DATA_GENERATION_TABLE, member_id, generation_tag
+                )
+                update_algorithm_result(AlgorithmResult(
+                    id=member_id,
+                    function_name=leader_result.function_name,
+                    description=member_desc,
+                    role=Role.MEMBER,
+                    status=AlgorithmStatus.Generated,
+                    last_updated=datetime.now(),
+                    code_id_list=[],
+                    parent_id=[leader_id],
+                    parent_algorithm_description=[leader_result.description],
+                    analysis=member_reason,
+                    prompt=variant_prompt_template,
+                ))
+
+        logger.info(f"Generated members for leader {leader_id}")
+
+    logger.info(f"Generated {len(member_ids)} mutants")
+
+    # Generate code for mutants only
+    logger.info(f"Starting code generation for {len(member_ids)} mutants")
+
+    code_batch_names = []
+    code_batch_to_algorithm = {}
+
+    for member_id in member_ids:
+        algorithm_result = get_algorithm_result(member_id)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description)
+
+        code_batch_input_path = os.path.join(
+            get_generation_output_dir(generation_tag),
+            f"code_batch_input_{member_id}.txt",
+        )
+        create_batch_input_file(code_prompt, code_batch_input_path, n_requests=1, model=model)
+
+        batch_name = submit_batch_input(code_batch_input_path, model=model)
+        code_batch_names.append(batch_name)
+        code_batch_to_algorithm[batch_name] = member_id
+
+    # Update batch map
+    batch_id_map["code_batch_names"] = code_batch_names
+    batch_id_map["code_batch_map"] = code_batch_to_algorithm
+    json.dump(
+        batch_id_map,
+        open(
+            os.path.join(
+                get_generation_output_dir(generation_tag),
+                f"mutant_batch_map_{datetime.now().strftime('%Y%m%d%H%M%S')}.json",
+            ),
+            "w",
+        ),
+    )
+
+    logger.info(f"Submitted {len(code_batch_names)} code generation batches")
+    logger.info("Waiting for all code batches to complete...")
+    wait_for_all_batches(code_batch_names)
+    logger.info("All code batches completed, downloading results...")
+
+    for batch_name in code_batch_names:
+        member_id = code_batch_to_algorithm[batch_name]
+        code_output_path = os.path.join(
+            get_generation_output_dir(generation_tag),
+            f"code_output_{batch_name}.txt",
+        )
+        download_batch_outputs(batch_name, code_output_path)
+
+        algorithm_result = get_algorithm_result(member_id)
+
+        with open(code_output_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    code_response = json.loads(line)
+                except Exception:
+                    continue
+
+                code_str = parse_code_response(code_response)
+                code_id = get_id(code_str)
+
+                update_code_result(CodeResult(
+                    id=code_id,
+                    algorithm_id=member_id,
+                    code=code_str,
+                    status=CodeStatus.Generated,
+                    par2=None,
+                    last_updated=datetime.now(),
+                    build_success=NOT_INITIALIZED,
+                ))
+
+                if algorithm_result.code_id_list is None:
+                    algorithm_result.code_id_list = []
+                algorithm_result.code_id_list.append(code_id)
+
+        algorithm_result.status = AlgorithmStatus.CodeGenerated
+        update_algorithm_result(algorithm_result)
+        logger.info(f"Generated code for mutant {member_id}")
+
+    logger.info(f"Mutant generation complete: {len(member_ids)} mutants")
+    return member_ids
+
+
+def generate_mutants_for_leaders(
+    variant_prompt_path: str,
+    code_prompt_template_path: str,
+    source_generation_tag: str,
+    output_generation_tag: str,
+    m_variants_per_leader: int = 3,
+    model: str = DEFAULT_MODEL,
+    sync: bool = False,
+):
+    """
+    Generate mutant variants + code for existing leaders (no new leader generation).
+
+    Loads leaders from source_generation_tag, registers them under output_generation_tag,
+    then generates M mutant variants per leader with code.
+
+    Args:
+        variant_prompt_path: Path to variant prompt template
+        code_prompt_template_path: Path to code prompt template
+        source_generation_tag: Tag to load existing leaders from
+        output_generation_tag: Tag for this iteration's output
+        m_variants_per_leader: Number of mutant variants per leader
+        model: Gemini model to use
+        sync: If True, use synchronous API calls instead of batch
+    """
+    if output_generation_tag is None:
+        logger.error("output_generation_tag is required")
+        return
+
+    # Load leaders from source tag
+    logger.info(f"Loading leaders from source tag: {source_generation_tag}")
+    all_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, source_generation_tag)
+    logger.info(f"Found {len(all_ids)} algorithms under {source_generation_tag}")
+
+    leaders = {}
+    for algorithm_id in all_ids:
+        result = get_algorithm_result(algorithm_id)
+        if result is None:
+            logger.warning(f"Algorithm {algorithm_id[:16]}... not found in DB, skipping")
+            continue
+        if result.parent_id is not None:
+            continue  # Skip members, only load leaders
+        leaders[algorithm_id] = result
+
+    logger.info(f"Loaded {len(leaders)} leaders")
+    if not leaders:
+        logger.error("No leaders found, nothing to do")
+        return
+
+    # Register leaders under the new output tag
+    for leader_id in leaders:
+        update_router_table(CHATGPT_DATA_GENERATION_TABLE, leader_id, output_generation_tag)
+    logger.info(f"Registered {len(leaders)} leaders under {output_generation_tag}")
+
+    # Read prompt templates
+    variant_prompt_template = read_prompt_file(variant_prompt_path)
+    code_prompt_template = read_prompt_file(code_prompt_template_path)
+
+    if sync:
+        return _generate_mutants_sync(
+            leaders=leaders,
+            variant_prompt_template=variant_prompt_template,
+            code_prompt_template=code_prompt_template,
+            generation_tag=output_generation_tag,
+            m_variants_per_leader=m_variants_per_leader,
+            model=model,
+        )
+    else:
+        return _generate_mutants_batch(
+            leaders=leaders,
+            variant_prompt_template=variant_prompt_template,
+            code_prompt_template=code_prompt_template,
+            generation_tag=output_generation_tag,
+            m_variants_per_leader=m_variants_per_leader,
+            model=model,
+        )
+
+
 def resume_code_collection(generation_tag: str, batch_map_path: str):
     """
     Resume code collection from a saved batch map after interruption.
@@ -869,16 +1249,63 @@ def resume_code_collection(generation_tag: str, batch_map_path: str):
 
 
 def main():
-    generate_team_data(
-        generation_tag="pipeline_test",
-        designer_prompt_path="./data/prompts/leader_prompt_testing.txt",
-        variant_prompt_path="./data/prompts/variant_prompt.txt",
-        code_prompt_template_path="./data/prompts/coder_prompt_testing.txt",
-        n_leaders=1,
-        m_variants_per_leader=1,
-        model="gemini-3.1-pro-preview",
-        sync=True,
-    )
+    import argparse
+
+    parser = argparse.ArgumentParser(description="LLM-SAT data generation pipeline")
+    parser.add_argument("--mutants-only", action="store_true",
+                        help="Skip leader generation, generate mutants for existing leaders")
+    parser.add_argument("--source_tag", type=str, default=None,
+                        help="Source generation tag to load existing leaders from (used with --mutants-only)")
+    parser.add_argument("--output_tag", type=str, default=None,
+                        help="Output generation tag for new mutants (used with --mutants-only)")
+    parser.add_argument("--generation_tag", type=str, default="pipeline_test",
+                        help="Generation tag (used for full team generation)")
+    parser.add_argument("--designer_prompt_path", type=str,
+                        default="./data/prompts/leader_prompt_testing.txt",
+                        help="Path to designer prompt for leader generation")
+    parser.add_argument("--variant_prompt_path", type=str,
+                        default="./data/prompts/variant_prompt.txt",
+                        help="Path to variant prompt template")
+    parser.add_argument("--code_prompt_path", type=str,
+                        default="./data/prompts/coder_prompt_testing.txt",
+                        help="Path to coder prompt template")
+    parser.add_argument("--n_leaders", type=int, default=5,
+                        help="Number of leaders to generate (full mode only)")
+    parser.add_argument("--m_variants", type=int, default=3,
+                        help="Number of mutant variants per leader")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL,
+                        help="Gemini model to use")
+    parser.add_argument("--sync", action="store_true",
+                        help="Use synchronous API calls instead of batch")
+
+    args = parser.parse_args()
+
+    if args.mutants_only:
+        if not args.source_tag:
+            parser.error("--source_tag is required with --mutants-only")
+        if not args.output_tag:
+            parser.error("--output_tag is required with --mutants-only")
+
+        generate_mutants_for_leaders(
+            variant_prompt_path=args.variant_prompt_path,
+            code_prompt_template_path=args.code_prompt_path,
+            source_generation_tag=args.source_tag,
+            output_generation_tag=args.output_tag,
+            m_variants_per_leader=args.m_variants,
+            model=args.model,
+            sync=args.sync,
+        )
+    else:
+        generate_team_data(
+            generation_tag=args.generation_tag,
+            designer_prompt_path=args.designer_prompt_path,
+            variant_prompt_path=args.variant_prompt_path,
+            code_prompt_template_path=args.code_prompt_path,
+            n_leaders=args.n_leaders,
+            m_variants_per_leader=args.m_variants,
+            model=args.model,
+            sync=args.sync,
+        )
 
 
 if __name__ == "__main__":
