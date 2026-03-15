@@ -13,6 +13,7 @@ logs/
 *.pyc
 __pycache__/
 .env
+path_config.yaml
 *.md
 
 # Log files globally, except solver build logs

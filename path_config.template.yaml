@@ -1,0 +1,6 @@
+# Copy this to path_config.yaml and fill in your paths.
+# base_solver: absolute path to the base AE_kissatMAB solver directory
+# python_activate: path to your Python virtualenv activate script
+
+base_solver: "/CHANGE_ME/solvers/base"
+python_activate: "~/general/bin/activate"

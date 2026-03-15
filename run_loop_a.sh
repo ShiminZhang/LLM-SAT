@@ -5,16 +5,17 @@
 # Leaders are NOT regenerated; only new mutant variants are created each iteration.
 #
 # Usage:
-#   ./run_loop_a.sh <base_tag> <n_iterations> [source_tag]
+#   ./run_loop_a.sh <cc|nersc> <base_tag> <n_iterations> [source_tag]
 #
 # Examples:
-#   # Start from initial leaders (assumes gemini_trial5_iter0 exists)
-#   ./run_loop_a.sh gemini_trial5 3
+#   # Start from initial leaders on Compute Canada
+#   ./run_loop_a.sh cc gemini_trial5 3
 #
-#   # Start from GE offspring that were promoted to leaders
-#   ./run_loop_a.sh gemini_trial5_ge1 3 gemini_trial5_ge1_iter0
+#   # Start from GE offspring on NERSC
+#   ./run_loop_a.sh nersc gemini_trial5_ge1 3 gemini_trial5_ge1_iter0
 #
 # Arguments:
+#   cc|nersc       - Cluster to run on (selects script variants)
 #   base_tag       - Base name for iteration tags ({base_tag}_iter1, _iter2, ...)
 #   n_iterations   - Number of mutant→evaluate→promote cycles to run
 #   source_tag     - (Optional) Tag to load initial leaders from.
@@ -22,20 +23,37 @@
 
 set -euo pipefail
 
-if [ $# -lt 2 ]; then
-    echo "Usage: $0 <base_tag> <n_iterations> [source_tag]"
+if [ $# -lt 3 ]; then
+    echo "Usage: $0 <cc|nersc> <base_tag> <n_iterations> [source_tag]"
     exit 1
 fi
 
-BASE_TAG="$1"
-N_ITERATIONS="$2"
-SOURCE_TAG="${3:-${BASE_TAG}_iter0}"
+CLUSTER="$1"
+BASE_TAG="$2"
+N_ITERATIONS="$3"
+SOURCE_TAG="${4:-${BASE_TAG}_iter0}"
+
+case "$CLUSTER" in
+    cc)
+        DATAGEN_SCRIPT="src/llmsat/pipelines/gemini_data_generation.py"
+        EVAL_SCRIPT="src/llmsat/pipelines/evaluation.py"
+        ;;
+    nersc)
+        DATAGEN_SCRIPT="src/llmsat/pipelines/gemini_data_generation_nersc.py"
+        EVAL_SCRIPT="src/llmsat/pipelines/evaluation_nersc.py"
+        ;;
+    *)
+        echo "ERROR: cluster must be 'cc' or 'nersc', got '$CLUSTER'"
+        exit 1
+        ;;
+esac
 POLL_INTERVAL="${POLL_INTERVAL:-120}"  # seconds between squeue checks
 M_VARIANTS="${M_VARIANTS:-3}"
 MODEL="${MODEL:-gemini-3-flash-preview}"
 
 echo "============================================"
 echo "Loop A: Leader Refinement"
+echo "  Cluster:      $CLUSTER"
 echo "  Base tag:     $BASE_TAG"
 echo "  Iterations:   $N_ITERATIONS"
 echo "  Source tag:    $SOURCE_TAG"
@@ -52,7 +70,7 @@ for i in $(seq 1 "$N_ITERATIONS"); do
 
     # Step 1: Generate mutants for existing leaders
     echo "[Step 1] Generating mutants..."
-    python src/llmsat/pipelines/gemini_data_generation.py \
+    python "$DATAGEN_SCRIPT" \
         --mutants-only \
         --source_tag "$SOURCE_TAG" \
         --output_tag "$ITER_TAG" \
@@ -64,7 +82,7 @@ for i in $(seq 1 "$N_ITERATIONS"); do
 
     # Step 2: Build & submit SLURM evaluation (skip already-evaluated leaders)
     echo "[Step 2] Building and submitting evaluation..."
-    python src/llmsat/pipelines/evaluation.py \
+    python "$EVAL_SCRIPT" \
         --run_all --generation_tag "$ITER_TAG" \
         --quick-eval --batch-mode --skip-evaluated
 
@@ -105,12 +123,12 @@ except Exception as e:
 
     # Step 4: Collect PAR2 results
     echo "[Step 4] Collecting results..."
-    python src/llmsat/pipelines/evaluation.py \
+    python "$EVAL_SCRIPT" \
         --collect_all_results --generation_tag "$ITER_TAG" --quick-eval
 
     # Step 5: Promote best member in each team
     echo "[Step 5] Promoting leaders..."
-    python src/llmsat/pipelines/evaluation.py \
+    python "$EVAL_SCRIPT" \
         --promote-leaders --generation_tag "$ITER_TAG"
 
     # Next iteration reads from this iteration's promoted leaders

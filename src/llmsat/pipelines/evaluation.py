@@ -110,7 +110,8 @@ def _compute_par2_breakdown(
 
 def _get_activation_cmd() -> str:
     """Return shell command to activate Python environment."""
-    return "source ~/general/bin/activate"
+    from llmsat.config import PYTHON_ACTIVATE_PATH
+    return f"source {PYTHON_ACTIVATE_PATH}"
 
 
 @dataclass

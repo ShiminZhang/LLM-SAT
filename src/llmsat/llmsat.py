@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import hashlib
 NOT_INITIALIZED = "NOT_INITIALIZED"
-BASE_SOLVER_PATH = "/home/meru/scratch/LLM-SAT/solvers/base"
+from llmsat.config import BASE_SOLVER_PATH, PYTHON_ACTIVATE_PATH
+PYENV_PATH = PYTHON_ACTIVATE_PATH  # backwards-compat alias
 RECOVERED_ALGORITHM = "recovered_algorithm"
 SAT2025_BENCHMARK_PATH = "data/benchmarks/satcomp2025"
-PYENV_PATH = "../../general/bin/activate"
 CHATGPT_DATA_GENERATION_TABLE = "chatgpt_datagen"
 
 #DATATYPES

@@ -22,7 +22,7 @@ for arg in "$@"; do
 done
 
 # ---- Mode-dependent parameters ----
-BASE_SOLVER="solvers/base"
+BASE_SOLVER=$(python3 -c "import yaml, os; c=yaml.safe_load(open('path_config.yaml')); print(os.path.expanduser(c['base_solver']))")
 BENCHMARK_PATH="data/benchmarks/satcomp2025"
 ACCOUNT="def-vganesh"
 MEM="4G"

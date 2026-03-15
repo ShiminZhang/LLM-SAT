@@ -2,7 +2,7 @@ import fcntl
 import os
 import tempfile
 from pathlib import Path
-from llmsat.llmsat import PYENV_PATH
+from llmsat.config import PYTHON_ACTIVATE_PATH
 
 
 def atomic_write(file_path: str, content: str) -> None:
@@ -168,4 +168,4 @@ def wrap_command_to_slurm(
         --wrap='{command}'"
 
 def get_activate_python_path() -> str:
-    return f"source {PYENV_PATH}"
+    return f"source {PYTHON_ACTIVATE_PATH}"
