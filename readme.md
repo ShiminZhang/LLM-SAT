@@ -13,7 +13,24 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### 2. Environment variables
+### 2. Path configuration
+
+Copy the template and fill in your cluster-specific paths:
+
+```bash
+cp path_config.template.yaml path_config.yaml
+```
+
+Edit `path_config.yaml`:
+
+```yaml
+base_solver: "/home/you/scratch/LLM-SAT/solvers/base"
+python_activate: "~/your-venv/bin/activate"
+```
+
+This file is gitignored. All scripts and Python modules read paths from here, so you only set them once.
+
+### 3. Environment variables
 
 Create a `.env` file in the project root:
 
@@ -25,7 +42,7 @@ GOOGLE_API_KEY="<google/gemini key>"
 
 `DB_PASS` is for the shared PostgreSQL database that stores algorithms, code, and scores. `OPENAI_API_KEY` is used by the genetic evolution pipeline. `GOOGLE_API_KEY` is used by data generation (Gemini batch API).
 
-### 3. Base solver
+### 4. Base solver
 
 The base solver is AE_kissatMAB. Place the `AE_kissat2025_MAB.tar.xz` tarball in the repo root and run:
 
@@ -33,9 +50,9 @@ The base solver is AE_kissatMAB. Place the `AE_kissat2025_MAB.tar.xz` tarball in
 bash setup_aemab.sh
 ```
 
-This extracts the solver to `solvers/base/`, copies the function registry, and runs `./configure`.
+This extracts the solver to your configured `base_solver` path, copies the function registry, and runs `./configure`.
 
-### 4. Benchmarks
+### 5. Benchmarks
 
 Place `track_main_2025.uri` in the repo root (the SAT Competition 2025 URI list), then:
 
@@ -45,7 +62,7 @@ bash scripts/download_satcomp2025.sh
 
 Downloads and extracts ~400 CNF files to `data/benchmarks/satcomp2025/`.
 
-### 5. Function registry
+### 6. Function registry
 
 The file `solvers/base/function_registry.yaml` tells the evaluation pipeline which C function to replace and where it lives in the source. It currently targets `kissat_restarting` and `restart_mab` in `src/restart.c`:
 
@@ -58,72 +75,113 @@ functions:
     signature: "bool kissat_restarting(kissat *solver)"
 ```
 
-To target a different function, add an entry with its source file path (relative to `solvers/base/`), start/end line numbers, and signature. The data generation prompts must also ask for that function. The evaluation pipeline reads this registry to know where to inject generated code before compiling.
+To target a different function, add an entry with its source file path (relative to `solvers/base/`), start/end line numbers, and signature.
 
 ## SLURM Configuration
 
-Before running anything, update the SLURM settings in `src/llmsat/pipelines/evaluation.py` for your cluster:
+Update the SLURM settings in `src/llmsat/pipelines/evaluation.py` for your cluster:
 
-- `SLURM_ACCOUNT` (line 46) — your allocation account (default: `def-vganesh`)
-- `_get_activation_cmd()` (line 110) — path to your Python virtualenv (default: `~/general/bin/activate`)
+- `SLURM_ACCOUNT` (line 48) — your allocation account (default: `def-vganesh`)
+
+The Python venv activation path is now read from `path_config.yaml` automatically.
 
 ## Running the Pipeline
 
-### Step 1: Data Generation
+The full pipeline has three stages that repeat in a cycle. Each stage can be run standalone or chained together via the orchestration scripts.
 
-Generates a population of solver heuristics organized into teams. Each team has one leader (an original strategy) and several members (variants of that leader). The LLM first generates leader algorithms in natural language, then produces member variants by modifying specific steps of each leader, and finally translates all algorithms into C code. All three stages use Gemini's batch API.
+### Data generation
 
-Edit the `main()` function in `gemini_data_generation.py` to set your generation tag, prompt paths, number of leaders, and variants per leader, then run:
+Generates a population of solver heuristics organized into teams (leaders + member variants). Uses Gemini's batch API.
 
 ```bash
 python src/llmsat/pipelines/gemini_data_generation.py
 ```
 
-Prompt files live in `data/prompts/`:
-- `leader_prompt.txt` — designer prompt for generating leader algorithms
-- `variant_prompt.txt` — template for generating member variants (uses `{leader_algorithm}` and `{target_step_num}` placeholders)
-- `coder_prompt.txt` — template for translating algorithms to C code (uses `ALGORITHM_PLACEHOLDER`)
+Prompt files live in `data/prompts/` (`leader_prompt.txt`, `variant_prompt.txt`, `coder_prompt.txt`).
 
-### Step 2: Evaluation
+### Evaluation
 
-Builds each generated algorithm into a kissat binary by injecting its C code into the base solver, then runs all binaries against the benchmark CNFs on SLURM. Each solver is timed per-instance; timeouts and crashes get a PAR2 penalty. After all jobs finish, results are collected and the best-performing member in each team is promoted to leader (swapping filesystem directories and database records).
+Builds each algorithm into a kissat binary, runs them against benchmarks on SLURM, and promotes the best member in each team to leader.
 
 ```bash
-# Build solvers and submit SLURM evaluation jobs
+# Build + submit SLURM jobs
 python src/llmsat/pipelines/evaluation.py \
-    --run_all --generation_tag <TAG> --quick-eval
+    --run_all --generation_tag <TAG> --quick-eval --batch-mode
 
-# After SLURM jobs complete, collect PAR2 scores
+# Collect PAR2 scores (after SLURM jobs finish)
 python src/llmsat/pipelines/evaluation.py \
     --collect_all_results --generation_tag <TAG> --quick-eval
 
-# Promote best member to leader in each team
+# Promote best member to leader per team
 python src/llmsat/pipelines/evaluation.py \
     --promote-leaders --generation_tag <TAG>
 ```
 
-Use `--dry-run` on any command to preview without submitting. Drop `--quick-eval` for full evaluation (400 CNFs, 5000s timeout) instead of the fast subset (50 CNFs, 600s timeout).
+Use `--dry-run` to preview. Drop `--quick-eval` for full evaluation (400 CNFs, 5000s timeout) instead of quick (50 CNFs, 600s).
 
-Results are saved per-solver under `solvers/<TAG>/{leaders,members}/algorithm_<ID>/code_<ID>/results/`:
+### Genetic evolution
 
-- `solving_times_<code_id>.json` — per-instance CPU time in seconds (or PAR2 penalty for timeout/error)
-- `solver_stats_<code_id>.json` — kissat internal statistics per instance (conflicts, decisions, propagations, restarts, etc.), parsed from the `-s` flag output
-- `par2_breakdown_<code_id>.json` — PAR2 scores broken down by category: all, easy, hard, SAT, UNSAT
-
-The PAR2 score for a solver is the average of all its instance times, where unsolved instances (timeout, crash, OOM) receive a penalty of 2x the timeout (10000 for full eval, 1200 for quick eval).
-
-### Step 3: Genetic Evolution
-
-Takes the promoted leaders from Step 2 and evolves them. An LLM first analyzes each leader to identify its strengths, weaknesses, and key mechanisms (causal analysis). It then proposes the most promising pairs of leaders to combine, generates offspring algorithms via crossover, translates them to C code, and evaluates them. Offspring that beat their parents' PAR2 are kept. Since SLURM evaluation is async, each invocation runs one iteration; run repeatedly to continue evolving.
+Takes promoted leaders, analyzes strengths/weaknesses, pairs them for crossover, generates offspring, and evaluates.
 
 ```bash
 python src/llmsat/pipelines/genetic_evolution.py \
     --generation_tag <TAG> \
+    --output_tag <TAG>_gen1 \
     --code_prompt_path data/prompts/coder_prompt.txt \
-    --evaluate \
-    --top_k 5 \
-    --rubric_min 6.0 \
-    --model gpt-4.1
+    --evaluate --top_k 5 --rubric_min 6.0
 ```
 
-Use `--folder outputs/<TAG>` to load the population from local files instead of the database. Use `--causal_only` to run just the analysis stage without crossover. Use `--skip_causal` on subsequent runs to reuse cached reports.
+## Orchestration Scripts
+
+These scripts chain the stages above into automated loops. They handle SLURM polling, result collection, and leader promotion between iterations.
+
+### Loop A — Leader Refinement
+
+Iterates: generate mutants -> evaluate -> promote. The first argument selects the cluster (`cc` for Compute Canada, `nersc` for NERSC), which determines which Python scripts to run.
+
+```bash
+./run_loop_a.sh <cc|nersc> <base_tag> <n_iterations> [source_tag]
+
+# Examples
+./run_loop_a.sh cc gemini_trial5 3
+./run_loop_a.sh nersc gemini_trial5 3
+```
+
+On `cc`, the loop runs `evaluation.py` and `gemini_data_generation.py`. On `nersc`, it runs the `_nersc` variants (`evaluation_nersc.py`, `gemini_data_generation_nersc.py`).
+
+Environment variables: `POLL_INTERVAL` (default 120s), `M_VARIANTS` (default 3), `MODEL` (default `gemini-3-flash-preview`).
+
+### Bridge — GE Offspring to New Leaders
+
+Takes the top N offspring from a genetic evolution run and converts them into a clean leader pool under a new tag. Feed this into Loop A for further refinement.
+
+```bash
+./run_bridge.sh <ge_output_tag> <target_base_tag> [top_n]
+
+# Example: promote top 10 offspring, then refine
+./run_bridge.sh gemini_trial5_gen1_v1_iter1 gemini_trial5_ge1 10
+./run_loop_a.sh cc gemini_trial5_ge1 3 gemini_trial5_ge1_iter0
+```
+
+### Genetic Evolution (shell wrapper)
+
+`run_genetic_evolution.sh` is a convenience wrapper around `genetic_evolution.py` with preset parameters. Edit the environment variables and generation tag at the top before running.
+
+## Typical Workflow
+
+```
+1. Data generation       (create initial population)
+2. Loop A (N iters)      (mutate + evaluate + promote)
+3. Genetic evolution     (crossover best leaders)
+4. Bridge                (promote offspring to leaders)
+5. Loop A (N iters)      (refine the new leaders)
+6. Repeat from 3
+```
+
+## Multi-Cluster Support
+
+The same codebase runs on both Compute Canada and NERSC. Differences are handled by:
+
+1. **`path_config.yaml`** — each user sets their own solver and venv paths
+2. **`run_loop_a.sh cc|nersc`** — selects the appropriate pipeline scripts per cluster
+3. **NERSC script variants** (`evaluation_nersc.py`, `gemini_data_generation_nersc.py`) — contain NERSC-specific SLURM settings and job submission logic
