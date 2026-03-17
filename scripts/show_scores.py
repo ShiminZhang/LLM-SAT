@@ -11,7 +11,7 @@ ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, tag)
 results = []
 for aid in ids:
     a = get_algorithm_result(aid)
-    if a and a.raw_par2_score:
+    if a and a.raw_par2_score and a.raw_par2_score[-1] is not None:
         results.append((a.raw_par2_score[-1], a.role.value, aid))
 results.sort()
 for par2, role, aid in results:
