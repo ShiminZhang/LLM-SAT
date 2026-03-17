@@ -13,7 +13,24 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### 2. Environment variables
+### 2. Path configuration
+
+Copy the template and fill in your cluster-specific paths:
+
+```bash
+cp path_config.template.yaml path_config.yaml
+```
+
+Edit `path_config.yaml`:
+
+```yaml
+base_solver: "/home/you/scratch/LLM-SAT/solvers/base"
+python_activate: "~/your-venv/bin/activate"
+```
+
+This file is gitignored. All scripts and Python modules read paths from here, so you only set them once.
+
+### 3. Environment variables
 
 Create a `.env` file in the project root:
 
@@ -25,7 +42,7 @@ GOOGLE_API_KEY="<google/gemini key>"
 
 `DB_PASS` is for the shared PostgreSQL database that stores algorithms, code, and scores. `OPENAI_API_KEY` is used by the genetic evolution pipeline. `GOOGLE_API_KEY` is used by data generation (Gemini batch API).
 
-### 3. Base solver
+### 4. Base solver
 
 The base solver is AE_kissatMAB. Place the `AE_kissat2025_MAB.tar.xz` tarball in the repo root and run:
 
@@ -33,9 +50,9 @@ The base solver is AE_kissatMAB. Place the `AE_kissat2025_MAB.tar.xz` tarball in
 bash setup_aemab.sh
 ```
 
-This extracts the solver to `solvers/base/`, copies the function registry, and runs `./configure`.
+This extracts the solver to your configured `base_solver` path, copies the function registry, and runs `./configure`.
 
-### 4. Benchmarks
+### 5. Benchmarks
 
 Place `track_main_2025.uri` in the repo root (the SAT Competition 2025 URI list), then:
 
@@ -45,7 +62,7 @@ bash scripts/download_satcomp2025.sh
 
 Downloads and extracts ~400 CNF files to `data/benchmarks/satcomp2025/`.
 
-### 5. Function registry
+### 6. Function registry
 
 The file `solvers/base/function_registry.yaml` tells the evaluation pipeline which C function to replace and where it lives in the source. It currently targets `kissat_restarting` and `restart_mab` in `src/restart.c`:
 
@@ -62,68 +79,191 @@ To target a different function, add an entry with its source file path (relative
 
 ## SLURM Configuration
 
-Before running anything, update the SLURM settings in `src/llmsat/pipelines/evaluation.py` for your cluster:
+Update the SLURM settings in `src/llmsat/pipelines/evaluation.py` for your cluster:
 
-- `SLURM_ACCOUNT` (line 46) — your allocation account (default: `def-vganesh`)
-- `_get_activation_cmd()` (line 110) — path to your Python virtualenv (default: `~/general/bin/activate`)
+- `SLURM_ACCOUNT` (line 48) — your allocation account (default: `def-vganesh`)
 
 ## Running the Pipeline
 
-### Step 1: Data Generation
+The pipeline has two main phases that alternate:
 
-Generates a population of solver heuristics organized into teams. Each team has one leader (an original strategy) and several members (variants of that leader). The LLM first generates leader algorithms in natural language, then produces member variants by modifying specific steps of each leader, and finally translates all algorithms into C code. All three stages use Gemini's batch API.
+1. **Loop A** (`run_loop_a.sh`) — Leader refinement: generates mutant variants of leaders, evaluates them, and promotes the best
+2. **Bridge** (`run_bridge.sh`) — Genetic evolution: combines top leaders via LLM-guided crossover to produce new offspring
 
-Edit the `main()` function in `gemini_data_generation.py` to set your generation tag, prompt paths, number of leaders, and variants per leader, then run:
+A complete evolution cycle is just 3 commands:
 
 ```bash
-python src/llmsat/pipelines/gemini_data_generation.py
+./run_loop_a.sh cc my_tag 3 --init       # Initialize + 3 refinement iterations
+./run_bridge.sh cc my_tag_iter3 my_gen1  # Genetic crossover
+./run_loop_a.sh cc my_gen1 3 my_gen1     # Continue refining the offspring
 ```
+
+---
+
+### Loop A: Leader Refinement (`run_loop_a.sh`)
+
+Runs N iterations of: generate mutant variants → SLURM evaluation → collect results → promote best member to leader.
+
+**Usage:**
+
+```bash
+./run_loop_a.sh <cc|nersc> <base_tag> <n_iterations> [source_tag] [--init]
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `cc\|nersc` | Cluster to run on (selects evaluation backend) |
+| `base_tag` | Base name for iteration tags (`{base_tag}_iter1`, `_iter2`, ...) |
+| `n_iterations` | Number of mutate→evaluate→promote cycles |
+| `source_tag` | (Optional) Tag to load initial leaders from. Defaults to `{base_tag}_iter0` |
+| `--init` | (Optional) Generate initial leaders + members + code before starting iterations |
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `M_VARIANTS` | 3 | Number of mutant variants per leader |
+| `MODEL` | `gemini-3-flash-preview` | LLM model for generation |
+| `POLL_INTERVAL` | 120 | Seconds between SLURM job status checks |
+| `N_LEADERS` | 5 | (Init mode only) Number of leaders to generate |
+| `DESIGNER_PROMPT` | `data/prompts/leader_prompt_testing.txt` | (Init mode only) Path to leader prompt |
+
+**Examples:**
+
+```bash
+# Initialize a new population and run 3 refinement iterations
+./run_loop_a.sh cc gemini_trial5 3 --init
+
+# Continue refining from existing leaders (no init)
+./run_loop_a.sh cc gemini_trial5 2 gemini_trial5_iter3
+
+# Use custom settings
+N_LEADERS=10 M_VARIANTS=5 ./run_loop_a.sh cc gemini_trial5 3 --init
+```
+
+**What happens with `--init`:**
+
+1. Generates `N_LEADERS` leader algorithms (natural language)
+2. Generates `M_VARIANTS` member variants per leader
+3. Translates all algorithms to C code
+4. Builds solvers and submits SLURM evaluation jobs
+5. Polls SLURM until all jobs complete
+6. Collects PAR2 scores
+7. Promotes best member to leader in each team
+8. Proceeds to mutation iterations 1..N
+
+**What happens in each iteration:**
+
+1. Generates `M_VARIANTS` mutant variants for each leader
+2. Builds and submits SLURM evaluation (skips already-evaluated leaders)
+3. Polls until jobs complete
+4. Collects PAR2 scores
+5. Promotes best member to leader
+
+---
+
+### Bridge: Genetic Evolution (`run_bridge.sh`)
+
+Promotes top offspring from a refined population, runs LLM-guided genetic crossover to combine leaders, evaluates the offspring, and collects results.
+
+**Usage:**
+
+```bash
+./run_bridge.sh <cc|nersc> <input_tag> <output_tag>
+```
+
+**Arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `cc\|nersc` | Cluster to run on |
+| `input_tag` | Tag to read evaluated leaders from (scans `_iter1`, `_iter2`, ... automatically) |
+| `output_tag` | Tag for the offspring population |
+
+**Environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TOP_K` | 5 | LLM combination proposals per minibatch |
+| `MINIBATCH_SIZE` | 10 | Leaders per LLM proposal call |
+| `RUBRIC_MIN` | 6.0 | Minimum proposal score to proceed |
+| `RUBRIC_KEEP_TOP_N` | 10 | Keep top-N proposals after score filter |
+| `SHUFFLE_PASSES` | 1 | Number of shuffled minibatch passes |
+| `MODEL` | `gemini-3-flash-preview` | LLM model |
+| `PAR2_KEEP_TOP_N` | 7 | Keep top-N offspring by PAR2 score |
+| `POLL_INTERVAL` | 120 | Seconds between SLURM job status checks |
+
+**Example:**
+
+```bash
+# Run genetic evolution on refined leaders from iter3
+TOP_K=3 MINIBATCH_SIZE=5 ./run_bridge.sh cc my_tag_iter3 my_gen1
+```
+
+**What happens:**
+
+1. Scans all `{input_tag}_iter*` directories for evaluated leaders
+2. Selects top leaders by PAR2 score
+3. LLM analyzes each leader (strengths, weaknesses, key mechanisms)
+4. LLM proposes leader pairs to combine
+5. LLM generates offspring algorithms via crossover
+6. Translates offspring to C code
+7. Builds and submits SLURM evaluation
+8. Polls until all jobs complete
+9. Collects PAR2 scores and keeps top offspring
+
+---
+
+## Full Pipeline Example
+
+Here's a complete end-to-end run evolving SAT solver heuristics:
+
+```bash
+# 1. Initialize population with 5 leaders, 3 variants each, run 3 refinement iterations
+N_LEADERS=5 M_VARIANTS=3 ./run_loop_a.sh cc experiment1 3 --init
+
+# Output: experiment1_iter0 (initial), experiment1_iter1, _iter2, _iter3 (refined)
+# Best leaders are in experiment1_iter3
+
+# 2. Run genetic evolution to combine top leaders into new offspring
+TOP_K=5 PAR2_KEEP_TOP_N=7 ./run_bridge.sh cc experiment1_iter3 experiment1_gen1
+
+# Output: experiment1_gen1 (offspring from crossover)
+
+# 3. Continue refining the new generation
+M_VARIANTS=3 ./run_loop_a.sh cc experiment1_gen1 3 experiment1_gen1
+
+# Output: experiment1_gen1_iter1, _iter2, _iter3
+
+# 4. Run another round of genetic evolution
+./run_bridge.sh cc experiment1_gen1_iter3 experiment1_gen2
+
+# ... and so on
+```
+
+**Results location:**
+
+- Solver binaries and code: `solvers/<TAG>/{leaders,members}/algorithm_<ID>/code_<ID>/`
+- Per-instance times: `results/solving_times_<code_id>.json`
+- PAR2 breakdown: `results/par2_breakdown_<code_id>.json`
+- Solver statistics: `results/solver_stats_<code_id>.json`
+
+**PAR2 scoring:**
+
+The PAR2 score is the average solving time across all benchmark instances. Unsolved instances (timeout, crash, OOM) receive a penalty of 2× the timeout:
+- Quick eval (`--quick-eval`): 50 CNFs, 600s timeout → 1200s penalty
+- Full eval: 400 CNFs, 5000s timeout → 10000s penalty
+
+---
+
+## Prompts
 
 Prompt files live in `data/prompts/`:
-- `leader_prompt.txt` — designer prompt for generating leader algorithms
-- `variant_prompt.txt` — template for generating member variants (uses `{leader_algorithm}` and `{target_step_num}` placeholders)
-- `coder_prompt.txt` — template for translating algorithms to C code (uses `ALGORITHM_PLACEHOLDER`)
 
-### Step 2: Evaluation
-
-Builds each generated algorithm into a kissat binary by injecting its C code into the base solver, then runs all binaries against the benchmark CNFs on SLURM. Each solver is timed per-instance; timeouts and crashes get a PAR2 penalty. After all jobs finish, results are collected and the best-performing member in each team is promoted to leader (swapping filesystem directories and database records).
-
-```bash
-# Build solvers and submit SLURM evaluation jobs
-python src/llmsat/pipelines/evaluation.py \
-    --run_all --generation_tag <TAG> --quick-eval
-
-# After SLURM jobs complete, collect PAR2 scores
-python src/llmsat/pipelines/evaluation.py \
-    --collect_all_results --generation_tag <TAG> --quick-eval
-
-# Promote best member to leader in each team
-python src/llmsat/pipelines/evaluation.py \
-    --promote-leaders --generation_tag <TAG>
-```
-
-Use `--dry-run` on any command to preview without submitting. Drop `--quick-eval` for full evaluation (400 CNFs, 5000s timeout) instead of the fast subset (50 CNFs, 600s timeout).
-
-Results are saved per-solver under `solvers/<TAG>/{leaders,members}/algorithm_<ID>/code_<ID>/results/`:
-
-- `solving_times_<code_id>.json` — per-instance CPU time in seconds (or PAR2 penalty for timeout/error)
-- `solver_stats_<code_id>.json` — kissat internal statistics per instance (conflicts, decisions, propagations, restarts, etc.), parsed from the `-s` flag output
-- `par2_breakdown_<code_id>.json` — PAR2 scores broken down by category: all, easy, hard, SAT, UNSAT
-
-The PAR2 score for a solver is the average of all its instance times, where unsolved instances (timeout, crash, OOM) receive a penalty of 2x the timeout (10000 for full eval, 1200 for quick eval).
-
-### Step 3: Genetic Evolution
-
-Takes the promoted leaders from Step 2 and evolves them. An LLM first analyzes each leader to identify its strengths, weaknesses, and key mechanisms (causal analysis). It then proposes the most promising pairs of leaders to combine, generates offspring algorithms via crossover, translates them to C code, and evaluates them. Offspring that beat their parents' PAR2 are kept. Since SLURM evaluation is async, each invocation runs one iteration; run repeatedly to continue evolving.
-
-```bash
-python src/llmsat/pipelines/genetic_evolution.py \
-    --generation_tag <TAG> \
-    --code_prompt_path data/prompts/coder_prompt.txt \
-    --evaluate \
-    --top_k 5 \
-    --rubric_min 6.0 \
-    --model gpt-4.1
-```
-
-Use `--folder outputs/<TAG>` to load the population from local files instead of the database. Use `--causal_only` to run just the analysis stage without crossover. Use `--skip_causal` on subsequent runs to reuse cached reports.
+| File | Purpose |
+|------|---------|
+| `leader_prompt_testing.txt` | Designer prompt for generating leader algorithms |
+| `variant_prompt.txt` | Template for generating member variants (uses `{leader_algorithm}` and `{target_step_num}` placeholders) |
+| `coder_prompt.txt` | Template for translating algorithms to C code (uses `ALGORITHM_PLACEHOLDER`) |

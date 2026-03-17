@@ -47,6 +47,8 @@ RUBRIC_MIN="${RUBRIC_MIN:-6.0}"
 RUBRIC_KEEP_TOP_N="${RUBRIC_KEEP_TOP_N:-10}"
 MODEL="${MODEL:-gemini-3-flash-preview}"
 SHUFFLE_PASSES="${SHUFFLE_PASSES:-1}"
+PAR2_KEEP_TOP_N="${PAR2_KEEP_TOP_N:-7}"
+POLL_INTERVAL="${POLL_INTERVAL:-120}"
 
 case "$CLUSTER" in
     cc)
@@ -75,6 +77,8 @@ echo "  rubric_min:       $RUBRIC_MIN"
 echo "  rubric_keep_top_n: $RUBRIC_KEEP_TOP_N"
 echo "  shuffle_passes:   $SHUFFLE_PASSES"
 echo "  model:            $MODEL"
+echo "  par2_keep_top_n:  $PAR2_KEEP_TOP_N"
+echo "  poll_interval:    ${POLL_INTERVAL}s"
 echo "============================================"
 
 # Promote top-N offspring to leaders, then run GE Phase 1 (submit_only)
@@ -93,9 +97,35 @@ python "$GE_SCRIPT" \
     --model "$MODEL" \
     $NERSC_FLAG
 
+# Poll SLURM until all user jobs finish
+echo ""
+echo "[Polling] Waiting for all SLURM jobs to complete..."
+echo "  (Note: polling all jobs for user $USER)"
+while true; do
+    RUNNING=$(squeue -u "$USER" -h 2>/dev/null | wc -l)
+    if [ "$RUNNING" -eq 0 ]; then
+        echo "  All SLURM jobs completed"
+        break
+    fi
+    echo "  $RUNNING jobs still running/pending, waiting ${POLL_INTERVAL}s..."
+    sleep "$POLL_INTERVAL"
+done
+
+# Collect GE results (absorbed from run_ge_collect.sh)
+echo ""
+echo "[Collecting] Gathering PAR2 results..."
+python "$GE_SCRIPT" \
+    --generation_tag "$TARGET_TAG" \
+    --output_tag "$OUTPUT_TAG" \
+    --collect_results \
+    --par2_keep_top_n "$PAR2_KEEP_TOP_N" \
+    --model "$MODEL" \
+    $NERSC_FLAG
+
 echo ""
 echo "============================================"
-echo "Phase 1 submitted. SLURM jobs running."
-echo "After jobs finish, collect results with:"
-echo "  ./run_ge_collect.sh $CLUSTER $TARGET_TAG $OUTPUT_TAG"
+echo "Bridge complete. Results saved under: outputs/$OUTPUT_TAG/"
+echo ""
+echo "Next: run Loop A on the promoted leaders:"
+echo "  ./run_loop_a.sh $CLUSTER $OUTPUT_TAG <n_iterations> $OUTPUT_TAG"
 echo "============================================"
