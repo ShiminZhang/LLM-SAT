@@ -59,6 +59,7 @@ def connect_to_db():
         user="Shimin",
         password=os.environ["DB_PASS"],
         port=5432,
+        sslmode="require",
     )
     # logger.info("connected to db")
     return conn
