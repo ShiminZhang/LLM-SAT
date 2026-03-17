@@ -15,6 +15,7 @@ __pycache__/
 .env
 path_config.yaml
 *.md
+*_.sh
 
 # Log files globally, except solver build logs
 *.log

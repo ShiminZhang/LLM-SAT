@@ -1612,8 +1612,18 @@ def promote_offspring_to_leaders(
 
     logger.info(f"Promoting top {top_n} offspring from {source_tag} to {target_tag}")
 
-    all_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, source_tag)
-    logger.info(f"Found {len(all_ids)} algorithms under {source_tag}")
+    # Collect candidates from source_tag itself AND all _iter* variants
+    all_ids_set: set = set()
+    tags_searched = []
+    for tag in [source_tag] + [f"{source_tag}_iter{i}" for i in range(1, 20)]:
+        ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, tag)
+        if ids:
+            all_ids_set.update(ids)
+            tags_searched.append(tag)
+        elif tag != source_tag:
+            break  # stop at first missing _iter variant
+    all_ids = list(all_ids_set)
+    logger.info(f"Found {len(all_ids)} algorithms across tags: {tags_searched}")
 
     # Load algorithms and find their best PAR2 scores
     candidates = []
@@ -1680,6 +1690,7 @@ def evaluate_offspring(
     quick_eval: bool = True,
     sample_size: Optional[int] = None,
     sample_seed: int = 42,
+    nersc: bool = False,
 ) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
     """
     Evaluate offspring by building solvers and submitting SLURM jobs.
@@ -1697,13 +1708,22 @@ def evaluate_offspring(
         (successful_pairs, failed_pairs) where each is a list of
         (algorithm_id, code_id) tuples.
     """
-    from llmsat.pipelines.evaluation import (
-        EvaluationPipeline,
-        QUICK_EVAL_TIMEOUT_SECONDS,
-        QUICK_EVAL_WALL_TIME,
-        QUICK_EVAL_PAR2_PENALTY,
-        QUICK_EVAL_BENCHMARK_LIST,
-    )
+    if nersc:
+        from llmsat.pipelines.evaluation_nersc import (
+            EvaluationPipeline,
+            QUICK_EVAL_TIMEOUT_SECONDS,
+            QUICK_EVAL_WALL_TIME,
+            QUICK_EVAL_PAR2_PENALTY,
+            QUICK_EVAL_BENCHMARK_LIST,
+        )
+    else:
+        from llmsat.pipelines.evaluation import (
+            EvaluationPipeline,
+            QUICK_EVAL_TIMEOUT_SECONDS,
+            QUICK_EVAL_WALL_TIME,
+            QUICK_EVAL_PAR2_PENALTY,
+            QUICK_EVAL_BENCHMARK_LIST,
+        )
 
     logger.info(f"Evaluating {len(stored_pairs)} offspring via EvaluationPipeline (quick_eval={quick_eval})")
     pipeline = EvaluationPipeline(generation_tag=generation_tag)
@@ -2035,7 +2055,10 @@ def run_evolution(
     sample_size: Optional[int] = None,
     sample_seed: int = 42,
     shuffle_seed: int = 42,
-    shuffle_passes: int = 3
+    shuffle_passes: int = 3,
+    nersc: bool = False,
+    submit_only: bool = False,
+    collect_results: bool = False,
 ) -> Dict[str, Any]:
     """
     Run the full genetic evolution pipeline with an iterative loop.
@@ -2131,12 +2154,86 @@ def run_evolution(
                 successful_pairs, failed_pairs = evaluate_offspring(
                     stored_pairs, generation_tag=iter_output_tag,
                     sample_size=sample_size, sample_seed=sample_seed,
+                    nersc=nersc,
                 )
                 iter_summary["evaluation"] = {
                     "build_success": len(successful_pairs),
                     "build_failed": len(failed_pairs),
                 }
             summary["iterations"].append(iter_summary)
+        return summary
+
+    # ------------------------------------------------------------------
+    # collect_results: skip LLM stages, collect PAR2 for stored offspring
+    # ------------------------------------------------------------------
+    if collect_results:
+        logger.info(f"collect_results mode: collecting PAR2 for offspring under '{output_tag}_iter1'")
+        population = load_population_from_folder(folder, generation_tag=generation_tag) if folder else load_population(generation_tag)
+        if not population:
+            logger.error("No population found for PAR2 threshold comparison")
+            return {"error": "Empty population"}
+        iter_output_tag = f"{output_tag}_iter1"
+        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, iter_output_tag)
+        if not algorithm_ids:
+            logger.info(f"No stored offspring found for tag '{iter_output_tag}'")
+            return {"error": f"No offspring under {iter_output_tag}"}
+        stored_pairs: List[Tuple[str, str]] = []
+        filtered_offspring: List[OffspringResult] = []
+        for algo_id in algorithm_ids:
+            algo = get_algorithm_result(algo_id)
+            if algo and algo.code_id_list:
+                for code_id in algo.code_id_list:
+                    stored_pairs.append((algo_id, code_id))
+                filtered_offspring.append(OffspringResult(
+                    parent_a_id=algo.parent_id or "",
+                    parent_b_id="",
+                    algorithm_json="",
+                    algorithm_id=algo_id,
+                    target_function=getattr(algo, "target_function", None) or "kissat_restarting",
+                ))
+        logger.info(f"Found {len(filtered_offspring)} stored offspring, {len(stored_pairs)} (algo, code) pairs")
+        par2_scores = collect_par2_scores(stored_pairs, generation_tag=iter_output_tag)
+        logger.info(f"PAR2 scores available for {len(par2_scores)}/{len(stored_pairs)} pairs")
+        top_tier: List[Individual] = []
+        best_par2_so_far = min((ind.par2 for ind in population), default=float("inf"))
+        baseline_par2_val = baseline_par2 if baseline_par2 is not None else best_par2_so_far
+        selected_individuals, all_evaluated = select_by_par2(
+            filtered_offspring,
+            population,
+            par2_scores,
+            offspring_codes={},
+            par2_threshold=par2_threshold,
+            keep_top_n=par2_keep_top_n,
+            generation=1,
+        )
+        if selected_individuals:
+            top_tier.extend(selected_individuals)
+            top_tier.sort(key=lambda x: x.par2)
+            save_top_tier(top_tier, output_dir)
+            new_best = top_tier[0].par2
+            logger.info(f"PAR2 improved: {best_par2_so_far:.2f} -> {new_best:.2f}" if new_best < best_par2_so_far else f"No PAR2 improvement (best={best_par2_so_far:.2f})")
+            new_members = selected_individuals
+            if new_members:
+                new_causal = generate_causal_reports(new_members, model=model, baseline_par2=baseline_par2_val)
+                causal_reports: Dict[str, Any] = new_causal
+                save_causal_reports(causal_reports, output_dir)
+        else:
+            logger.info("No offspring selected by PAR2")
+        summary["iterations"] = [{
+            "iteration": 1,
+            "stored": len(stored_pairs),
+            "par2_scores_available": len(par2_scores),
+            "par2_selection": {
+                "evaluated": len(all_evaluated),
+                "selected": len(selected_individuals),
+            },
+            "status": "collected",
+        }]
+        summary["final_best_par2"] = top_tier[0].par2 if top_tier else best_par2_so_far
+        summary["top_tier_count"] = len(top_tier)
+        summary_path = os.path.join(output_dir, "evolution_summary.json")
+        with open(summary_path, "w") as f:
+            json.dump(summary, f, indent=2)
         return summary
 
     # ------------------------------------------------------------------
@@ -2410,12 +2507,19 @@ def run_evolution(
             successful_pairs, failed_pairs = evaluate_offspring(
                 stored_pairs, generation_tag=iter_output_tag,
                 sample_size=sample_size, sample_seed=sample_seed,
+                nersc=nersc,
             )
 
             iter_summary["evaluation"] = {
                 "build_success": len(successful_pairs),
                 "build_failed": len(failed_pairs),
             }
+
+            if submit_only:
+                logger.info("submit_only=True: SLURM jobs submitted, stopping here. Run --collect_results after jobs finish.")
+                iter_summary["status"] = "submitted"
+                summary["iterations"].append(iter_summary)
+                break
 
             # Collect PAR2 scores (may be partial if SLURM hasn't finished)
             par2_scores = collect_par2_scores(successful_pairs, generation_tag=iter_output_tag)
@@ -2657,6 +2761,24 @@ def main():
         ),
     )
     parser.add_argument(
+        "--nersc",
+        action="store_true",
+        default=False,
+        help="Use NERSC Perlmutter evaluation (128 CNFs per node, account m4831, --qos=regular)",
+    )
+    parser.add_argument(
+        "--submit_only",
+        action="store_true",
+        default=False,
+        help="Phase 1: run LLM stages + submit SLURM jobs, then stop. Use --collect_results after jobs finish.",
+    )
+    parser.add_argument(
+        "--collect_results",
+        action="store_true",
+        default=False,
+        help="Phase 2: skip LLM stages, collect PAR2 from completed SLURM jobs, run selection.",
+    )
+    parser.add_argument(
         "--rubric_min",
         type=float,
         default=6.0,
@@ -2770,7 +2892,10 @@ def main():
             target_tag=args.target_tag,
             top_n=args.top_n_promote,
         )
-        return
+        if not args.evaluate:
+            return
+        # Fall through to run_evolution: use target_tag as the new generation_tag
+        args.generation_tag = args.target_tag
 
     # Resolve generation_tag
     if args.generation_tag is None:
@@ -2813,7 +2938,10 @@ def main():
         sample_size=args.sample_size,
         sample_seed=args.sample_seed,
         shuffle_passes=args.shuffle_passes,
-        shuffle_seed=args.shuffle_seed
+        shuffle_seed=args.shuffle_seed,
+        nersc=args.nersc,
+        submit_only=args.submit_only,
+        collect_results=args.collect_results,
     )
 
     # Print summary
