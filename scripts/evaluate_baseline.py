@@ -61,6 +61,12 @@ def main():
         with open(BASELINE_SOLVING_TIMES_PATH, "w") as f:
             json.dump(solving_times, f)
         logger.info(f"Wrote solving times to {BASELINE_SOLVING_TIMES_PATH}")
+
+        if par2 is not None:
+            print(f"\n{'='*50}")
+            print("Add this to your path_config.yaml for PAR2 normalization:")
+            print(f"  baseline_par2: {par2:.2f}")
+            print(f"{'='*50}")
         return
 
     # Submit evaluation jobs

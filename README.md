@@ -52,7 +52,27 @@ bash setup_aemab.sh
 
 This extracts the solver to your configured `base_solver` path, copies the function registry, and runs `./configure`.
 
-### 5. Benchmarks
+### 5. Baseline evaluation (for PAR2 normalization)
+
+To compare results across different clusters, run the baseline solver and record its PAR2:
+
+```bash
+# Submit baseline evaluation jobs
+python scripts/evaluate_baseline.py
+
+# After SLURM jobs complete, collect results
+python scripts/evaluate_baseline.py --collect
+```
+
+The script will print the baseline PAR2. Add it to your `path_config.yaml`:
+
+```yaml
+baseline_par2: 1234.56  # Replace with your actual value
+```
+
+This enables normalized PAR2 scores (1.0 = same as baseline, lower is better).
+
+### 6. Benchmarks
 
 Place `track_main_2025.uri` in the repo root (the SAT Competition 2025 URI list), then:
 
@@ -62,7 +82,7 @@ bash scripts/download_satcomp2025.sh
 
 Downloads and extracts ~400 CNF files to `data/benchmarks/satcomp2025/`.
 
-### 6. Function registry
+### 7. Function registry
 
 The file `solvers/base/function_registry.yaml` tells the evaluation pipeline which C function to replace and where it lives in the source. It currently targets `kissat_restarting` and `restart_mab` in `src/restart.c`:
 

@@ -6,11 +6,27 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import hashlib
 NOT_INITIALIZED = "NOT_INITIALIZED"
-from llmsat.config import BASE_SOLVER_PATH, PYTHON_ACTIVATE_PATH
+from llmsat.config import BASE_SOLVER_PATH, PYTHON_ACTIVATE_PATH, BASELINE_PAR2
 PYENV_PATH = PYTHON_ACTIVATE_PATH  # backwards-compat alias
 RECOVERED_ALGORITHM = "recovered_algorithm"
 SAT2025_BENCHMARK_PATH = "data/benchmarks/satcomp2025"
 CHATGPT_DATA_GENERATION_TABLE = "chatgpt_datagen"
+
+
+def normalize_par2(raw_par2_score: List[float], baseline_par2: float) -> List[float]:
+    """Normalize PAR2 scores by dividing by baseline.
+
+    Args:
+        raw_par2_score: [easy, hard, sat, unsat, all] raw scores
+        baseline_par2: Baseline solver's overall PAR2 on this cluster
+
+    Returns:
+        [easy, hard, sat, unsat, all] normalized scores (lower is better, 1.0 = baseline)
+    """
+    if baseline_par2 <= 0:
+        raise ValueError("baseline_par2 must be positive")
+    return [score / baseline_par2 if score is not None else None
+            for score in raw_par2_score]
 
 #DATATYPES
 ALGORITHM = "algorithm"

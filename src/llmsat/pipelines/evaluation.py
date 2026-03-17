@@ -18,9 +18,11 @@ from llmsat.llmsat import (
     AlgorithmStatus,
     Role,
     BASE_SOLVER_PATH,
+    BASELINE_PAR2,
     SAT2025_BENCHMARK_PATH,
     get_logger,
     setup_logging,
+    normalize_par2,
 )
 from llmsat.utils.aws import (
     get_algorithm_result,
@@ -274,6 +276,17 @@ class EvaluationPipeline:
                     par2_breakdown.get("unsat"),
                     par2_breakdown.get("all"),
                 ]
+
+                # Compute normalized PAR2 if baseline is configured
+                if BASELINE_PAR2 is not None:
+                    algorithm.normalized_par2_score = normalize_par2(
+                        algorithm.raw_par2_score, BASELINE_PAR2
+                    )
+                else:
+                    logger.warning(
+                        "baseline_par2 not set in path_config.yaml - skipping normalization"
+                    )
+
                 update_algorithm_result(algorithm)
 
                 # Save AlgorithmResult to disk as JSON memory bank

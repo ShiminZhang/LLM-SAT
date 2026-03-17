@@ -1,6 +1,10 @@
 # Copy this to path_config.yaml and fill in your paths.
 # base_solver: absolute path to the base AE_kissatMAB solver directory
 # python_activate: path to your Python virtualenv activate script
+# baseline_par2: PAR2 score of the unmodified base solver on your cluster
+#                Run: python scripts/evaluate_baseline.py && python scripts/evaluate_baseline.py --collect
+#                Then enter the PAR2 value printed. Used to normalize scores across clusters.
 
 base_solver: "/CHANGE_ME/solvers/base"
 python_activate: "~/general/bin/activate"
+baseline_par2: null  # Set after running baseline evaluation
