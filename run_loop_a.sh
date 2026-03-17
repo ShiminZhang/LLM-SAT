@@ -33,13 +33,13 @@ BASE_TAG="$2"
 N_ITERATIONS="$3"
 SOURCE_TAG="${4:-${BASE_TAG}_iter0}"
 
+DATAGEN_SCRIPT="src/llmsat/pipelines/gemini_data_generation.py"
+
 case "$CLUSTER" in
     cc)
-        DATAGEN_SCRIPT="src/llmsat/pipelines/gemini_data_generation.py"
         EVAL_SCRIPT="src/llmsat/pipelines/evaluation.py"
         ;;
     nersc)
-        DATAGEN_SCRIPT="src/llmsat/pipelines/gemini_data_generation_nersc.py"
         EVAL_SCRIPT="src/llmsat/pipelines/evaluation_nersc.py"
         ;;
     *)
