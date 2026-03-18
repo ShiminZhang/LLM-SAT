@@ -102,7 +102,7 @@ if [ "$INIT" = true ]; then
         --generation_tag "$INIT_TAG" \
         --designer_prompt_path "${DESIGNER_PROMPT:-data/prompts/leader_prompt_testing.txt}" \
         --variant_prompt_path data/prompts/variant_prompt.txt \
-        --code_prompt_path data/prompts/coder_prompt.txt \
+        --code_prompt_path data/prompts/coder_prompt_testing.txt \
         --n_leaders "${N_LEADERS:-5}" \
         --m_variants "$M_VARIANTS" \
         --model "$MODEL" \
@@ -175,7 +175,7 @@ for i in $(seq 1 "$N_ITERATIONS"); do
         --source_tag "$SOURCE_TAG" \
         --output_tag "$ITER_TAG" \
         --variant_prompt_path data/prompts/variant_prompt.txt \
-        --code_prompt_path data/prompts/coder_prompt.txt \
+        --code_prompt_path data/prompts/coder_prompt_testing.txt \
         --m_variants "$M_VARIANTS" \
         --model "$MODEL" \
         --sync

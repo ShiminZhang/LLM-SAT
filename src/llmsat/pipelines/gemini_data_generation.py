@@ -178,9 +178,11 @@ def download_batch_outputs(batch_name: str, output_path: str) -> str:
     return str(result_path)
 
 
-def generate_code_prompt(template: str, algorithm: str) -> str:
-    """Substitute the algorithm into the coder prompt template."""
-    return template.replace("ALGORITHM_PLACEHOLDER", algorithm)
+def generate_code_prompt(template: str, algorithm: str, function_name: str = "restart_mab") -> str:
+    """Substitute the algorithm and target function into the coder prompt template."""
+    prompt = template.replace("ALGORITHM_PLACEHOLDER", algorithm)
+    prompt = prompt.replace("FUNCTION_NAME_PLACEHOLDER", function_name)
+    return prompt
 
 
 def _strip_markdown_code_block(text: str) -> str:
@@ -424,7 +426,7 @@ def _generate_team_data_sync(
     for idx, algorithm_id in enumerate(all_algorithm_ids):
         logger.info(f"[sync] Code {idx+1}/{len(all_algorithm_ids)} for {algorithm_id[:16]}...")
         algorithm_result = get_algorithm_result(algorithm_id)
-        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description, algorithm_result.function_name)
 
         raw_text = get_response_from_gemini(
             code_prompt, system_message=system_message, model=model
@@ -694,7 +696,7 @@ def generate_team_data(
 
     for algorithm_id in all_algorithm_ids:
         algorithm_result = get_algorithm_result(algorithm_id)
-        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description, algorithm_result.function_name)
 
         code_batch_input_path = os.path.join(
             get_batch_output_dir(generation_tag, batch_id=leader_batch_name),
@@ -848,7 +850,7 @@ def _generate_mutants_sync(
     for idx, member_id in enumerate(member_ids):
         logger.info(f"[sync] Code {idx+1}/{len(member_ids)} for {member_id[:16]}...")
         algorithm_result = get_algorithm_result(member_id)
-        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description, algorithm_result.function_name)
 
         raw_text = get_response_from_gemini(
             code_prompt, system_message=system_message, model=model
@@ -1000,7 +1002,7 @@ def _generate_mutants_batch(
 
     for member_id in member_ids:
         algorithm_result = get_algorithm_result(member_id)
-        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description)
+        code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description, algorithm_result.function_name)
 
         code_batch_input_path = os.path.join(
             get_generation_output_dir(generation_tag),

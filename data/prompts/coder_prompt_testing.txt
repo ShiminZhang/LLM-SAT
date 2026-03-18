@@ -346,7 +346,7 @@ Wrap your complete function in `<code>` tags (no other text outside tags):
 
 EXAMPLE:
 <code>
-void restart_mab(kissat *solver) {
+void FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
 
      // Your implementation here
 
@@ -359,7 +359,7 @@ IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly
 
 ### Baseline Reference
 
-Here is the entire restart.c file. Your generated kissat_restarting function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
+Here is the entire restart.c file. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
 
 ```c
 #include "restart.h"
