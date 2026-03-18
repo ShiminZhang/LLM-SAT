@@ -59,6 +59,7 @@ def main():
         timeout = QUICK_EVAL_TIMEOUT_SECONDS
         wall_time = QUICK_EVAL_WALL_TIME
         par2_penalty = QUICK_EVAL_PAR2_PENALTY
+        pipeline.par2_penalty = QUICK_EVAL_PAR2_PENALTY
         expected_total = len(cnf_files)
         logger.info(f"Quick-eval mode: {expected_total} CNFs, {timeout}s timeout")
 
