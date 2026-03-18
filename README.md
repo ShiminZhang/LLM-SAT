@@ -114,8 +114,6 @@ This updates the function registry, rewrites the prompt templates (`leader_promp
 
 Update the SLURM settings in `src/llmsat/pipelines/evaluation.py` for your cluster:
 
-- `SLURM_ACCOUNT` (line 48) — your allocation account (default: `def-vganesh`)
-
 ## Running the Pipeline
 
 The pipeline has two main phases that alternate:
@@ -299,4 +297,4 @@ Prompt files live in `data/prompts/`:
 |------|---------|
 | `leader_prompt_testing.txt` | Designer prompt for generating leader algorithms |
 | `variant_prompt.txt` | Template for generating member variants (uses `{leader_algorithm}` and `{target_step_num}` placeholders) |
-| `coder_prompt.txt` | Template for translating algorithms to C code (uses `ALGORITHM_PLACEHOLDER`) |
+| `coder_prompt_testing.txt` | Template for translating algorithms to C code (uses `ALGORITHM_PLACEHOLDER`) |
