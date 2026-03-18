@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Any, Optional, Tuple
 import json
+import re
 from llmsat.utils.aws import update_algorithm_result, get_algorithm_result
 from llmsat.llmsat import *  # includes Role, AlgorithmResult, AlgorithmStatus, get_id, NOT_INITIALIZED
 from datetime import datetime
@@ -72,8 +73,14 @@ def parse_algorithm_spec_json(text: str) -> Tuple[dict, Optional[str]]:
     """
     try:
         obj = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON: {e}") from e
+    except json.JSONDecodeError:
+        # LLMs sometimes produce invalid escape sequences like \e, \a, etc.
+        # Replace invalid escapes with their literal characters (e.g., \e -> \\e)
+        sanitized = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', text)
+        try:
+            obj = json.loads(sanitized)
+        except json.JSONDecodeError as e2:
+            raise ValueError(f"Invalid JSON: {e2}") from e2
 
     # Try to find the spec object
     spec_obj = None
