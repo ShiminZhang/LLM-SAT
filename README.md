@@ -95,7 +95,20 @@ functions:
     signature: "bool kissat_restarting(kissat *solver)"
 ```
 
-To target a different function, add an entry with its source file path (relative to `solvers/base/`), start/end line numbers, and signature. The data generation prompts must also ask for that function. The evaluation pipeline reads this registry to know where to inject generated code before compiling.
+To target a different function, use `configure_target.py`:
+
+```bash
+# Switch to a different function (auto-detects source file)
+python scripts/configure_target.py kissat_restarting
+
+# Specify the source file explicitly
+python scripts/configure_target.py restart_mab --file src/restart.c
+
+# Use a different solver path
+python scripts/configure_target.py my_func --solver /path/to/solver
+```
+
+This updates the function registry, rewrites the prompt templates (`leader_prompt_testing.txt` and `coder_prompt_testing.txt`) with the correct target name, signature, and embedded source file. Without this script you'd need to manually edit both prompts and the registry.
 
 ## SLURM Configuration
 
@@ -134,7 +147,7 @@ Runs N iterations of: generate mutant variants → SLURM evaluation → collect 
 
 | Argument | Description |
 |----------|-------------|
-| `cc\|nersc` | Cluster to run on (selects evaluation backend) |
+| `cc\|nersc` | Cluster: `cc` uses `evaluation.py` (Compute Canada), `nersc` uses `evaluation_nersc.py` (Perlmutter, packs 128 solver runs per node) |
 | `base_tag` | Base name for iteration tags (`{base_tag}_iter1`, `_iter2`, ...) |
 | `n_iterations` | Number of mutate→evaluate→promote cycles |
 | `source_tag` | (Optional) Tag to load initial leaders from. Defaults to `{base_tag}_iter0` |
@@ -198,7 +211,7 @@ Promotes top offspring from a refined population, runs LLM-guided genetic crosso
 
 | Argument | Description |
 |----------|-------------|
-| `cc\|nersc` | Cluster to run on |
+| `cc\|nersc` | Cluster: `cc` for Compute Canada, `nersc` passes `--nersc` to `genetic_evolution.py` to use the NERSC evaluation backend |
 | `input_tag` | Tag to read evaluated leaders from (scans `_iter1`, `_iter2`, ... automatically) |
 | `output_tag` | Tag for the offspring population |
 
