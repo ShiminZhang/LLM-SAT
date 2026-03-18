@@ -24,3 +24,6 @@ rm -f "$BASE_SOLVER/src/makefile"
 # points back to the base solver, breaking generated solver builds.
 rm -f "$BASE_SOLVER/src/makefile"
 cp "$BASE_SOLVER/makefile" "$BASE_SOLVER/src/makefile"
+
+make -j"$(nproc)"
+cp build/kissat kissat
