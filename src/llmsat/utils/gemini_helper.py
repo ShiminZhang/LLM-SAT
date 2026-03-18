@@ -9,6 +9,11 @@ import json
 setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
 
+try:
+    from llmsat.config import DEFAULT_MODEL as _DEFAULT_MODEL
+except (FileNotFoundError, ImportError):
+    _DEFAULT_MODEL = "gemini-3-flash-preview"
+
 
 def _get_gemini_client():
     """
@@ -59,7 +64,7 @@ def get_response_from_gemini(
         ServerError = Exception  # fallback: retry on any exception
 
     client = _get_gemini_client()
-    chosen_model = model or os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+    chosen_model = model or os.environ.get("GEMINI_MODEL", _DEFAULT_MODEL)
 
     config = {"temperature": temperature}
     if system_message:
@@ -116,7 +121,7 @@ def build_gemini_batch_request(
     Build a single request object for Gemini batch API.
     Returns a dict in Gemini's batch JSONL format.
     """
-    chosen_model = model or os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+    chosen_model = model or os.environ.get("GEMINI_MODEL", _DEFAULT_MODEL)
 
     request = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -145,7 +150,7 @@ def write_gemini_batch_jsonl(requests: List[Dict[str, Any]], output_path: Path) 
 
 def submit_batch_input(
     file_path: str,
-    model: str = "gemini-3-flash-preview",
+    model: str = _DEFAULT_MODEL,
     block: bool = False,
     poll_interval_seconds: int = 60,
     timeout_seconds: int = 24 * 60 * 60,

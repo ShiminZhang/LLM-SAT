@@ -71,7 +71,8 @@ case "$CLUSTER" in
 esac
 POLL_INTERVAL="${POLL_INTERVAL:-120}"  # seconds between squeue checks
 M_VARIANTS="${M_VARIANTS:-3}"
-MODEL="${MODEL:-gemini-3-flash-preview}"
+_CFG_MODEL=$(grep '^default_model:' path_config.yaml 2>/dev/null | sed 's/^default_model:[[:space:]]*//' | tr -d '"' || true)
+MODEL="${MODEL:-${_CFG_MODEL:-gemini-3-flash-preview}}"
 
 echo "============================================"
 echo "Loop A: Leader Refinement"

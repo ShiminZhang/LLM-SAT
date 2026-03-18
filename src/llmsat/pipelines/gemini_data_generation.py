@@ -38,8 +38,7 @@ import logging
 setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
 
-# Default model for Gemini
-DEFAULT_MODEL = "gemini-3-flash-preview"
+from llmsat.config import DEFAULT_MODEL
 
 
 def read_prompt_file(path: str) -> str:

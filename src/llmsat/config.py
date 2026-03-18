@@ -28,3 +28,4 @@ _cfg = yaml.safe_load(open(_find_config()))
 BASE_SOLVER_PATH: str = os.path.expanduser(_cfg["base_solver"])
 PYTHON_ACTIVATE_PATH: str = os.path.expanduser(_cfg["python_activate"])
 BASELINE_PAR2: float | None = _cfg.get("baseline_par2")  # None if not configured
+DEFAULT_MODEL: str = _cfg.get("default_model", "gemini-3-flash-preview")
