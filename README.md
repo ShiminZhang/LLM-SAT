@@ -82,10 +82,10 @@ To compare results across different clusters, run the baseline solver and record
 
 ```bash
 # Submit baseline evaluation jobs
-python scripts/evaluate_baseline.py
+python scripts/evaluate_baseline.py (--quick-eval)
 
 # After SLURM jobs complete, collect results
-python scripts/evaluate_baseline.py --collect
+python scripts/evaluate_baseline.py --collect (--quick-eval)
 ```
 
 The script will print the baseline PAR2. Add it to your `path_config.yaml`:
