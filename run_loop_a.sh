@@ -11,8 +11,8 @@
 #   # Start from initial leaders on Compute Canada
 #   ./run_loop_a.sh cc gemini_trial5 3
 #
-#   # Start from GE offspring on NERSC
-#   ./run_loop_a.sh nersc gemini_trial5_ge1 3 gemini_trial5_ge1_iter0
+#   # Start from GE offspring on NERSC (source_tag defaults to base_tag)
+#   ./run_loop_a.sh nersc gemini_trial5_ge1 3
 #
 #   # Initialize from scratch: generate leaders, evaluate, then run iterations
 #   ./run_loop_a.sh cc gemini_trial5 3 --init
@@ -22,7 +22,7 @@
 #   base_tag       - Base name for iteration tags ({base_tag}_iter1, _iter2, ...)
 #   n_iterations   - Number of mutant→evaluate→promote cycles to run
 #   source_tag     - (Optional) Tag to load initial leaders from.
-#                    Defaults to {base_tag}_iter0
+#                    Defaults to {base_tag}
 #   --init         - (Optional) Generate initial leaders + members + code first
 #
 # Init mode env vars:
@@ -50,9 +50,9 @@ done
 
 # If $4 is --init, don't treat it as source_tag
 if [ "${4:-}" = "--init" ]; then
-    SOURCE_TAG="${BASE_TAG}_iter0"
+    SOURCE_TAG="${BASE_TAG}"
 else
-    SOURCE_TAG="${4:-${BASE_TAG}_iter0}"
+    SOURCE_TAG="${4:-${BASE_TAG}}"
 fi
 
 DATAGEN_SCRIPT="src/llmsat/pipelines/gemini_data_generation.py"

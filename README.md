@@ -2,6 +2,30 @@
 
 Evolutionary search over SAT solver restart heuristics using LLMs. The pipeline generates candidate heuristic function implementations via Gemini, evaluates them on SAT Competition 2025 benchmarks via SLURM, promotes the best, and evolves new candidates through LLM-guided genetic crossover.
 
+## Summary Run
+
+```bash
+
+PYTHONPATH=src N_LEADERS=10 M_VARIANTS=10 ./run_loop_a.sh cc experiment 3 --init
+
+# Outputs will be experiment_iter0, experiment_iter1, _iter2, experiment_iter3, which gets fed into genetic evolution next
+
+PYTHONPATH=src TOP_K=5 PAR2_KEEP_TOP_N=10 ./run_bridge.sh cc experiment_iter3 experiment_gen1
+
+# Now our best algos (ideally) are in experiment_gen1
+
+# Go back to iterative member loop:
+PYTHONPATH=src M_VARIANTS=5 ./run_loop_a.sh cc experiment_gen1 3
+
+# output: 1,2, experiment_gen1_iter3
+# More genetic evolution:
+
+PYTHONPATH=src ./run_bridge.sh cc experiment_gen1_iter3 experiment_gen2
+
+
+```
+
+
 ## Setup
 
 ### 1. Clone and install
@@ -126,7 +150,7 @@ A complete evolution cycle is just 3 commands:
 ```bash
 ./run_loop_a.sh cc my_tag 3 --init       # Initialize + 3 refinement iterations
 ./run_bridge.sh cc my_tag_iter3 my_gen1  # Genetic crossover
-./run_loop_a.sh cc my_gen1 3 my_gen1     # Continue refining the offspring
+./run_loop_a.sh cc my_gen1 3             # Continue refining the offspring
 ```
 
 ---
@@ -148,7 +172,7 @@ Runs N iterations of: generate mutant variants → SLURM evaluation → collect 
 | `cc\|nersc` | Cluster: `cc` uses `evaluation.py` (Compute Canada), `nersc` uses `evaluation_nersc.py` (Perlmutter, packs 128 solver runs per node) |
 | `base_tag` | Base name for iteration tags (`{base_tag}_iter1`, `_iter2`, ...) |
 | `n_iterations` | Number of mutate→evaluate→promote cycles |
-| `source_tag` | (Optional) Tag to load initial leaders from. Defaults to `{base_tag}_iter0` |
+| `source_tag` | (Optional) Tag to load initial leaders from. Defaults to `{base_tag}` |
 | `--init` | (Optional) Generate initial leaders + members + code before starting iterations |
 
 **Environment variables:**
@@ -264,7 +288,7 @@ TOP_K=5 PAR2_KEEP_TOP_N=7 ./run_bridge.sh cc experiment1_iter3 experiment1_gen1
 # Output: experiment1_gen1 (offspring from crossover)
 
 # 3. Continue refining the new generation
-M_VARIANTS=3 ./run_loop_a.sh cc experiment1_gen1 3 experiment1_gen1
+M_VARIANTS=3 ./run_loop_a.sh cc experiment1_gen1 3
 
 # Output: experiment1_gen1_iter1, _iter2, _iter3
 
