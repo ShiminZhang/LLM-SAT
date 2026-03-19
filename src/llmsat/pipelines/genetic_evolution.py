@@ -2007,25 +2007,139 @@ def save_offspring_codes(codes: Dict[str, str], output_dir: str, iteration: int 
     return path
 
 
-def save_top_tier(top_tier: List[Individual], output_dir: str) -> str:
-    """Save the current top-tier individuals (selected offspring) to JSON."""
-    path = os.path.join(output_dir, "top_tier.json")
-    data = []
+def save_top_tier(top_tier: List[Individual], output_dir: str) -> None:
+    os.makedirs(output_dir, exist_ok=True)
+    top_path = os.path.join(output_dir, "top_tier.json")
+
+    payload = []
     for ind in top_tier:
-        data.append({
+        payload.append({
             "algorithm_id": ind.algorithm_id,
             "algorithm_json": ind.algorithm_json,
             "code_id": ind.code_id,
+            "code": ind.code,
             "par2": ind.par2,
             "target_function": ind.target_function,
             "parent_id": ind.parent_id,
             "generation": ind.generation,
         })
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    logger.info(f"Saved {len(top_tier)} top-tier individuals to {path}")
-    return path
 
+    with open(top_path, "w") as f:
+        json.dump(payload, f, indent=2)
+
+    logger.info(f"Saved top tier to {top_path}")
+
+
+def select_top_by_par2_across_population_and_offspring(
+    population: List[Individual],
+    offspring_list: List[OffspringResult],
+    par2_scores: Dict[str, float],
+    offspring_codes: Dict[str, str],
+    keep_top_n: Optional[int] = None,
+    generation: int = 1,
+) -> Tuple[List[Individual], List[Individual], List[Individual]]:
+    """
+    Jointly rank original population + evaluated offspring by PAR2.
+
+    Returns:
+        (top_individuals, original_with_par2, offspring_with_par2)
+    """
+    combined: Dict[str, Individual] = {}
+
+    original_with_par2: List[Individual] = []
+    for ind in population:
+        if ind.par2 is None or ind.par2 == float("inf"):
+            continue
+        original_with_par2.append(ind)
+        combined[ind.algorithm_id] = ind
+
+    offspring_with_par2: List[Individual] = []
+    for offspring in offspring_list:
+        par2 = par2_scores.get(offspring.algorithm_id)
+        if par2 is None:
+            logger.debug(
+                f"No PAR2 for {offspring.algorithm_id[:16]} "
+                f"(SLURM may not have completed yet)"
+            )
+            continue
+
+        code_str = offspring_codes.get(offspring.algorithm_id, "")
+        code_id = get_id(code_str) if code_str else ""
+
+        ind = Individual(
+            algorithm_id=offspring.algorithm_id,
+            algorithm_json=offspring.algorithm_json,
+            code_id=code_id,
+            code=code_str,
+            par2=par2,
+            target_function=offspring.target_function,
+            parent_id=offspring.parent_a_id,
+            generation=generation,
+        )
+        offspring_with_par2.append(ind)
+        combined[ind.algorithm_id] = ind
+
+    ranked = sorted(combined.values(), key=lambda x: x.par2)
+
+    if keep_top_n is not None and len(ranked) > keep_top_n:
+        ranked = ranked[:keep_top_n]
+
+    logger.info(
+        f"Joint PAR2 selection: {len(original_with_par2)} original + "
+        f"{len(offspring_with_par2)} offspring with PAR2 -> "
+        f"{len(ranked)} kept"
+        + (f" (top_n={keep_top_n})" if keep_top_n is not None else "")
+    )
+
+    return ranked, original_with_par2, offspring_with_par2
+
+
+def save_selected_to_output_tag(
+    selected_individuals: List[Individual],
+    output_tag: str,
+) -> None:
+    """
+    Save the final selected algorithms into output_tag in the router table.
+
+    For DB usage, normalize parent_id=None so these selected algorithms can be
+    reused as leaders by gemini_data_generation.py.
+    """
+    logger.info(
+        f"Saving {len(selected_individuals)} selected algorithms to output tag: {output_tag}"
+    )
+
+    for ind in selected_individuals:
+        algo_result = get_algorithm_result(ind.algorithm_id)
+        if algo_result is None:
+            logger.warning(
+                f"AlgorithmResult missing for {ind.algorithm_id[:16]}..., skipping"
+            )
+            continue
+
+        # Normalize for DB reuse as a leader
+        algo_result.parent_id = None
+        update_algorithm_result(algo_result)
+
+        update_router_table(
+            CHATGPT_DATA_GENERATION_TABLE,
+            ind.algorithm_id,
+            output_tag,
+        )
+
+        logger.info(
+            f"  Tagged {ind.algorithm_id[:16]}... with {output_tag} "
+            f"(PAR2={ind.par2:.2f}, parent_id reset to None in DB)"
+        )
+
+def assert_output_tag_empty(table_name: str, output_tag: str) -> None:
+    """
+    Ensure output_tag has no existing entries before final write.
+    """
+    existing_ids = get_ids_from_router_table(table_name, output_tag)
+    assert len(existing_ids) == 0, (
+        f"[SAFETY CHECK FAILED] output_tag='{output_tag}' is not empty "
+        f"({len(existing_ids)} entries found). This means it was used earlier in the pipeline."
+    )
 
 # ---------------------------------------------------------------------------
 # Main Evolution Loop
@@ -2168,72 +2282,127 @@ def run_evolution(
     # ------------------------------------------------------------------
     if collect_results:
         logger.info(f"collect_results mode: collecting PAR2 for offspring under '{output_tag}_iter1'")
-        population = load_population_from_folder(folder, generation_tag=generation_tag) if folder else load_population(generation_tag)
+
+        population = (
+            load_population_from_folder(folder, generation_tag=generation_tag)
+            if folder else load_population(generation_tag)
+        )
         if not population:
-            logger.error("No population found for PAR2 threshold comparison")
+            logger.error("No population found for PAR2 selection")
             return {"error": "Empty population"}
+
         iter_output_tag = f"{output_tag}_iter1"
-        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, iter_output_tag)
+
+        # Safety: output_tag must not have been used before final selection save
+        assert_output_tag_empty(CHATGPT_DATA_GENERATION_TABLE, output_tag)
+
+        algorithm_ids = get_ids_from_router_table(
+            CHATGPT_DATA_GENERATION_TABLE, iter_output_tag
+        )
         if not algorithm_ids:
             logger.info(f"No stored offspring found for tag '{iter_output_tag}'")
             return {"error": f"No offspring under {iter_output_tag}"}
+
         stored_pairs: List[Tuple[str, str]] = []
         filtered_offspring: List[OffspringResult] = []
+        offspring_codes: Dict[str, str] = {}
+
         for algo_id in algorithm_ids:
             algo = get_algorithm_result(algo_id)
-            if algo and algo.code_id_list:
+            if algo is None:
+                logger.warning(f"Algorithm {algo_id[:16]} not found, skipping")
+                continue
+
+            # Recover best available code string for this offspring
+            best_code_result = None
+            if algo.code_id_list:
                 for code_id in algo.code_id_list:
+                    code_res = get_code_result(code_id)
+                    if code_res is None:
+                        continue
                     stored_pairs.append((algo_id, code_id))
-                filtered_offspring.append(OffspringResult(
-                    parent_a_id=algo.parent_id or "",
-                    parent_b_id="",
-                    algorithm_json="",
+                    if best_code_result is None:
+                        best_code_result = code_res
+                    elif (
+                        code_res.par2 is not None and
+                        (best_code_result.par2 is None or code_res.par2 < best_code_result.par2)
+                    ):
+                        best_code_result = code_res
+
+            if best_code_result is not None:
+                offspring_codes[algo_id] = best_code_result.code
+
+            parent_a_id = ""
+            parent_b_id = ""
+            if isinstance(algo.parent_id, list):
+                if len(algo.parent_id) > 0:
+                    parent_a_id = algo.parent_id[0]
+                if len(algo.parent_id) > 1:
+                    parent_b_id = algo.parent_id[1]
+            elif isinstance(algo.parent_id, str):
+                parent_a_id = algo.parent_id
+
+            filtered_offspring.append(
+                OffspringResult(
+                    parent_a_id=parent_a_id,
+                    parent_b_id=parent_b_id,
+                    algorithm_json=getattr(algo, "algorithm", None) or getattr(algo, "description", "") or "",
                     algorithm_id=algo_id,
-                    target_function=getattr(algo, "target_function", None) or "kissat_restarting",
-                ))
-        logger.info(f"Found {len(filtered_offspring)} stored offspring, {len(stored_pairs)} (algo, code) pairs")
-        par2_scores = collect_par2_scores(stored_pairs, generation_tag=iter_output_tag)
-        logger.info(f"PAR2 scores available for {len(par2_scores)}/{len(stored_pairs)} pairs")
-        top_tier: List[Individual] = []
-        best_par2_so_far = min((ind.par2 for ind in population), default=float("inf"))
-        baseline_par2_val = baseline_par2 if baseline_par2 is not None else best_par2_so_far
-        selected_individuals, all_evaluated = select_by_par2(
-            filtered_offspring,
-            population,
-            par2_scores,
-            offspring_codes={},
-            par2_threshold=par2_threshold,
-            keep_top_n=par2_keep_top_n,
-            generation=1,
+                    reason=getattr(algo, "analysis", "") or "",
+                    target_function=getattr(algo, "function_name", None) or "kissat_restarting",
+                )
+            )
+
+        logger.info(
+            f"Found {len(filtered_offspring)} stored offspring, "
+            f"{len(stored_pairs)} (algorithm_id, code_id) pairs"
         )
-        if selected_individuals:
-            top_tier.extend(selected_individuals)
-            top_tier.sort(key=lambda x: x.par2)
-            save_top_tier(top_tier, output_dir)
-            new_best = top_tier[0].par2
-            logger.info(f"PAR2 improved: {best_par2_so_far:.2f} -> {new_best:.2f}" if new_best < best_par2_so_far else f"No PAR2 improvement (best={best_par2_so_far:.2f})")
-            new_members = selected_individuals
-            if new_members:
-                new_causal = generate_causal_reports(new_members, model=model, baseline_par2=baseline_par2_val)
-                causal_reports: Dict[str, Any] = new_causal
-                save_causal_reports(causal_reports, output_dir)
+
+        par2_scores = collect_par2_scores(
+            stored_pairs,
+            generation_tag=iter_output_tag,
+        )
+        logger.info(
+            f"PAR2 scores available for {len(par2_scores)}/{len(stored_pairs)} pairs"
+        )
+
+        top_tier, original_with_par2, offspring_with_par2 = (
+            select_top_by_par2_across_population_and_offspring(
+                population=population,
+                offspring_list=filtered_offspring,
+                par2_scores=par2_scores,
+                offspring_codes=offspring_codes,
+                keep_top_n=par2_keep_top_n,
+                generation=1,
+            )
+        )
+
+        save_selected_to_output_tag(top_tier, output_tag)
+        save_top_tier(top_tier, output_dir)
+
+        if top_tier:
+            logger.info(f"Best selected PAR2: {top_tier[0].par2:.2f}")
         else:
-            logger.info("No offspring selected by PAR2")
+            logger.info("No algorithms with available PAR2 were selected")
+
         summary["iterations"] = [{
             "iteration": 1,
             "stored": len(stored_pairs),
             "par2_scores_available": len(par2_scores),
             "par2_selection": {
-                "evaluated": len(all_evaluated),
-                "selected": len(selected_individuals),
+                "original_with_par2": len(original_with_par2),
+                "offspring_with_par2": len(offspring_with_par2),
+                "selected": len(top_tier),
             },
             "status": "collected",
         }]
-        summary["final_best_par2"] = top_tier[0].par2 if top_tier else best_par2_so_far
+        summary["final_best_par2"] = top_tier[0].par2 if top_tier else None
         summary["top_tier_count"] = len(top_tier)
+
         summary_path = os.path.join(output_dir, "evolution_summary.json")
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
+
         return summary
 
     # ------------------------------------------------------------------
