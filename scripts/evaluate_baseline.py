@@ -108,6 +108,7 @@ def main():
         timeout=timeout,
         wall_time=wall_time,
         cnf_files=cnf_files,
+        solver_flags="",  # base solver is built with --no-options
     )
 
     if slurm_ids:
