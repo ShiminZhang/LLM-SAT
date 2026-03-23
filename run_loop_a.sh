@@ -31,6 +31,10 @@
 
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_ROOT"
+export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+
 if [ $# -lt 3 ]; then
     echo "Usage: $0 <cc|nersc> <base_tag> <n_iterations> [source_tag] [--init]"
     exit 1

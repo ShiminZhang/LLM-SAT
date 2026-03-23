@@ -334,3 +334,11 @@ echo "Node $SLURM_ARRAY_TASK_ID done"
 # Export EvaluationPipelineNERSC as EvaluationPipeline for transparent use:
 #   from llmsat.pipelines.evaluation_nersc import EvaluationPipeline
 EvaluationPipeline = EvaluationPipelineNERSC
+
+# Ensure CLI in evaluation.py uses the NERSC-aware pipeline when this module
+# is executed directly.
+_eval_mod.EvaluationPipeline = EvaluationPipelineNERSC
+
+
+if __name__ == "__main__":
+    _eval_mod.main()
