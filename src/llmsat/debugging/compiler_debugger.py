@@ -5,9 +5,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from llmsat.llmsat import get_logger
-from llmsat.utils.chatgpt_helper import get_llm_response
-from llmsat.code_injection import FunctionRegistry
-from llmsat.config import DEFAULT_MODEL
+from llmsat.utils.chatgpt_helper import get_response_from_chatgpt
+from llmsat.code_injection import FunctionInjector, FunctionRegistry
 
 logger = get_logger(__name__)
 
@@ -49,7 +48,7 @@ class CompilerDebugger:
     It does NOT handle compilation - that remains in the caller's responsibility.
     
     Example:
-        debugger = CompilerDebugger(model=DEFAULT_MODEL)
+        debugger = CompilerDebugger(model="gpt-5.2")
         fixed_code = debugger.suggest_fix(
             failing_code="bool kissat_restarting(...) { ... }",
             compiler_stderr="error: unknown type 'restart_window_stats'",
@@ -58,7 +57,7 @@ class CompilerDebugger:
         )
     """
     
-    model: str = DEFAULT_MODEL
+    model: str = "gpt-5.2"
     temperature: float = 0.3
     registry_path: str = "solvers/base/function_registry.yaml"
     _registry: Optional[FunctionRegistry] = field(default=None, repr=False)
@@ -108,7 +107,7 @@ class CompilerDebugger:
         logger.debug(f"Compiler stderr length: {len(compiler_stderr)} chars")
         
         try:
-            response = get_llm_response(
+            response = get_response_from_chatgpt(
                 prompt=prompt,
                 model=self.model,
                 temperature=self.temperature,
