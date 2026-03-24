@@ -346,7 +346,7 @@ Wrap your complete function in `<code>` tags (no other text outside tags):
 
 EXAMPLE:
 <code>
-void FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
+bool FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
 
      // Your implementation here
 
@@ -359,7 +359,7 @@ IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly
 
 ### Baseline Reference
 
-Here is the entire restart.c file. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
+Here is the entire restart.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
 
 ```c
 #include "restart.h"
@@ -478,7 +478,7 @@ void restart_mab(kissat *solver) {
     // Reset MAB tracking variables
     unsigned stable_restarts = 0;
     solver->mab_reward[solver->heuristic] += log2(solver->mab_decisions) / log2(solver->mab_conflicts);
-
+    
     // Clear per-variable MAB data
     for (all_variables(idx)) {
         solver->mab_chosen[idx] = 0;
@@ -486,7 +486,7 @@ void restart_mab(kissat *solver) {
     solver->mab_chosen_tot = 0;
     solver->mab_decisions = 0;
     solver->mab_conflicts = 0;
-
+    
     // Count stable restarts across all heuristics
     for (unsigned i = 0; i < solver->mab_heuristics; i++) {
         stable_restarts += solver->mab_select[i];
@@ -527,14 +527,14 @@ void restart_mab(kissat *solver) {
         double ucb[2];
         solver->heuristic = 0;
         for (unsigned i = 0; i < solver->mab_heuristics; i++) {
-            ucb[i] = solver->mab_reward[i] / solver->mab_select[i]
+            ucb[i] = solver->mab_reward[i] / solver->mab_select[i] 
                    + sqrt(adaptive_c * log(stable_restarts + 1) / solver->mab_select[i]);
             if (i != 0 && ucb[i] > ucb[solver->heuristic]) {
                 solver->heuristic = i;
             }
         }
     }
-
+    
     // Update selection count for chosen heuristic
     solver->mab_select[solver->heuristic]++;
 }
@@ -549,7 +549,7 @@ void kissat_restart (kissat *solver) {
     INC (focused_restarts);
 
   unsigned old_heuristic = solver->heuristic;
-  if (solver->stable && solver->mab)
+  if (solver->stable && solver->mab) 
       restart_mab(solver);
   unsigned new_heuristic = solver->heuristic;
 
@@ -565,7 +565,7 @@ void kissat_restart (kissat *solver) {
   if (solver->stable && solver->mab) solver->heuristic = new_heuristic;
   if (!solver->stable)
     kissat_update_focused_restart_limit (solver);
-
+  
   if (solver->stable && solver->mab && old_heuristic!=new_heuristic) kissat_update_scores(solver);
 
   REPORT (1, 'R');

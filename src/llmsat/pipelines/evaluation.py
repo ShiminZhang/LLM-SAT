@@ -41,6 +41,7 @@ from llmsat.utils.paths import (
 from llmsat.utils.utils import wrap_command_to_slurm, wrap_command_to_slurm_array
 from llmsat.code_injection import FunctionRegistry, FunctionInjector
 from llmsat.debugging import CompilerDebugger
+from llmsat.config import DEFAULT_MODEL
 
 logger = get_logger(__name__)
 
@@ -200,6 +201,7 @@ class EvaluationPipeline:
     def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> Optional[float]:
         """Collect evaluation results from solver logs and compute PAR2 score."""
         algorithm = get_algorithm_result(algorithm_id)
+        existing_code_result = get_code_result(code_id)
         parent_id = algorithm.parent_id if algorithm else None
         solver_dir = get_solver_result_dir(algorithm_id, code_id,
                                            generation_tag=self.generation_tag, parent_id=parent_id)
@@ -235,6 +237,20 @@ class EvaluationPipeline:
         if len(solving_times) < expected_benchmark_count:
             missing_count = expected_benchmark_count - len(solving_times)
             logger.warning(f"Missing results for {missing_count} instances out of {expected_benchmark_count}")
+
+        if not solving_times:
+            # do not overwrite an existing PAR2 with None when this iteration skipped evaluation (e.g., --skip-evaluated leaders) or logs are missing.
+            if existing_code_result is not None and existing_code_result.par2 is not None:
+                logger.warning(
+                    f"No solving logs found for algorithm {algorithm_id}, code {code_id}; "
+                    f"preserving existing PAR2={existing_code_result.par2:.2f}"
+                )
+                return existing_code_result.par2
+            logger.warning(
+                f"No solving logs found for algorithm {algorithm_id}, code {code_id}; "
+                "skipping PAR2 update"
+            )
+            return None
 
         par2 = _compute_average(list(solving_times.values()))
         logger.info(f"Computed PAR2 for algorithm {algorithm_id}, code {code_id}: {par2}")
@@ -507,8 +523,8 @@ class EvaluationPipeline:
                 solver_path=new_solver_path,
                 current_code=new_code,
                 target_function=target_function,
-                max_debug_rounds=1,
-                debug_model="gpt-5.2",
+                max_debug_rounds=3,
+                debug_model=DEFAULT_MODEL,
             )
 
             # Write build log
