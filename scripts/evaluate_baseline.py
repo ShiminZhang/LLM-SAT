@@ -13,6 +13,14 @@ from llmsat.llmsat import (
     setup_logging,
     get_logger,
 )
+from llmsat.pipelines.evaluation import (
+    EvaluationPipeline,
+    PAR2_PENALTY,
+    QUICK_EVAL_TIMEOUT_SECONDS,
+    QUICK_EVAL_WALL_TIME,
+    QUICK_EVAL_PAR2_PENALTY,
+    QUICK_EVAL_BENCHMARK_LIST,
+)
 
 setup_logging()
 logger = get_logger(__name__)
@@ -30,28 +38,7 @@ def main():
                         help="Print SLURM commands without submitting")
     parser.add_argument("--quick-eval", action="store_true",
                         help="Fast evaluation: 50 representative CNFs, 600s timeout")
-    parser.add_argument("--nersc", action="store_true",
-                        help="Use NERSC-specific SLURM settings and submission strategy")
     args = parser.parse_args()
-
-    if args.nersc:
-        from llmsat.pipelines.evaluation import PAR2_PENALTY
-        from llmsat.pipelines.evaluation_nersc import (
-            EvaluationPipeline,
-            QUICK_EVAL_TIMEOUT_SECONDS,
-            QUICK_EVAL_WALL_TIME,
-            QUICK_EVAL_PAR2_PENALTY,
-            QUICK_EVAL_BENCHMARK_LIST,
-        )
-    else:
-        from llmsat.pipelines.evaluation import (
-            EvaluationPipeline,
-            PAR2_PENALTY,
-            QUICK_EVAL_TIMEOUT_SECONDS,
-            QUICK_EVAL_WALL_TIME,
-            QUICK_EVAL_PAR2_PENALTY,
-            QUICK_EVAL_BENCHMARK_LIST,
-        )
 
     pipeline = EvaluationPipeline()
 
@@ -128,9 +115,8 @@ def main():
         print(f"\nSubmitted SLURM job array: {slurm_ids}")
         print(f"Results will be written to: {BASELINE_RESULT_DIR}")
         quick_flag = " --quick-eval" if args.quick_eval else ""
-        nersc_flag = " --nersc" if args.nersc else ""
         print(f"\nAfter jobs finish, run:")
-        print(f"  PYTHONPATH=src python scripts/evaluate_baseline.py --collect{quick_flag}{nersc_flag}")
+        print(f"  PYTHONPATH=src python scripts/evaluate_baseline.py --collect{quick_flag}")
 
 
 if __name__ == "__main__":
