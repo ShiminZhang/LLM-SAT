@@ -1,10 +1,10 @@
-## Kissat API Reference (Supplement to restart.c)
+## Kissat API Reference (Supplement to bump.c)
 
-CRITICAL: The kissat struct is FIXED. Do NOT invent new struct fields. Only use fields shown in restart.c or listed below.
+CRITICAL: The kissat struct is FIXED. Do NOT invent new struct fields. Only use fields shown in bump.c or listed below.
 
 ### Additional Solver Fields Available
 
-Beyond what's shown in restart.c, you may also use:
+Beyond what's shown in bump.c, you may also use:
 
 ```c
 solver->vars              // total number of variables

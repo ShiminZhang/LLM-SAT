@@ -177,7 +177,7 @@ def download_batch_outputs(batch_name: str, output_path: str) -> str:
     return str(result_path)
 
 
-def generate_code_prompt(template: str, algorithm: str, function_name: str = "restart_mab") -> str:
+def generate_code_prompt(template: str, algorithm: str, function_name: str = "kissat_rescale_scores") -> str:
     """Substitute the algorithm and target function into the coder prompt template."""
     prompt = template.replace("ALGORITHM_PLACEHOLDER", algorithm)
     prompt = prompt.replace("FUNCTION_NAME_PLACEHOLDER", function_name)
@@ -344,7 +344,7 @@ def _generate_team_data_sync(
         )
         description, target_function, reason = parse_algorithm_response({"text": raw_text})
         leader_id = get_id(description)
-        fn = target_function or "kissat_restarting"
+        fn = target_function or "kissat_rescale_scores"
 
         leader_ids.append(leader_id)
         leader_target_functions[leader_id] = fn
@@ -537,7 +537,7 @@ def generate_team_data(
             description, target_function, reason = parse_algorithm_response(leader_response)
             leader_id = get_id(description)
             leader_ids.append(leader_id)
-            fn = target_function or "kissat_restarting"
+            fn = target_function or "kissat_rescale_scores"
             leader_target_functions[leader_id] = fn
             leader_descriptions[leader_id] = description
 
@@ -643,7 +643,7 @@ def generate_team_data(
         download_batch_outputs(batch_name, member_output_path)
 
         leader_target_function = leader_target_functions.get(
-            leader_id, "kissat_restarting"
+            leader_id, "kissat_rescale_scores"
         )
 
         with open(member_output_path, "r") as f:

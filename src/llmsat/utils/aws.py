@@ -306,7 +306,7 @@ def test_utils():
     update_code_result(code_result)
     algorithm_result = AlgorithmResult(
         id="1",
-        function_name="kissat_restarting",
+        function_name="kissat_rescale_scores",
         description="Test Policy: Step 1: always restart",
         role=Role.LEADER,
         status=AlgorithmStatus.Generated,
@@ -445,7 +445,7 @@ def _row_to_algorithm_result(row: Mapping[str, Any]) -> AlgorithmResult:
     # --- function_name: prefer new column, fall back to other_metrics ---
     function_name = row.get("function_name")
     if not function_name:
-        function_name = "kissat_restarting"
+        function_name = "kissat_rescale_scores"
         if isinstance(other_metrics, dict) and "target_function" in other_metrics:
             function_name = other_metrics.pop("target_function")
 
@@ -593,7 +593,7 @@ def migrate_algorithm_table():
         other_metrics = _to_other_metrics(row.get("other_metrics")) or {}
 
         # Infer function_name
-        function_name = "kissat_restarting"
+        function_name = "kissat_rescale_scores"
         if isinstance(other_metrics, dict) and "target_function" in other_metrics:
             function_name = other_metrics["target_function"]
 

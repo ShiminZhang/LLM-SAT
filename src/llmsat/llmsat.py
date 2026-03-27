@@ -59,7 +59,7 @@ class Role(Enum):
 class AlgorithmResult:
     # Identity
     id: str
-    function_name: str  # name of the function this algorithm modifies (e.g. "kissat_restarting")
+    function_name: str  # name of the function this algorithm modifies (e.g. "kissat_rescale_scores")
     description: str  # "AlgorithmName: Step 1: ... Step 2: ..." (human-readable algorithm text)
     role: Role  # whether this algorithm is a team leader or member
 

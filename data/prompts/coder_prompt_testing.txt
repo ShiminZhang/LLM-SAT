@@ -6,7 +6,7 @@ You are an expert in writing C code for Kissat-based SAT Solvers and your task i
 - Make sure not to use C code which doesn't compile. 
 - CRITICAL: Do NOT invent or hallucinate solver fields.
 
-### Kissat API Reference for Restart Heuristics
+### Kissat API Reference for Score Heuristics
 
 This reference documents most of the fields, macros, and functions available in Kissat. Use what is documented here.
 
@@ -47,7 +47,7 @@ This reference documents most of the fields, macros, and functions available in 
 ### Limits
 | Field | Type | Description |
 |-------|------|-------------|
-| `solver->limits.restart.conflicts` | `uint64_t` | Next restart trigger (conflict count) |
+| `solver->scinc` | `double` | Current score increment used for bumping |
 | `solver->limits.conflicts` | `uint64_t` | Global conflict limit |
 | `solver->limits.decisions` | `uint64_t` | Global decision limit |
 
@@ -359,216 +359,153 @@ IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly
 
 ### Baseline Reference
 
-Here is the entire restart.c file. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
+Here is the entire bump.c file. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
 
 ```c
-#include "restart.h"
-#include "backtrack.h"
 #include "bump.h"
-#include "decide.h"
+#include "analyze.h"
+#include "inlineheap.h"
+#include "inlinequeue.h"
+#include "inlinevector.h"
 #include "internal.h"
-#include "kimits.h"
 #include "logging.h"
 #include "print.h"
-#include "reluctant.h"
-#include "report.h"
+#include "rank.h"
+#include "sort.h"
 
-#include <inttypes.h>
-#include <math.h>
+#define RANK(A) ((A).rank)
+#define SMALLER(A, B) (RANK (A) < RANK (B))
 
-bool kissat_restarting (kissat *solver) {
-  assert (solver->unassigned);
-  if (!GET_OPTION (restart))
-    return false;
-  if (!solver->level)
-    return false;
-  if (CONFLICTS < solver->limits.restart.conflicts)
-    return false;
-  if (solver->stable)
-    return kissat_reluctant_triggered (&solver->reluctant);
-  const double fast = AVERAGE (fast_glue);
-  const double slow = AVERAGE (slow_glue);
-  const double margin = (100.0 + GET_OPTION (restartmargin)) / 100.0;
-  const double limit = margin * slow;
-  kissat_extremely_verbose (solver,
-                            "restart glue limit %g = "
-                            "%.02f * %g (slow glue) %c %g (fast glue)",
-                            limit, margin, slow,
-                            (limit > fast    ? '>'
-                             : limit == fast ? '='
-                                             : '<'),
-                            fast);
-  return (limit <= fast);
-}
+#define RADIX_SORT_BUMP_LIMIT 32
 
-void kissat_update_focused_restart_limit (kissat *solver) {
-  assert (!solver->stable);
-  limits *limits = &solver->limits;
-  uint64_t restarts = solver->statistics.restarts;
-  uint64_t delta = GET_OPTION (restartint);
-  if (restarts)
-    delta += kissat_logn (restarts) - 1;
-  limits->restart.conflicts = CONFLICTS + delta;
-  kissat_extremely_verbose (solver,
-                            "focused restart limit at %" PRIu64
-                            " after %" PRIu64 " conflicts ",
-                            limits->restart.conflicts, delta);
-}
-
-static unsigned reuse_stable_trail (kissat *solver) {
-  const heap *const scores = kissat_get_scores(solver);
-  const unsigned next_idx = kissat_next_decision_variable (solver);
-  const double limit = kissat_get_heap_score (scores, next_idx);
-  unsigned level = solver->level, res = 0;
-  while (res < level) {
-    frame *f = &FRAME (res + 1);
-    const unsigned idx = IDX (f->decision);
-    const double score = kissat_get_heap_score (scores, idx);
-    if (score <= limit)
-      break;
-    res++;
+static void sort_bump (kissat *solver) {
+  const size_t size = SIZE_STACK (solver->analyzed);
+  if (size < RADIX_SORT_BUMP_LIMIT) {
+    LOG ("quick sorting %zu analyzed variables", size);
+    SORT_STACK (datarank, solver->ranks, SMALLER);
+  } else {
+    LOG ("radix sorting %zu analyzed variables", size);
+    RADIX_STACK (datarank, unsigned, solver->ranks, RANK);
   }
-  return res;
 }
 
-static unsigned reuse_focused_trail (kissat *solver) {
+void kissat_rescale_scores (kissat *solver) {
+  INC (rescaled);
+  heap *scores = &solver->scores;
+  const double max_score = kissat_max_score_on_heap (scores);
+  kissat_phase (solver, "rescale", GET (rescaled),
+                "maximum score %g increment %g", max_score, solver->scinc);
+  const double rescale = MAX (max_score, solver->scinc);
+  assert (rescale > 0);
+  const double factor = 1.0 / rescale;
+  kissat_rescale_heap (solver, scores, factor);
+  solver->scinc *= factor;
+  kissat_phase (solver, "rescale", GET (rescaled), "rescaled by factor %g",
+                factor);
+}
+
+void kissat_bump_score_increment (kissat *solver) {
+  const double old_scinc = solver->scinc;
+  const double decay = GET_OPTION (decay) * 1e-3;
+  assert (0 <= decay), assert (decay <= 0.5);
+  const double factor = 1.0 / (1.0 - decay);
+  const double new_scinc = old_scinc * factor;
+  LOG ("new score increment %g = %g * %g", new_scinc, factor, old_scinc);
+  solver->scinc = new_scinc;
+  if (new_scinc > MAX_SCORE)
+    kissat_rescale_scores (solver);
+}
+
+static inline void bump_analyzed_variable_score (kissat *solver,
+                                                 unsigned idx) {
+  heap *scores = &solver->scores;
+  const double old_score = kissat_get_heap_score (scores, idx);
+  const double inc = solver->scinc;
+  const double new_score = old_score + inc;
+  LOG ("new score[%u] = %g = %g + %g", idx, new_score, old_score, inc);
+  kissat_update_heap (solver, scores, idx, new_score);
+  if (new_score > MAX_SCORE)
+    kissat_rescale_scores (solver);
+}
+
+void kissat_bump_variable (kissat *solver, unsigned idx) {
+  bump_analyzed_variable_score (solver, idx);
+}
+
+static void bump_analyzed_variable_scores (kissat *solver) {
+  flags *flags = solver->flags;
+
+  for (all_stack (unsigned, idx, solver->analyzed))
+    if (flags[idx].active)
+      bump_analyzed_variable_score (solver, idx);
+
+  kissat_bump_score_increment (solver);
+}
+
+static void move_analyzed_variables_to_front_of_queue (kissat *solver) {
+  assert (EMPTY_STACK (solver->ranks));
   const links *const links = solver->links;
-  const unsigned next_idx = kissat_next_decision_variable (solver);
-  const unsigned limit = links[next_idx].stamp;
-  LOG ("next decision variable stamp %u", limit);
-  unsigned level = solver->level, res = 0;
-  while (res < level) {
-    frame *f = &FRAME (res + 1);
-    const unsigned idx = IDX (f->decision);
-    const unsigned score = links[idx].stamp;
-    if (score <= limit)
-      break;
-    res++;
+  for (all_stack (unsigned, idx, solver->analyzed)) {
+    // clang-format off
+    const datarank rank = { .data = idx, .rank = links[idx].stamp };
+    // clang-format on
+    PUSH_STACK (solver->ranks, rank);
   }
-  return res;
+
+  sort_bump (solver);
+
+  flags *flags = solver->flags;
+  unsigned idx;
+
+  for (all_stack (datarank, rank, solver->ranks))
+    if (flags[idx = rank.data].active)
+      kissat_move_to_front (solver, idx);
+
+  CLEAR_STACK (solver->ranks);
 }
 
-static unsigned reuse_trail (kissat *solver) {
-  assert (solver->level);
-  assert (!EMPTY_STACK (solver->trail));
-
-  if (!GET_OPTION (restartreusetrail))
-    return 0;
-
-  unsigned res;
-
-  if (solver->stable)
-    res = reuse_stable_trail (solver);
-  else
-    res = reuse_focused_trail (solver);
-
-  LOG ("matching trail level %u", res);
-
-  if (res) {
-    INC (restarts_reused_trails);
-    ADD (restarts_reused_levels, res);
-    LOG ("restart reuses trail at decision level %u", res);
-  } else
-    LOG ("restarts does not reuse the trail");
-
-  return res;
-}
-
-void restart_mab(kissat *solver) {
-    // Reset MAB tracking variables
-    unsigned stable_restarts = 0;
-    solver->mab_reward[solver->heuristic] += log2(solver->mab_decisions) / log2(solver->mab_conflicts);
-
-    // Clear per-variable MAB data
-    for (all_variables(idx)) {
-        solver->mab_chosen[idx] = 0;
-    }
-    solver->mab_chosen_tot = 0;
-    solver->mab_decisions = 0;
-    solver->mab_conflicts = 0;
-
-    // Count stable restarts across all heuristics
-    for (unsigned i = 0; i < solver->mab_heuristics; i++) {
-        stable_restarts += solver->mab_select[i];
-    }
-
-    // Track recent gains with momentum
-    static double recent_gains[10] = {0};
-    static int gain_index = 0;
-    static double momentum = 1.0;
-
-    double current_gain = solver->mab_reward[solver->heuristic] / solver->mab_select[solver->heuristic];
-    recent_gains[gain_index] = current_gain;
-    gain_index = (gain_index + 1) % 10;
-
-    // Compute average gain over recent window
-    double avg_gain = 0;
-    for (int i = 0; i < 10; i++) {
-        avg_gain += recent_gains[i];
-    }
-    avg_gain /= 10;
-
-    // Update momentum based on performance
-    if (current_gain > avg_gain) {
-        momentum *= 1.1;
-    } else {
-        momentum *= 0.9;
-    }
-
-    // Compute adaptive exploration parameter
-    double adaptive_c = solver->mabc / (momentum * (stable_restarts + 1));
-
-    // Select next heuristic
-    if (stable_restarts < solver->mab_heuristics) {
-        // Exploration phase: alternate between first two heuristics
-        solver->heuristic = solver->heuristic == 0 ? 1 : 0;
-    } else {
-        // UCB-based selection
-        double ucb[2];
-        solver->heuristic = 0;
-        for (unsigned i = 0; i < solver->mab_heuristics; i++) {
-            ucb[i] = solver->mab_reward[i] / solver->mab_select[i]
-                   + sqrt(adaptive_c * log(stable_restarts + 1) / solver->mab_select[i]);
-            if (i != 0 && ucb[i] > ucb[solver->heuristic]) {
-                solver->heuristic = i;
-            }
-        }
-    }
-
-    // Update selection count for chosen heuristic
-    solver->mab_select[solver->heuristic]++;
-}
-
-void kissat_restart (kissat *solver) {
-  START (restart);
-  INC (restarts);
-  ADD (restarts_levels, solver->level);
-  if (solver->stable)
-    INC (stable_restarts);
-  else
-    INC (focused_restarts);
-
-  unsigned old_heuristic = solver->heuristic;
-  if (solver->stable && solver->mab)
-      restart_mab(solver);
-  unsigned new_heuristic = solver->heuristic;
-
-  unsigned level = old_heuristic==new_heuristic?reuse_trail (solver):0;
-
-  kissat_extremely_verbose (solver,
-                            "restarting after %" PRIu64 " conflicts"
-                            " (limit %" PRIu64 ")",
-                            CONFLICTS, solver->limits.restart.conflicts);
-  LOG ("restarting to level %u", level);
-  if (solver->stable && solver->mab) solver->heuristic = old_heuristic;
-  kissat_backtrack_in_consistent_state (solver, level);
-  if (solver->stable && solver->mab) solver->heuristic = new_heuristic;
+void kissat_bump_analyzed (kissat *solver) {
+  START (bump);
+  const size_t bumped = SIZE_STACK (solver->analyzed);
   if (!solver->stable)
-    kissat_update_focused_restart_limit (solver);
+    move_analyzed_variables_to_front_of_queue (solver);
+  else
+    bump_analyzed_variable_scores (solver);
+  ADD (literals_bumped, bumped);
+  STOP (bump);
+}
 
-  if (solver->stable && solver->mab && old_heuristic!=new_heuristic) kissat_update_scores(solver);
+void kissat_update_scores (kissat *solver) {
+  assert (solver->stable);
+  heap *scores = kissat_get_scores(solver);
+  for (all_variables (idx))
+    if (ACTIVE (idx) && !kissat_heap_contains (scores, idx))
+      kissat_push_heap (solver, scores, idx);
+}
 
-  REPORT (1, 'R');
-  STOP (restart);
+// CHB
+
+void kissat_bump_chb(kissat * solver, unsigned v, double multiplier) {
+  int64_t age = solver->statistics.conflicts - solver->conflicted_chb[v] + 1;
+  double reward_chb = multiplier / age;
+  double old_score = kissat_get_heap_score (&solver->scores_chb, v);
+  double new_score = solver->step_chb * reward_chb + (1 - solver->step_chb) * old_score;
+  LOG ("new score[%u] = %g vs %g",
+     v, new_score, old_score);
+  kissat_update_heap (solver, &solver->scores_chb, v, new_score);
+}
+
+void kissat_decay_chb(kissat * solver){
+  if (solver->step_chb > solver->step_min_chb) solver->step_chb -= solver->step_dec_chb;
+}
+
+void
+kissat_update_conflicted_chb (kissat * solver)
+{
+flags *flags = solver->flags;
+
+for (all_stack (unsigned, idx, solver->analyzed))
+  if (flags[idx].active)
+      solver->conflicted_chb[idx]=solver->statistics.conflicts;
 }
 ```

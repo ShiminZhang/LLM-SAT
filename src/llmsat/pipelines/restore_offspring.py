@@ -92,10 +92,10 @@ def restore_offspring(output_dir: str, new_output_tag: str, iteration: int = 1) 
         try:
             spec = json.loads(crossover_entry["algorithm_json"])
             description = f"{spec.get('name', '')}: {spec.get('algorithm', '')}"
-            fn = spec.get("target_function", crossover_entry.get("target_function", "kissat_restarting"))
+            fn = spec.get("target_function", crossover_entry.get("target_function", "kissat_rescale_scores"))
         except (json.JSONDecodeError, TypeError):
             description = crossover_entry["algorithm_json"]
-            fn = crossover_entry.get("target_function", "kissat_restarting")
+            fn = crossover_entry.get("target_function", "kissat_rescale_scores")
 
         algo_result = AlgorithmResult(
             id=algorithm_id,

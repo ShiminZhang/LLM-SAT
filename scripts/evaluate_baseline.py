@@ -65,11 +65,20 @@ def main():
 
     if args.collect:
         logger.info(f"Collecting baseline results from {BASELINE_RESULT_DIR}")
+
+        # When --quick-eval, only collect the subset that was actually evaluated
+        allowed_instances = None
+        if cnf_files is not None:
+            allowed_instances = {f.split(".")[0] for f in cnf_files}
+            logger.info(f"Filtering to {len(allowed_instances)} quick-eval instances")
+
         solving_times = {}
         if os.path.isdir(BASELINE_RESULT_DIR):
             for file in sorted(os.listdir(BASELINE_RESULT_DIR)):
                 if file.endswith(".solving.log"):
                     instance_name = file.split(".")[0]
+                    if allowed_instances is not None and instance_name not in allowed_instances:
+                        continue
                     t = pipeline.parse_solving_time(f"{BASELINE_RESULT_DIR}/{file}")
                     if t is not None:
                         solving_times[instance_name] = t

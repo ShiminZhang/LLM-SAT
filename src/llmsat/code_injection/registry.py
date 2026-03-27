@@ -28,7 +28,7 @@ class FunctionInfo:
     """1-indexed line number where the function definition ends (inclusive)."""
 
     signature: str
-    """Function signature (e.g., 'bool kissat_restarting(kissat *solver)')."""
+    """Function signature (e.g., 'void kissat_rescale_scores(kissat *solver)')."""
 
 
 class FunctionRegistry:
@@ -39,7 +39,7 @@ class FunctionRegistry:
 
     Example:
         registry = FunctionRegistry("solvers/base/function_registry.yaml")
-        info = registry.get("kissat_restarting")
+        info = registry.get("kissat_rescale_scores")
         if info:
             print(f"Function is in {info.file}, lines {info.start_line}-{info.end_line}")
     """

@@ -92,7 +92,7 @@ class Individual:
     code_id: str
     code: str
     par2: float
-    target_function: str = "kissat_restarting"
+    target_function: str = "kissat_rescale_scores"
     parent_id: Optional[str] = None  # parent algorithm id (for team members)
     generation: int = 0              # which evolution generation this came from
 
@@ -118,7 +118,7 @@ class OffspringResult:
     reason: str = ""
     parent_a_strengths_used: List[str] = field(default_factory=list)
     parent_b_strengths_used: List[str] = field(default_factory=list)
-    target_function: str = "kissat_restarting"
+    target_function: str = "kissat_rescale_scores"
 
 
 # Max leaders per LLM call when proposing combinations (minibatch threshold)
@@ -457,7 +457,7 @@ def load_population_from_folder(
                     algo_id = get_id(algo_str)
                     algorithms[algo_id] = algo_str
                     parent_map[algo_id] = None
-                    target_fn_map[algo_id] = target_fn or "kissat_restarting"
+                    target_fn_map[algo_id] = target_fn or "kissat_rescale_scores"
                 except Exception as e:
                     logger.warning(f"Failed to parse leader line: {e}")
     logger.info(f"Parsed {len(algorithms)} leaders from {leaders_path}")
@@ -608,7 +608,7 @@ def load_population_from_folder(
             code_id=best_code_id,
             code=best_code_str,
             par2=best_par2,
-            target_function=target_fn_map.get(algo_id, "kissat_restarting"),
+            target_function=target_fn_map.get(algo_id, "kissat_rescale_scores"),
             parent_id=p_id,
             generation=0,
         )
@@ -1004,7 +1004,7 @@ def build_crossover_prompt(
     causal_b: CausalReport,
 ) -> str:
     """Build the prompt for crossover of two parents."""
-    target_fn = parent_a.target_function or "kissat_restarting"
+    target_fn = parent_a.target_function or "kissat_rescale_scores"
     return f"""You are performing genetic crossover of two SAT solver heuristic algorithms.
 Each parent has a causal analysis identifying its strengths and weaknesses.
 Your task is to design a NEW offspring algorithm that combines the strengths of both parents while avoiding their weaknesses.
@@ -1052,7 +1052,7 @@ Output your answer as JSON only:
 
 
 def parse_crossover_response(
-    response: str, parent_a_id: str, parent_b_id: str, target_function: str = "kissat_restarting"
+    response: str, parent_a_id: str, parent_b_id: str, target_function: str = "kissat_rescale_scores"
 ) -> Optional[OffspringResult]:
     """Parse the LLM crossover response into an OffspringResult."""
     json_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", response, re.DOTALL)
@@ -1152,7 +1152,7 @@ def perform_crossover(
             temperature=0.7,
         )
 
-        target_fn = parent_a.target_function or "kissat_restarting"
+        target_fn = parent_a.target_function or "kissat_rescale_scores"
         offspring = parse_crossover_response(
             response, parent_a.algorithm_id, parent_b.algorithm_id, target_function=target_fn
         )
@@ -2349,7 +2349,7 @@ def run_evolution(
                     algorithm_json=getattr(algo, "algorithm", None) or getattr(algo, "description", "") or "",
                     algorithm_id=algo_id,
                     reason=getattr(algo, "analysis", "") or "",
-                    target_function=getattr(algo, "function_name", None) or "kissat_restarting",
+                    target_function=getattr(algo, "function_name", None) or "kissat_rescale_scores",
                 )
             )
 

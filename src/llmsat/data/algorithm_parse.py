@@ -168,7 +168,7 @@ def parse_algorithms(input_file: str, output_file: str) -> None:
             description = f"{name}: {algo_text}" if name else algo_text
             algorithm_result = AlgorithmResult(
                 id=get_id(description),
-                function_name="kissat_restarting",
+                function_name="kissat_rescale_scores",
                 description=description,
                 role=Role.LEADER,
                 status=AlgorithmStatus.Generated,

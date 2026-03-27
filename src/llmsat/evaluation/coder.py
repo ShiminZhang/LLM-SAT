@@ -144,35 +144,25 @@ class Coder:
     def create_prompt(self, algorithm: str) -> str: # TODO: optimize
         # original kissat
         # TODO: kissat-MAB, AE-MAB
-        kissat_restarting_function = """
-        bool kissat_restarting (kissat *solver) {
-            assert (solver->unassigned);
-            if (!GET_OPTION (restart))
-            return false;
-            if (!solver->level)
-            return false;
-            if (CONFLICTS < solver->limits.restart.conflicts)
-            return false;
-            if (solver->stable)
-            return kissat_reluctant_triggered (&solver->reluctant);
-            const double fast = AVERAGE (fast_glue);
-            const double slow = AVERAGE (slow_glue);
-            const double margin = (100.0 + GET_OPTION (restartmargin)) / 100.0;
-            const double limit = margin * slow;
-            kissat_extremely_verbose (solver,
-                                        "restart glue limit %g = "
-                                        "%.02f * %g (slow glue) %c %g (fast glue)",
-                                        limit, margin, slow,
-                                        (limit > fast    ? '>'
-                                        : limit == fast ? '='
-                                                        : '<'),
-                                        fast);
-            return (limit <= fast);
-            }
+        kissat_rescale_scores_function = """
+        void kissat_rescale_scores (kissat *solver) {
+            INC (rescaled);
+            heap *scores = &solver->scores;
+            const double max_score = kissat_max_score_on_heap (scores);
+            kissat_phase (solver, "rescale", GET (rescaled),
+                        "maximum score %g increment %g", max_score, solver->scinc);
+            const double rescale = MAX (max_score, solver->scinc);
+            assert (rescale > 0);
+            const double factor = 1.0 / rescale;
+            kissat_rescale_heap (solver, scores, factor);
+            solver->scinc *= factor;
+            kissat_phase (solver, "rescale", GET (rescaled), "rescaled by factor %g",
+                        factor);
+        }
         """
         prompt = f"""
         You are an expert SAT solver developer that generates compilable source code for a given algorithm in Kissat solver.
-        Your final code must be the kissat_restarting function with complete signature and return type. That is the only output you should output. The code will be replacing the kissat_restarting function in the restart.c file.
+        Your final code must be the kissat_rescale_scores function with complete signature and return type. That is the only output you should output. The code will be replacing the kissat_rescale_scores function in the bump.c file.
         You MUST give your final code in following format (replace the content inside <code> and </code> with your code):
         \n<code>
          (your code here)
@@ -183,7 +173,7 @@ class Coder:
         {algorithm}
         
         Reference (Kissat SAT restarting function):
-        {kissat_restarting_function}
+        {kissat_rescale_scores_function}
         """
         return prompt
 

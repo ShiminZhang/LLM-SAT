@@ -32,3 +32,9 @@ solvers/algorithm_*/
 solvers/*/slurm_batches/
 solvers/**/code_*/
 solvers/**/result/
+
+# other files
+.venv/
+dumb_runner.sh
+solvers/
+*.pyc

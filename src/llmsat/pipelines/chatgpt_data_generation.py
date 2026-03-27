@@ -316,7 +316,7 @@ def fake_generate_data(designer_prompt_path: str, code_prompt_template_path: str
             update_router_table(CHATGPT_DATA_GENERATION_TABLE, algorithm_id, generation_tag)
             algorithm_result = AlgorithmResult(
                 id=algorithm_id,
-                function_name=target_function or "kissat_restarting",
+                function_name=target_function or "kissat_rescale_scores",
                 description=description,
                 role=Role.LEADER,
                 status=AlgorithmStatus.Generated,
@@ -445,7 +445,7 @@ def generate_data(designer_prompt_path: str, code_prompt_template_path: str, gen
             update_router_table(CHATGPT_DATA_GENERATION_TABLE, algorithm_id, generation_tag)
             algorithm_result = AlgorithmResult(
                 id=algorithm_id,
-                function_name=target_function or "kissat_restarting",
+                function_name=target_function or "kissat_rescale_scores",
                 description=description,
                 role=Role.LEADER,
                 status=AlgorithmStatus.Generated,
@@ -609,7 +609,7 @@ def generate_team_data(
             description, target_function, reason = parse_algorithm_response(leader_response)
             leader_id = get_id(description)
             leader_ids.append(leader_id)
-            fn = target_function or "kissat_restarting"
+            fn = target_function or "kissat_rescale_scores"
             leader_target_functions[leader_id] = fn
             leader_descriptions[leader_id] = description
 
@@ -703,7 +703,7 @@ def generate_team_data(
         download_batch_outputs(batch_id, member_output_path)
 
         # Get leader's target_function for inheritance
-        leader_target_function = leader_target_functions.get(leader_id, "kissat_restarting")
+        leader_target_function = leader_target_functions.get(leader_id, "kissat_rescale_scores")
 
         # Parse and store Team Members
         with open(member_output_path, "r") as f:

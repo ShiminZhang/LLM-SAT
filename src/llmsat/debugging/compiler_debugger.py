@@ -50,10 +50,10 @@ class CompilerDebugger:
     Example:
         debugger = CompilerDebugger(model="gpt-5.2")
         fixed_code = debugger.suggest_fix(
-            failing_code="bool kissat_restarting(...) { ... }",
+            failing_code="void kissat_rescale_scores(...) { ... }",
             compiler_stderr="error: unknown type 'restart_window_stats'",
             original_file_content="...",
-            function_name="kissat_restarting"
+            function_name="kissat_rescale_scores"
         )
     """
     
