@@ -1660,16 +1660,8 @@ def promote_offspring_to_leaders(
     for algorithm_id, result, par2 in selected:
         logger.info(f"  {algorithm_id[:16]}... PAR2={par2:.2f}")
 
-    # Promote each selected offspring to leader
+    # Promote each selected offspring to leader (preserve parent_id lineage)
     for algorithm_id, result, par2 in selected:
-        # Preserve original parent IDs in other_metrics
-        if result.other_metrics is None:
-            result.other_metrics = {}
-        if result.parent_id is not None:
-            result.other_metrics["original_parent_ids"] = result.parent_id
-
-        # Set as leader
-        result.parent_id = None
         result.role = Role.LEADER
         update_algorithm_result(result)
 
