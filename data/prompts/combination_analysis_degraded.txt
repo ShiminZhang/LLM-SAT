@@ -1,0 +1,47 @@
+You are analyzing combination outcomes for SAT solver heuristics.
+
+Setup:
+- Each item compares two parent algorithms (`parent1`, `parent2`) to one combined child algorithm (`child`).
+- ALL provided items are DEGRADATION cases: child PAR2 is worse (larger) than both parents.
+- For each item, use the two code diffs, descriptions, and PAR2 values to analyze why the combination degraded performance.
+
+Task:
+- Produce exactly {{EXPECTED_COUNT}} analyses, one per `pair_key`.
+- Explain concrete reasons for degradation grounded in the given code changes and algorithm descriptions.
+- Keep analysis concise, technical, and specific.
+- You may mention common patterns if they clearly apply.
+
+Provided fields for each item:
+- `pair_key`: Local key for this item; copy it exactly into output.
+- `parent1_par2`: PAR2 score of parent1 (lower is better).
+- `parent2_par2`: PAR2 score of parent2 (lower is better).
+- `child_par2`: PAR2 score of combined child (lower is better).
+- `parent1_description`: Natural-language description of parent1 strategy.
+- `parent2_description`: Natural-language description of parent2 strategy.
+- `child_description`: Natural-language description of combined strategy.
+- `code_diff_parent1_to_child`: Unified diff from parent1 code to child code.
+- `code_diff_parent2_to_child`: Unified diff from parent2 code to child code.
+
+Required output format:
+- Return ONLY a single valid JSON object wrapped in a markdown ```json ``` fence.
+- Do NOT output any text before or after the fenced JSON.
+- JSON schema:
+
+```json
+{
+  "pairs": [
+    {
+      "pair_key": "<exact pair_key from input>",
+      "analysis": "<non-empty explanation of why child degraded vs both parents>"
+    }
+  ]
+}
+```
+
+Strict constraints:
+- Include every provided `pair_key` exactly once.
+- `pairs` length must be exactly {{EXPECTED_COUNT}}.
+- `analysis` must be non-empty strings.
+
+Batch data:
+{{BATCH_CONTENT}}

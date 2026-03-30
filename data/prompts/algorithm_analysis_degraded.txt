@@ -1,0 +1,43 @@
+You are analyzing algorithm outcomes for SAT solver heuristics.
+
+Setup:
+- Each item compares a baseline algorithm implementation against one candidate algorithm implementation.
+- ALL provided items are DEGRADATION cases: candidate PAR2 is worse (larger) than baseline PAR2.
+- For each item, use the provided code diff, candidate description, and PAR2 values to analyze why the candidate regressed.
+
+Task:
+- The input can contain up to 5 items.
+- Produce exactly {{EXPECTED_COUNT}} analyses, one per `pair_key`.
+- Explain concrete reasons for degradation grounded in the provided code changes and algorithm description.
+- Keep analysis concise, technical, and specific.
+
+Provided fields for each item:
+- `pair_key`: Local key for this item; copy it exactly into output.
+- `baseline_par2`: PAR2 score of baseline implementation (lower is better).
+- `candidate_par2`: PAR2 score of candidate implementation (lower is better).
+- `candidate_description`: Natural-language description of candidate strategy.
+- `code_diff_baseline_to_candidate`: Unified diff from baseline code to candidate code.
+
+Required output format:
+- Return ONLY a single valid JSON object wrapped in a markdown ```json ``` fence.
+- Do NOT output any text before or after the fenced JSON.
+- JSON schema:
+
+```json
+{
+  "pairs": [
+    {
+      "pair_key": "<exact pair_key from input>",
+      "analysis": "<non-empty explanation of why candidate degraded vs baseline>"
+    }
+  ]
+}
+```
+
+Strict constraints:
+- Include every provided `pair_key` exactly once.
+- `pairs` length must be exactly {{EXPECTED_COUNT}}.
+- `analysis` must be non-empty strings.
+
+Batch data:
+{{BATCH_CONTENT}}
