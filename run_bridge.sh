@@ -41,14 +41,14 @@ OUTPUT_TAG="$3"
 TARGET_TAG="${OUTPUT_TAG}_ge" #assume never repetitive
 
 # Hyperparameter defaults (matching LLM-SAT_ run_genetic_evolution.sh)
-TOP_K="${TOP_K:-5}"
+TOP_K="${TOP_K:-10}"
 MINIBATCH_SIZE="${MINIBATCH_SIZE:-10}"
 RUBRIC_MIN="${RUBRIC_MIN:-6.0}"
-RUBRIC_KEEP_TOP_N="${RUBRIC_KEEP_TOP_N:-10}"
+RUBRIC_KEEP_TOP_N="${RUBRIC_KEEP_TOP_N:-15}"
 _CFG_MODEL=$(grep '^default_model:' path_config.yaml 2>/dev/null | sed 's/^default_model:[[:space:]]*//' | tr -d '"' || true)
 MODEL="${MODEL:-${_CFG_MODEL:-gemini-3-flash-preview}}"
-SHUFFLE_PASSES="${SHUFFLE_PASSES:-1}"
-PAR2_KEEP_TOP_N="${PAR2_KEEP_TOP_N:-7}"
+SHUFFLE_PASSES="${SHUFFLE_PASSES:-2}"
+PAR2_KEEP_TOP_N="${PAR2_KEEP_TOP_N:-50}"
 POLL_INTERVAL="${POLL_INTERVAL:-120}"
 
 case "$CLUSTER" in

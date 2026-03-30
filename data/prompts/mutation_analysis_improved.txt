@@ -1,0 +1,46 @@
+You are analyzing mutation outcomes for SAT solver heuristics.
+
+Setup:
+- Each pair compares a `leader` algorithm (parent) to a `member` algorithm (mutated child).
+- ALL provided pairs are IMPROVEMENT cases: member PAR2 is better (smaller) than leader PAR2.
+- For each pair, use the provided code diff, descriptions, and PAR2 values to carefully analyze and provide a detailed analysis on the causes of improved performance.
+
+Task:
+- Produce exactly {{EXPECTED_COUNT}} analyses, one per `pair_key`.
+- Explain concrete reasons for improvement grounded in the given code changes and algorithm descriptions.
+- Keep analysis concise, technical, and specific to each pair.
+- You might be able to identify common patterns in the cause of improvements in the provided pairs, if so, include such explanation in the analysis output.
+
+Provided fields for each pair:
+- `pair_key`: Local key for this batch item; copy it exactly into output.
+- `leader_par2`: PAR2 score of the leader algorithm (lower is better).
+- `member_par2`: PAR2 score of the member algorithm (lower is better).
+- `relative_change`: Relative improvement ratio vs leader; larger means stronger gain.
+- `leader_description`: Natural-language description of leader strategy.
+- `step_mutated`: The step from the leader_description that was mutated to reach the member_description.
+- `member_description`: Natural-language description of member strategy.
+- `code_diff`: Unified diff showing how member code changed from leader code.
+
+Required output format:
+- Return ONLY a single valid JSON object wrapped in a markdown ```json ``` fence.
+- Do NOT output any text before or after the fenced JSON.
+- JSON schema:
+
+```json
+{
+  "pairs": [
+    {
+      "pair_key": "<exact pair_key from input>",
+      "analysis": "<non-empty explanation of why member improved over leader>"
+    }
+  ]
+}
+```
+
+Strict constraints:
+- Include every provided `pair_key` exactly once.
+- `pairs` length must be exactly {{EXPECTED_COUNT}}.
+- `analysis` must be non-empty strings.
+
+Batch data:
+{{BATCH_CONTENT}}
