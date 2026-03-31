@@ -294,6 +294,7 @@ def _load_par2_for_algorithm(
     code_id: str,
     generation_tag: Optional[str] = None,
     parent_id: Optional[str] = None,
+    role: Optional[Role] = None,
 ) -> Optional[float]:
     """
     Try to get PAR2 score from multiple sources (in priority order):
@@ -310,7 +311,7 @@ def _load_par2_for_algorithm(
         times_path = get_solver_solving_times_path(
             algorithm_id, code_id,
             generation_tag=generation_tag,
-            parent_id=parent_id,
+            role=role,
         )
         if os.path.exists(times_path):
             with open(times_path, "r") as f:
@@ -325,7 +326,7 @@ def _load_par2_for_algorithm(
         result_dir = get_solver_result_dir(
             algorithm_id, code_id,
             generation_tag=generation_tag,
-            parent_id=parent_id,
+            role=role,
         )
         log_files = glob.glob(os.path.join(result_dir, "*.log"))
         if log_files:
@@ -585,10 +586,12 @@ def load_population_from_folder(
         best_par2 = float("inf")
 
         for code_id, code_str in codes:
+            algo_result = get_algorithm_result(algo_id)
+            algo_role = algo_result.role if algo_result else None
             par2 = _load_par2_for_algorithm(
                 algo_id, code_id,
                 generation_tag=inferred_tag,
-                parent_id=p_id,
+                role=algo_role,
             )
             if par2 is not None and par2 < best_par2:
                 best_par2 = par2
@@ -1784,11 +1787,11 @@ def collect_par2_scores(
         # Try local solving_times file
         try:
             algo_result = get_algorithm_result(algo_id)
-            parent_id = algo_result.parent_id if algo_result else None
+            algo_role = algo_result.role if algo_result else None
             times_path = get_solver_solving_times_path(
                 algo_id, code_id,
                 generation_tag=generation_tag,
-                parent_id=parent_id,
+                role=algo_role,
             )
             if os.path.exists(times_path):
                 with open(times_path, "r") as f:
