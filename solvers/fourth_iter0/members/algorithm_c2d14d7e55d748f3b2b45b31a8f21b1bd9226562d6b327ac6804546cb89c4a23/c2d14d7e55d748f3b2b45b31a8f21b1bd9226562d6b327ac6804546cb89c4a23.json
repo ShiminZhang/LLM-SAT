@@ -1,0 +1,28 @@
+{
+    "id": "c2d14d7e55d748f3b2b45b31a8f21b1bd9226562d6b327ac6804546cb89c4a23",
+    "function_name": "restart_mab",
+    "description": "Magnitude-Scaled Thompson Sampling Restart Control: Step 1: Initialize two arms representing 'Luby' and 'Glucose' restart policies with Beta distribution parameters alpha=2 and beta=2. Step 2: Define a composite reward signal R = (1 / LBD_avg) * log10(backtrack_level + 1), calculated over a window of 128 conflicts, to favor restarts that produce high-quality clauses at significant search depths. Step 3: Maintain a 'Search Volatility' index (V) calculated as the relative difference between the short-term (128 conflicts) and long-term (4096 conflicts) moving average of the reward R. Step 4: If V > 0.3 (indicating a phase shift in formula difficulty), apply a 'Knowledge Decay' by multiplying all alpha and beta parameters by 0.6 to force the Multi-Armed Bandit back into an exploration phase. Step 5: For every restart decision, sample a value from the Beta distribution of each arm and select the policy with the highest sampled value; then, update the chosen arm's parameters using a magnitude-sensitive gradient where alpha increases by max(0, R - global_average_R) and beta increases by max(0, global_average_R - R), effectively weighting the bandit's confidence by the degree of search improvement.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-18 14:34:18.903653",
+    "code_id_list": [
+        "a0089233009675c244cc5aeba6d3cb34cb1ecf6b63804b62a3cc1be1c64029f1"
+    ],
+    "parent_id": [
+        "ba6fd3afe9f6af396b7f7384b52faaf5371b61287852bfb26252cdd5fcf33531"
+    ],
+    "parent_algorithm_description": [
+        "Proportional Volatility Scaling VTTS: Step 1: Initialize two arms representing 'Luby' and 'Glucose' restart policies with Beta distribution parameters alpha=2 and beta=2. Step 2: Define a composite reward signal R = (1 / LBD_avg) * log10(backtrack_level + 1), calculated over a window of 128 conflicts, to favor restarts that produce high-quality clauses at significant search depths. Step 3: Maintain a 'Search Volatility' index (V) calculated as the relative difference between the short-term (128 conflicts) and long-term (4096 conflicts) moving average of the reward R. Step 4: If V > 0.3, apply a proportional decay by scaling all alpha and beta parameters by (1.0 - min(0.8, V)), and force a single exploration step where the arm with the lower current mean is selected to rapidly probe the new search landscape. Step 5: For every restart decision, sample a value from the Beta distribution of each arm and select the policy with the highest sampled value, updating the chosen arm's alpha if R > global_average_R, otherwise updating beta."
+    ],
+    "raw_par2_score": [
+        39.47555555555556,
+        706.1678125,
+        591.1493750000001,
+        226.92391304347825,
+        466.1586000000001
+    ],
+    "normalized_par2_score": null,
+    "analysis": "The original Step 5 utilized a binary update (incrementing alpha or beta by 1), which treats all 'above average' restarts as equally beneficial. In SAT solving, especially within the Kissat architecture, certain restart cycles yield significantly higher quality lemmas (lower LBD) or explore much deeper search trees than others. By replacing the binary update with a magnitude-scaled update based on the distance from the global average reward, the Thompson Sampling bandit converges faster on the optimal policy for a specific formula's landscape. This nuanced feedback loop reduces PAR2 scores by minimizing time spent in suboptimal restart regimes during the critical early-to-mid stages of the search.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

@@ -1,0 +1,24 @@
+{
+    "id": "aa94e2a4d4561489d6a56a6c934a26443e2fb597572ecde0ed78111ab7e406d1",
+    "function_name": "restart_mab",
+    "description": "Volatility-Indexed Contextual Thompson Restart (VICTR): Step 1: Maintain a sliding window of the last 512 learned clause LBDs and calculate the Coefficient of Variation (CV = standard deviation / mean). Step 2: Discretize the search state into three contexts based on CV: 'Stagnant' (CV < 0.6), 'Steady' (0.6 <= CV <= 1.4), and 'Volatile' (CV > 1.4). Step 3: For each context, maintain a Thompson Sampling model with three arms: Arm 0 (Luby-style restarts), Arm 1 (Aggressive EMA-based restarts), and Arm 2 (Lazy EMA-based restarts). Step 4: When 'restart_mab' is invoked, identify the current context and sample a value from the Beta distribution (alpha, beta) of each arm within that context, selecting the arm with the highest sample. Step 5: Define the reward R as (Global_Average_LBD / Window_Average_LBD) * (Current_Conflicts_Per_Second / Global_Average_CPS). Step 6: Update the chosen arm's parameters: if R > 1.0, increment alpha by R; otherwise, increment beta by (1/R). Step 7: Apply a decay factor of 0.95 to all alpha/beta values every 10,000 conflicts to ensure the bandit remains responsive to the shifting landscape of the SAT formula.",
+    "role": "leader",
+    "status": "code_generated",
+    "last_updated": "2026-03-18 10:11:23.667837",
+    "code_id_list": [
+        "b72cbfe51729d56dec09bb28cd75eb425934aafba7f20fab595735238400e63f"
+    ],
+    "parent_id": null,
+    "parent_algorithm_description": null,
+    "raw_par2_score": [
+        null,
+        null,
+        null,
+        null,
+        null
+    ],
+    "normalized_par2_score": null,
+    "analysis": "Standard MABs in solvers ignore the search context; VICTR uses LBD volatility to detect if the solver is stuck in a local plateau or traversing a complex landscape, selecting restart frequency accordingly.",
+    "prompt": "You are designing a novel and diverse heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nThis algorithm (conceptual, not code) should modify the target function below. Your algorithm should demonstrate the same level of innovation and diversity as past SAT competition winners.\n\nBe specific about the mechanism and logic flow. Include concrete thresholds\nand parameters where necessary, but prioritize describing a structurally\nunique decision process over tuning constants. \n\nYour algorithm does not need to be long, just intelligent,. innovative, and\nmechanistically distinct from standard approaches.\n\n### Target Function\n\nrestart_mab\n\n### Output Format (JSON only)\n\n```json\n{\n\t\"name\": \"Brief algorithm name (<=6 words)\",\n\n\t\"algorithm\": \"Complete algorithmic description. Be specific and quantitative. Step 1: ... Step 2: ...\",\n\n\t\"reason\": \"1-2 brief lines about why this improves performance.\",\n\n\t\"target_function\": \"exact_function_name_from_list_above\"\n}\n\nIMPORTANT: target_function must exactly match the target function name listed above (no parens).\nIMPORTANT: algorithm must specifically split substeps by Step markers \"Step 1: ... Step 2: ... \"\n\nYour algorithm will be implemented by a coder model. Make sure they generally have the requisite information in your algorithmic description to be able to implement it faithfully.\n",
+    "other_metrics": {}
+}

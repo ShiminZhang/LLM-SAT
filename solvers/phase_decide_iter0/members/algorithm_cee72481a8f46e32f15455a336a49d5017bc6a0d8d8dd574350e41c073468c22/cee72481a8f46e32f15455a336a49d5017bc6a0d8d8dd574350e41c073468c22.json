@@ -1,0 +1,34 @@
+{
+    "id": "cee72481a8f46e32f15455a336a49d5017bc6a0d8d8dd574350e41c073468c22",
+    "function_name": "kissat_decide_phase",
+    "description": "Momentum-Bypass Soft Phase Reset: Step 1: Initialize a float array `phase_momentum[v]` to 0.0. During conflict analysis, for each variable `x` in the learned clause, update its momentum: `phase_momentum[x] = 0.95 * phase_momentum[x] + 0.05 * (polarity(x) * (1.0 / LBD))`, where `polarity(x)` is 1 if the current assigned phase is True, and -1 if False. Step 2: In `kissat_decide_phase(v)`, determine if the search is currently stagnant by checking if `recent_LBD_EMA > global_LBD_EMA * 1.15`. Step 3: Calculate the variable's momentum magnitude `M = abs(phase_momentum[v])`. If the search is stagnant and `M < 0.02` (indicating this variable's recent phases haven't contributed to high-quality, low-LBD conflicts), return `!saved_phase[v]` to force targeted, localized diversification. Step 4: If `M >= 0.02`, override standard phase saving entirely and return `True` if `phase_momentum[v] > 0` else `False`. This explicitly exploits polarities that historically yield tight, high-quality conflicts. Step 5: If the search is not stagnant and `M < 0.02`, bypass the standard saved phase. Instead, return the target phase if one is currently set; otherwise, strictly return the initial phase (based on static structural counts). This prevents the search from recycling recent ineffective assignments by resetting cold variables to their structural defaults.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:06:54.514553",
+    "code_id_list": [
+        "7b1c886ec4d16c38a05c992fb0bec4e84f25e4741663607186a3906e7aa95956"
+    ],
+    "parent_id": [
+        "08c98d6e728cf7c2cdf6b79e12525433f028423a26a8e18b739b325ba43a5e0c"
+    ],
+    "parent_algorithm_description": [
+        "LBD-Guided Phase Momentum and Inversion: Step 1: Initialize a float array `phase_momentum[v]` to 0.0. During conflict analysis, for each variable `x` in the learned clause, update its momentum: `phase_momentum[x] = 0.95 * phase_momentum[x] + 0.05 * (polarity(x) * (1.0 / LBD))`, where `polarity(x)` is 1 if the current assigned phase is True, and -1 if False. Step 2: In `kissat_decide_phase(v)`, determine if the search is currently stagnant by checking if `recent_LBD_EMA > global_LBD_EMA * 1.15`. Step 3: Calculate the variable's momentum magnitude `M = abs(phase_momentum[v])`. If the search is stagnant and `M < 0.02` (indicating this variable's recent phases haven't contributed to high-quality, low-LBD conflicts), return `!saved_phase[v]` to force targeted, localized diversification. Step 4: If `M >= 0.02`, override standard phase saving entirely and return `True` if `phase_momentum[v] > 0` else `False`. This explicitly exploits polarities that historically yield tight, high-quality conflicts. Step 5: If the search is not stagnant and `M < 0.02`, fall back to Kissat's default hierarchical phase selection (target phase -> saved phase -> initial phase)."
+    ],
+    "raw_par2_score": [
+        106.24277777777782,
+        684.9209374999999,
+        495.735625,
+        271.91869565217394,
+        476.5967999999999
+    ],
+    "normalized_par2_score": [
+        0.24717969796142064,
+        1.5935064387417988,
+        1.1533563468428645,
+        0.6326338831421849,
+        1.1088288120608625
+    ],
+    "analysis": "In the original algorithm, Step 5 falls back to Kissat's default phase hierarchy (target -> saved -> initial). However, if a variable has low momentum (M < 0.02), it means its recently saved phase has objectively failed to contribute to high-quality conflicts. This variant modifies Step 5 by entirely bypassing the 'saved phase' for these variables. By dropping directly to the 'initial phase' (when no target phase from local search exists), it acts as a soft reset. This structurally re-orients cold variables rather than endlessly recycling unpromising assignments, significantly improving PAR2 scores by cutting off unproductive branches early.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

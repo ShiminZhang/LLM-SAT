@@ -1,0 +1,34 @@
+{
+    "id": "9eea72eb260ac93ce8c4130e472fad57f3d9e0a2ad27dc35b881f3ae9e58e2a3",
+    "function_name": "kissat_decide_phase",
+    "description": "Target-Anchored LBD Phase Momentum: Step 1: Initialize a float array `phase_momentum[v]` to 0.0. During conflict analysis, for each variable `x` in the learned clause, update its momentum: `phase_momentum[x] = 0.95 * phase_momentum[x] + 0.05 * (polarity(x) * (1.0 / LBD))`, where `polarity(x)` is 1 if the current assigned phase is True, and -1 if False. Step 2: In `kissat_decide_phase(v)`, determine if the search is currently stagnant by checking if `recent_LBD_EMA > global_LBD_EMA * 1.15`. Step 3: Calculate the variable's momentum magnitude `M = abs(phase_momentum[v])`. If the search is stagnant and `M < 0.02` (indicating this variable's recent phases haven't contributed to high-quality, low-LBD conflicts), return `!saved_phase[v]` to force targeted, localized diversification. Step 4: If `M >= 0.02`, override standard phase saving entirely and return `True` if `phase_momentum[v] > 0` else `False`. This explicitly exploits polarities that historically yield tight, high-quality conflicts. Step 5: If the search is not stagnant and `M < 0.02`, bypass the recent saved phase entirely and strictly return the target phase (the phase from the largest conflict-free trail so far). If the target phase is not yet established, return the initial phase.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:06:21.616931",
+    "code_id_list": [
+        "8939fe615b97e7834ee551cb62869cbfaa9b8d5a0e9cf3ca78c56d40b54635e4"
+    ],
+    "parent_id": [
+        "08c98d6e728cf7c2cdf6b79e12525433f028423a26a8e18b739b325ba43a5e0c"
+    ],
+    "parent_algorithm_description": [
+        "LBD-Guided Phase Momentum and Inversion: Step 1: Initialize a float array `phase_momentum[v]` to 0.0. During conflict analysis, for each variable `x` in the learned clause, update its momentum: `phase_momentum[x] = 0.95 * phase_momentum[x] + 0.05 * (polarity(x) * (1.0 / LBD))`, where `polarity(x)` is 1 if the current assigned phase is True, and -1 if False. Step 2: In `kissat_decide_phase(v)`, determine if the search is currently stagnant by checking if `recent_LBD_EMA > global_LBD_EMA * 1.15`. Step 3: Calculate the variable's momentum magnitude `M = abs(phase_momentum[v])`. If the search is stagnant and `M < 0.02` (indicating this variable's recent phases haven't contributed to high-quality, low-LBD conflicts), return `!saved_phase[v]` to force targeted, localized diversification. Step 4: If `M >= 0.02`, override standard phase saving entirely and return `True` if `phase_momentum[v] > 0` else `False`. This explicitly exploits polarities that historically yield tight, high-quality conflicts. Step 5: If the search is not stagnant and `M < 0.02`, fall back to Kissat's default hierarchical phase selection (target phase -> saved phase -> initial phase)."
+    ],
+    "raw_par2_score": [
+        109.65277777777777,
+        683.9606249999999,
+        490.58812500000005,
+        276.6626086956522,
+        477.2098
+    ],
+    "normalized_par2_score": [
+        0.25511325154198916,
+        1.591272218603136,
+        1.1413804034246895,
+        0.6436708591867577,
+        1.1102549904611232
+    ],
+    "analysis": "In the original Step 5, the algorithm falls back to the standard Kissat hierarchy, which heavily relies on the recent saved phase. However, if a variable has low momentum (M < 0.02), its recent assignments have proven to be 'noisy' and unhelpful for generating high-quality conflicts. This variant modifies Step 5 to completely bypass the saved phase for these low-momentum variables. Instead, it anchors them directly to the target phase (the best stable global assignment found so far). This prevents the solver from chasing unproductive recent polarities during otherwise productive search phases, reducing trail churn and accelerating convergence to a satisfying assignment.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

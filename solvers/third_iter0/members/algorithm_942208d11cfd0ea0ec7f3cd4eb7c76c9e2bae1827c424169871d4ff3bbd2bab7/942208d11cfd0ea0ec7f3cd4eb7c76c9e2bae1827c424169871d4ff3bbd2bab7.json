@@ -1,0 +1,28 @@
+{
+    "id": "942208d11cfd0ea0ec7f3cd4eb7c76c9e2bae1827c424169871d4ff3bbd2bab7",
+    "function_name": "restart_mab",
+    "description": "Relative Gain Tanh-Scaled Thompson Sampling: Step 1: Initialize three restart strategy arms: Arm 0 (Luby sequence), Arm 1 (EMA/Glucose), and Arm 2 (Aggressive/Constant 50-conflict). Maintain success counts (S_i) and failure counts (F_i) for each arm, initialized to 1. Step 2: Every 1024 conflicts (the 'evaluation window'), select an arm by sampling a value \u03b8 from a Beta distribution Beta(S_i, F_i) for each arm and picking the maximum \u03b8. Step 3: During the window, calculate the 'Geometric Efficiency' (GE) for each conflict, defined as GE = (DecisionLevel_Conflict - DecisionLevel_Backjump) / (DecisionLevel_Conflict + 1). Step 4: At the end of the window, calculate the aggregate reward R = (Average_GE * log2(1 + Clause_Deletion_Rate)) / Average_LBD. Step 5: Update a windowed Exponential Moving Average (EMA) of previous rewards. Calculate the relative performance gain G = (R - EMA) / (EMA + \u03b5). If G > 0, increment S_chosen by 1 + tanh(G), providing a diminishing-returns boost for high performance; if G <= 0, increment F_chosen by 1 + tanh(|G|), scaling the failure penalty based on the severity of the performance drop relative to the baseline. Step 6: Apply a decay factor of 0.95 to all S and F values every 10,000 conflicts to ensure the bandit remains sensitive to the non-stationary nature of the SAT search space phases.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-18 11:40:27.375891",
+    "code_id_list": [
+        "63bae23884df6615fe00d7f053bc12157898b42db2cd24e9be2493dd64e7f71e"
+    ],
+    "parent_id": [
+        "39a6700543e5fd975e8079436a833cfd82bc9a81537cb5fde35d3b50c0fe4d8a"
+    ],
+    "parent_algorithm_description": [
+        "Geometric Efficiency Thompson Sampling Bandit: Step 1: Initialize three restart strategy arms: Arm 0 (Luby sequence), Arm 1 (EMA/Glucose), and Arm 2 (Aggressive/Constant 50-conflict). Maintain success counts (S_i) and failure counts (F_i) for each arm, initialized to 1. Step 2: Every 1024 conflicts (the 'evaluation window'), select an arm by sampling a value \u03b8 from a Beta distribution Beta(S_i, F_i) for each arm and picking the maximum \u03b8. Step 3: During the window, calculate the 'Geometric Efficiency' (GE) for each conflict, defined as GE = (DecisionLevel_Conflict - DecisionLevel_Backjump) / (DecisionLevel_Conflict + 1). Step 4: At the end of the window, calculate the aggregate reward R = (Average_GE * log2(1 + Clause_Deletion_Rate)) / Average_LBD. Step 5: Normalize R against the moving average of rewards; if R > global_moving_average, increment S_chosen by 1 + (R / max_R), otherwise increment F_chosen by 1. Step 6: Apply a decay factor of 0.95 to all S and F values every 10,000 conflicts to ensure the bandit remains sensitive to the non-stationary nature of the SAT search space phases."
+    ],
+    "raw_par2_score": [
+        28.410000000000004,
+        672.9296875,
+        411.0925,
+        253.1347826086957,
+        440.9026000000001
+    ],
+    "normalized_par2_score": null,
+    "analysis": "This variant improves upon the original Step 5 by replacing the binary success/failure threshold with a continuous 'Relative Gain' update mechanism. In the original algorithm, any reward above the moving average was treated similarly regardless of the margin. By using the tanh-scaled relative gain, we normalize the updates against the solver's current performance baseline. This prevents 'noisy' windows from causing disproportionate shifts in the Beta distribution while allowing the bandit to more aggressively favor restart strategies that provide significant, measurable improvements in search efficiency (GE) and clause quality (LBD). This nuanced feedback loop is critical for PAR2 optimization, where identifying the most efficient search path quickly is paramount.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

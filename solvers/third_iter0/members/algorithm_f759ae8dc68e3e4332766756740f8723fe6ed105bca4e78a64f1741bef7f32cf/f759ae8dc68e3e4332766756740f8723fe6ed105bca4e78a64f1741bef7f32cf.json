@@ -1,0 +1,28 @@
+{
+    "id": "f759ae8dc68e3e4332766756740f8723fe6ed105bca4e78a64f1741bef7f32cf",
+    "function_name": "restart_mab",
+    "description": "Phase-Adaptive Volatility-Responsive Bandit Decay: Step 1: Initialize three restart strategy arms: Arm 0 (Luby sequence), Arm 1 (EMA/Glucose), and Arm 2 (Aggressive/Constant 50-conflict). Maintain success counts (S_i) and failure counts (F_i) for each arm, initialized to 1. Step 2: Every 1024 conflicts (the 'evaluation window'), select an arm by sampling a value \u03b8 from a Beta distribution Beta(S_i, F_i) for each arm and picking the maximum \u03b8. Step 3: During the window, calculate the 'Geometric Efficiency' (GE) for each conflict, defined as GE = (DecisionLevel_Conflict - DecisionLevel_Backjump) / (DecisionLevel_Conflict + 1). Step 4: At the end of the window, calculate the aggregate reward R = (Average_GE * log2(1 + Clause_Deletion_Rate)) / Average_LBD. Step 5: Normalize R against the moving average of rewards; if R > global_moving_average, increment S_chosen by 1 + (R / max_R), otherwise increment F_chosen by 1. Step 6: Monitor the standard deviation of rewards (\u03c3_R) and the relative change in the global moving average. Every 8192 conflicts, or immediately if the current reward R falls below 50% of the global_moving_average, apply a dynamic decay factor \u03bb = max(0.5, 0.95 - \u03c3_R) to all S_i and F_i values. This ensures that the bandit increases its exploration rate (by widening the Beta distribution) precisely when the search enters a volatile or unproductive phase, rather than at fixed intervals.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-18 11:40:40.572497",
+    "code_id_list": [
+        "ea2fa1b2257827fdc65c2f6a71b51ededaddad681ddc82f6867af4d7e68524f1"
+    ],
+    "parent_id": [
+        "39a6700543e5fd975e8079436a833cfd82bc9a81537cb5fde35d3b50c0fe4d8a"
+    ],
+    "parent_algorithm_description": [
+        "Geometric Efficiency Thompson Sampling Bandit: Step 1: Initialize three restart strategy arms: Arm 0 (Luby sequence), Arm 1 (EMA/Glucose), and Arm 2 (Aggressive/Constant 50-conflict). Maintain success counts (S_i) and failure counts (F_i) for each arm, initialized to 1. Step 2: Every 1024 conflicts (the 'evaluation window'), select an arm by sampling a value \u03b8 from a Beta distribution Beta(S_i, F_i) for each arm and picking the maximum \u03b8. Step 3: During the window, calculate the 'Geometric Efficiency' (GE) for each conflict, defined as GE = (DecisionLevel_Conflict - DecisionLevel_Backjump) / (DecisionLevel_Conflict + 1). Step 4: At the end of the window, calculate the aggregate reward R = (Average_GE * log2(1 + Clause_Deletion_Rate)) / Average_LBD. Step 5: Normalize R against the moving average of rewards; if R > global_moving_average, increment S_chosen by 1 + (R / max_R), otherwise increment F_chosen by 1. Step 6: Apply a decay factor of 0.95 to all S and F values every 10,000 conflicts to ensure the bandit remains sensitive to the non-stationary nature of the SAT search space phases."
+    ],
+    "raw_par2_score": [
+        null,
+        null,
+        null,
+        null,
+        null
+    ],
+    "normalized_par2_score": null,
+    "analysis": "The original Step 6 uses a fixed decay interval (10,000 conflicts) and a static decay factor (0.95), which fails to account for the highly non-linear nature of SAT search phases. In modern CDCL solvers like Kissat, the search can move from highly productive 'easy' components to 'stagnant' deep-search phases very rapidly. By making the decay dynamic based on reward volatility (\u03c3_R) and triggering it when performance drops significantly, the bandit can 'forget' outdated arm preferences faster during difficult phases. This allows the solver to pivot between restart strategies (e.g., switching from aggressive to Luby) more responsively, which is critical for reducing the PAR2 score on heterogeneous benchmark sets like those in the SAT Competition.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}
