@@ -45,7 +45,7 @@ class EvaluationPipelineNERSC(_EvaluationPipelineBase):
 
     Each SLURM array task = 1 full node running SLURM_JOBS_PER_NODE=128 solver
     jobs in parallel (one per physical core). Uses NERSC account m4831 with
-    --qos=regular and --constraint=cpu via utils_nersc.
+    --qos=premium and --constraint=cpu via utils_nersc.
     """
 
     def slurm_run_evaluate(
