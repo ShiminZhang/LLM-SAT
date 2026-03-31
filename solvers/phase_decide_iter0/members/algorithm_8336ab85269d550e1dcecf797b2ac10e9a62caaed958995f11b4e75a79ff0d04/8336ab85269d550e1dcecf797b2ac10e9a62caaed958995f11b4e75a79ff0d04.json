@@ -1,0 +1,30 @@
+{
+    "id": "8336ab85269d550e1dcecf797b2ac10e9a62caaed958995f11b4e75a79ff0d04",
+    "function_name": "kissat_decide_phase",
+    "description": "Activity-Gated Target Phasing: Step 1: Maintain a running average of all active variable scores (e.g., VSIDS activities or VMTF ranks) in the solver, denoted as `avg_score`. Step 2: During `kissat_decide_phase(v)`, fetch `P_saved` (the variable's most recently assigned polarity) and `P_target` (the variable's polarity in the historically largest conflict-free trail). Step 3: If `P_target` is uninitialized or `P_saved == P_target`, immediately return `P_saved`. Step 4: Evaluate the current heuristic score of `v`. If `score[v] > 1.5 * avg_score`, classify `v` as a 'conflict driver' and return `P_saved`. This prioritizes local conflict resolution and allows the solver to rapidly learn high-quality clauses without thrashing. Step 5: If `score[v] <= 1.5 * avg_score`, classify `v` as a 'background variable' and return `P_target`. This aggressively anchors the non-critical search space to the best known global assignment.",
+    "role": "leader",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:06:08.197119",
+    "code_id_list": [
+        "41ca928bc0fb3e5dcb8c74360bb5afdab9257b4d867c57944f78e39869f943d7"
+    ],
+    "parent_id": null,
+    "parent_algorithm_description": null,
+    "raw_par2_score": [
+        89.88833333333332,
+        725.8478125,
+        580.8131249999999,
+        256.4639130434783,
+        496.9024
+    ],
+    "normalized_par2_score": [
+        0.20913017852434349,
+        1.688725076776325,
+        1.3512938555674465,
+        0.596677476719274,
+        1.1560709134056117
+    ],
+    "analysis": "It dynamically balances local conflict exploitation and global structural anchoring on a per-variable basis, preventing static target phases from disrupting active conflict resolution.",
+    "prompt": "You are designing a novel and diverse heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nThis algorithm (conceptual, not code) should modify the target function below. Your algorithm should demonstrate the same level of innovation and diversity as past SAT competition winners.\n\nBe specific about the mechanism and logic flow. Include concrete thresholds\nand parameters where necessary, but prioritize describing a structurally\nunique decision process over tuning constants. \n\nYour algorithm does not need to be long, just intelligent,. innovative, and\nmechanistically distinct from standard approaches.\n\n### Target Function\n\nkissat_decide_phase\n\n### Output Format (JSON only)\n\n```json\n{\n\t\"name\": \"Brief algorithm name (<=6 words)\",\n\n\t\"algorithm\": \"Complete algorithmic description. Be specific and quantitative. Step 1: ... Step 2: ...\",\n\n\t\"reason\": \"1-2 brief lines about why this improves performance.\",\n\n\t\"target_function\": \"exact_function_name_from_list_above\"\n}\n\nIMPORTANT: target_function must exactly match the target function name listed above (no parens).\nIMPORTANT: algorithm must specifically split substeps by Step markers \"Step 1: ... Step 2: ... \"\n\nYour algorithm will be implemented by a coder model. Make sure they generally have the requisite information in your algorithmic description to be able to implement it faithfully.\n",
+    "other_metrics": {}
+}

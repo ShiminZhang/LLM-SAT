@@ -418,12 +418,18 @@ def _generate_team_data_sync(
 
     logger.info(f"[sync] Generated {len(member_ids)} Team Members")
 
-    # Step 3: Generate code for all algorithms
+    # Step 3: Generate code for all algorithms that don't have code yet
     all_algorithm_ids = leader_ids + member_ids
-    logger.info(f"[sync] Generating code for {len(all_algorithm_ids)} algorithms")
+    codeless_ids = []
+    for aid in all_algorithm_ids:
+        ar = get_algorithm_result(aid)
+        if ar and not (ar.code_id_list and len(ar.code_id_list) > 0):
+            codeless_ids.append(aid)
 
-    for idx, algorithm_id in enumerate(all_algorithm_ids):
-        logger.info(f"[sync] Code {idx+1}/{len(all_algorithm_ids)} for {algorithm_id[:16]}...")
+    logger.info(f"[sync] Generating code for {len(codeless_ids)}/{len(all_algorithm_ids)} algorithms (skipping {len(all_algorithm_ids) - len(codeless_ids)} with existing code)")
+
+    for idx, algorithm_id in enumerate(codeless_ids):
+        logger.info(f"[sync] Code {idx+1}/{len(codeless_ids)} for {algorithm_id[:16]}...")
         algorithm_result = get_algorithm_result(algorithm_id)
         code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description, algorithm_result.function_name)
 
@@ -449,7 +455,7 @@ def _generate_team_data_sync(
         algorithm_result.status = AlgorithmStatus.CodeGenerated
         update_algorithm_result(algorithm_result)
 
-    logger.info(f"[sync] Code generation complete for {len(all_algorithm_ids)} algorithms")
+    logger.info(f"[sync] Code generation complete for {len(codeless_ids)} algorithms")
 
 
 def generate_team_data(
@@ -782,15 +788,36 @@ def _generate_mutants_sync(
     m_variants_per_leader: int = 3,
     model: str = DEFAULT_MODEL,
 ):
-    """Sync implementation: generate mutant variants + code for existing leaders."""
+    """Sync implementation: generate mutant variants + code for existing leaders.
+
+    Resumable: skips leaders that already have enough members under this
+    generation_tag, and skips code generation for algorithms that already
+    have code.
+    """
     system_message = os.environ.get(
         "LLMSAT_SYSTEM_MESSAGE",
         "You are an AI researcher specialising in SAT solver heuristics.",
     )
 
+    # Build map of existing members per leader in this generation tag
+    all_tag_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
+    existing_members_by_leader: Dict[str, int] = {}
+    for aid in all_tag_ids:
+        ar = get_algorithm_result(aid)
+        if ar and ar.role == Role.MEMBER:
+            parent = ar.parent_id[0] if isinstance(ar.parent_id, list) else ar.parent_id
+            existing_members_by_leader[parent] = existing_members_by_leader.get(parent, 0) + 1
+
     member_ids = []
 
     for leader_id, leader_result in leaders.items():
+        existing_count = existing_members_by_leader.get(leader_id, 0)
+        if existing_count >= m_variants_per_leader:
+            logger.info(
+                f"Leader {leader_id[:8]}... already has {existing_count} members, skipping"
+            )
+            continue
+
         leader_algorithm = leader_result.description
         num_steps = count_steps(leader_algorithm)
         if num_steps == 0:
@@ -799,6 +826,7 @@ def _generate_mutants_sync(
             )
             continue
 
+        needed = m_variants_per_leader - existing_count
         if num_steps < m_variants_per_leader:
             step_assignments = [
                 (i + 1) if i < num_steps else num_steps
@@ -808,14 +836,18 @@ def _generate_mutants_sync(
             start_step = num_steps - m_variants_per_leader + 1
             step_assignments = [start_step + i for i in range(m_variants_per_leader)]
 
+        # Only generate the remaining variants (skip already-generated ones)
+        step_assignments = step_assignments[existing_count:]
+
         logger.info(
             f"Leader {leader_id[:8]}... has {num_steps} steps, "
-            f"assigning variants to steps: {step_assignments}"
+            f"{existing_count} existing members, generating {needed} more "
+            f"(steps: {step_assignments})"
         )
 
         for j, target_step in enumerate(step_assignments):
             logger.info(
-                f"[sync] Member {j+1}/{m_variants_per_leader} for leader {leader_id[:8]}... (step {target_step})"
+                f"[sync] Member {existing_count+j+1}/{m_variants_per_leader} for leader {leader_id[:8]}... (step {target_step})"
             )
             prompt = variant_prompt_template.replace("{leader_algorithm}", leader_algorithm)
             prompt = prompt.replace("{target_step_num}", str(target_step))
@@ -842,13 +874,20 @@ def _generate_mutants_sync(
                 prompt=variant_prompt_template,
             ))
 
-    logger.info(f"[sync] Generated {len(member_ids)} mutants")
+    logger.info(f"[sync] Generated {len(member_ids)} new mutants")
 
-    # Generate code for mutants only (leaders already have code)
-    logger.info(f"[sync] Generating code for {len(member_ids)} mutants")
-    for idx, member_id in enumerate(member_ids):
-        logger.info(f"[sync] Code {idx+1}/{len(member_ids)} for {member_id[:16]}...")
-        algorithm_result = get_algorithm_result(member_id)
+    # Generate code for all members (new + previously code-less) under this tag
+    all_tag_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
+    codeless_ids = []
+    for aid in all_tag_ids:
+        ar = get_algorithm_result(aid)
+        if ar and ar.role == Role.MEMBER and not (ar.code_id_list and len(ar.code_id_list) > 0):
+            codeless_ids.append(aid)
+
+    logger.info(f"[sync] Generating code for {len(codeless_ids)} codeless mutants")
+    for idx, mid in enumerate(codeless_ids):
+        logger.info(f"[sync] Code {idx+1}/{len(codeless_ids)} for {mid[:16]}...")
+        algorithm_result = get_algorithm_result(mid)
         code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description, algorithm_result.function_name)
 
         raw_text = get_response_from_gemini(
@@ -859,7 +898,7 @@ def _generate_mutants_sync(
 
         update_code_result(CodeResult(
             id=code_id,
-            algorithm_id=member_id,
+            algorithm_id=mid,
             code=code_str,
             status=CodeStatus.Generated,
             par2=None,
@@ -873,7 +912,7 @@ def _generate_mutants_sync(
         algorithm_result.status = AlgorithmStatus.CodeGenerated
         update_algorithm_result(algorithm_result)
 
-    logger.info(f"[sync] Mutant generation complete: {len(member_ids)} mutants")
+    logger.info(f"[sync] Mutant generation complete: {len(member_ids)} new mutants, {len(codeless_ids)} code generated")
     return member_ids
 
 
@@ -1116,8 +1155,8 @@ def generate_mutants_for_leaders(
         if result is None:
             logger.warning(f"Algorithm {algorithm_id[:16]}... not found in DB, skipping")
             continue
-        if result.parent_id is not None:
-            continue  # Skip members, only load leaders
+        if result.role != Role.LEADER:
+            continue  # Skip non-leaders
         leaders[algorithm_id] = result
 
     logger.info(f"Loaded {len(leaders)} leaders")

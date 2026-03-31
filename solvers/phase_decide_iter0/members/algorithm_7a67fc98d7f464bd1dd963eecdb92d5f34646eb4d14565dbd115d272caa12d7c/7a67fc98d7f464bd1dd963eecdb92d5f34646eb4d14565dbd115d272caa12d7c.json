@@ -1,0 +1,34 @@
+{
+    "id": "7a67fc98d7f464bd1dd963eecdb92d5f34646eb4d14565dbd115d272caa12d7c",
+    "function_name": "kissat_decide_phase",
+    "description": "Target-Fallback Bimodal Phase Selection: Step 1: Maintain two independent phase-saving arrays, `phase_focused[v]` and `phase_stable[v]`. During backtracking, update only the array corresponding to the solver's current search mode (focused/exploration vs. stable/exploitation). Step 2: Maintain a phase quality matrix `phase_score[v][2]` (tracking scores for True and False assignments). During conflict analysis, for each variable involved in the conflict, add `1.0 / LBD` to `phase_score[v][assigned_phase]`. Decay all scores by a factor of 0.95 at every restart. Step 3: Inside `kissat_decide_phase(v)`, identify the current search mode and retrieve the baseline candidate phase: `P = phase_focused[v]` if in focused mode, otherwise `P = phase_stable[v]`. Step 4: Evaluate the historical LBD quality of the candidate phase. If the opposite phase has a significantly better track record\u2014specifically, if `phase_score[v][!P] > 1.5 * phase_score[v][P]` AND `phase_score[v][!P] > 2.0` (minimum confidence threshold)\u2014override the baseline and select `!P`. Step 5: If the override conditions in Step 4 are not met, evaluate the absolute quality of `P`. If `phase_score[v][P] < 0.5` (indicating `P` lacks recent high-quality conflict participation), return Kissat's globally saved `target` phase (the phase from the largest conflict-free trail so far) to guide the search toward known promising global assignments; otherwise, return the baseline candidate phase `P`.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:06:14.957729",
+    "code_id_list": [
+        "a9841003853352632c2bc94d918cca8825bae58579c2b9e340803173fc9141f4"
+    ],
+    "parent_id": [
+        "83007e8188563b2c2b0a3af865dc627141f5517716fff8dac9002e50893d8906"
+    ],
+    "parent_algorithm_description": [
+        "Bimodal LBD-Scored Phase Selection: Step 1: Maintain two independent phase-saving arrays, `phase_focused[v]` and `phase_stable[v]`. During backtracking, update only the array corresponding to the solver's current search mode (focused/exploration vs. stable/exploitation). Step 2: Maintain a phase quality matrix `phase_score[v][2]` (tracking scores for True and False assignments). During conflict analysis, for each variable involved in the conflict, add `1.0 / LBD` to `phase_score[v][assigned_phase]`. Decay all scores by a factor of 0.95 at every restart. Step 3: Inside `kissat_decide_phase(v)`, identify the current search mode and retrieve the baseline candidate phase: `P = phase_focused[v]` if in focused mode, otherwise `P = phase_stable[v]`. Step 4: Evaluate the historical LBD quality of the candidate phase. If the opposite phase has a significantly better track record\u2014specifically, if `phase_score[v][!P] > 1.5 * phase_score[v][P]` AND `phase_score[v][!P] > 2.0` (minimum confidence threshold)\u2014override the baseline and select `!P`. Step 5: If the override conditions in Step 4 are not met, return the baseline candidate phase `P`."
+    ],
+    "raw_par2_score": [
+        38.252222222222215,
+        795.365625,
+        488.994375,
+        424.9947826086955,
+        522.8048000000001
+    ],
+    "normalized_par2_score": [
+        0.08899591043279097,
+        1.8504621120469034,
+        1.137672455911777,
+        0.9887738648938986,
+        1.2163342794658232
+    ],
+    "analysis": "This variant modifies Step 5 of the original algorithm. In the original, if the override condition failed, the baseline phase P was returned blindly, even if its historical LBD score was abysmal or non-existent (stale variable). By falling back to Kissat's global 'target' phase when P's score is below 0.5, the solver leverages a globally consistent assignment for unproductive variables. This helps break out of poor local minima while retaining the bimodal LBD-driven logic for highly active variables, ultimately reducing PAR2 times by avoiding deep searches in unpromising spaces.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

@@ -327,9 +327,16 @@ class EvaluationPipeline:
             time="00:05:00",
         )
 
-        slurm_output = os.popen(slurm_cmd).read()
-        slurm_id = int(slurm_output.split()[-1])
-        logger.info(f"Submitted collect result job {slurm_id}")
+        try:
+            slurm_output = os.popen(slurm_cmd).read().strip()
+            if not slurm_output or "error" in slurm_output.lower():
+                logger.error(f"Failed to submit collect result job for {code_id[:16]}...: {slurm_output}")
+                return
+            slurm_id = int(slurm_output.split()[-1])
+            logger.info(f"Submitted collect result job {slurm_id}")
+        except (ValueError, IndexError) as e:
+            logger.error(f"Failed to parse collect result job ID for {code_id[:16]}...: {e}")
+            return
 
     def _compile_with_debugging(
         self,
@@ -932,10 +939,12 @@ exit $EXIT_CODE
                                                    timeout=self.timeout, wall_time=self.wall_time, cnf_files=eval_cnf_files)
 
             if not dry_run:
-                code_result.status = CodeStatus.Evaluating
-                update_code_result(code_result)
                 if slurm_ids:
+                    code_result.status = CodeStatus.Evaluating
+                    update_code_result(code_result)
                     self.slurm_collect_result(slurm_ids, code_id)
+                else:
+                    logger.error(f"SLURM submission failed for {code_id[:16]}..., status not updated")
 
             return (solver_path, result_dir, code_id)
         else:
@@ -1067,7 +1076,7 @@ exit $EXIT_CODE
         job_ids = self.slurm_run_evaluate_batch(solver_tasks, SAT2025_BENCHMARK_PATH, cnf_files, dry_run=dry_run,
                                                 timeout=self.timeout, wall_time=self.wall_time)
 
-        if not dry_run:
+        if not dry_run and job_ids:
             # Update status for all code results
             for solver_path, result_dir, code_id in solver_tasks:
                 code_result = get_code_result(code_id)
@@ -1081,9 +1090,10 @@ exit $EXIT_CODE
                 update_algorithm_result(algorithm)
 
             # Submit collect result jobs (one per code_id, dependent on all evaluation jobs)
-            if job_ids:
-                for solver_path, result_dir, code_id in solver_tasks:
-                    self.slurm_collect_result(job_ids, code_id)
+            for solver_path, result_dir, code_id in solver_tasks:
+                self.slurm_collect_result(job_ids, code_id)
+        elif not dry_run:
+            logger.error("All SLURM batch submissions failed, statuses not updated")
 
         # Persist job IDs for SLURM polling scripts
         if job_ids and not dry_run:
@@ -1126,7 +1136,7 @@ exit $EXIT_CODE
         leaders: Dict[str, AlgorithmResult] = {}
         members_by_leader: Dict[str, List[AlgorithmResult]] = {}
         for algo in algorithms.values():
-            if algo.parent_id is None:
+            if algo.role == Role.LEADER:
                 leaders[algo.id] = algo
             else:
                 # parent_id is a list; use first element as the leader ID for grouping
@@ -1247,54 +1257,22 @@ exit $EXIT_CODE
             if dry_run:
                 continue
 
-            # Filesystem: move promoted member from members/ to leaders/
-            member_old_dir = get_algorithm_dir(best_member.id,
-                                               generation_tag=self.generation_tag,
-                                               parent_id=best_member.parent_id)
-            member_new_dir = get_algorithm_dir(best_member.id,
-                                               generation_tag=self.generation_tag,
-                                               parent_id=None)
-
-            # Filesystem: move demoted leader from leaders/ to members/
-            leader_old_dir = get_algorithm_dir(leader.id,
-                                               generation_tag=self.generation_tag,
-                                               parent_id=leader.parent_id)
-            leader_new_dir = get_algorithm_dir(leader.id,
-                                               generation_tag=self.generation_tag,
-                                               parent_id=best_member.id)
-
-            if os.path.exists(member_old_dir):
-                os.makedirs(os.path.dirname(member_new_dir.rstrip("/")), exist_ok=True)
-                shutil.move(member_old_dir, member_new_dir)
-                logger.info(f"Moved {member_old_dir} -> {member_new_dir}")
-            else:
-                logger.warning(f"Member directory not found: {member_old_dir}")
-
-            if os.path.exists(leader_old_dir):
-                os.makedirs(os.path.dirname(leader_new_dir.rstrip("/")), exist_ok=True)
-                shutil.move(leader_old_dir, leader_new_dir)
-                logger.info(f"Moved {leader_old_dir} -> {leader_new_dir}")
-            else:
-                logger.warning(f"Leader directory not found: {leader_old_dir}")
-
-            # DB: update promoted member to leader
-            best_member.parent_id = None
+            # DB: update promoted member to leader (preserve parent_id lineage)
             best_member.role = Role.LEADER
-            best_member.parent_algorithm_description = None
             update_algorithm_result(best_member)
 
-            # DB: update demoted leader to member
-            leader.parent_id = [best_member.id]
+            # DB: update demoted leader to member (preserve parent_id lineage)
             leader.role = Role.MEMBER
-            leader.parent_algorithm_description = [best_member.description]
             update_algorithm_result(leader)
 
-            # DB: update remaining members' parent_id to point to new leader
-            for member in team_members:
-                if member.id != best_member.id:
-                    member.parent_id = [best_member.id]
-                    member.parent_algorithm_description = [best_member.description]
-                    update_algorithm_result(member)
+            # Save updated AlgorithmResult JSONs to memory bank
+            for algo in [best_member, leader]:
+                algo_dir = get_algorithm_dir(
+                    algo.id, generation_tag=self.generation_tag,
+                    parent_id=algo.parent_id,
+                )
+                algo.save_to_json(algo_dir)
+                logger.info(f"Saved updated AlgorithmResult JSON to {algo_dir}")
 
         if dry_run:
             logger.info(f"[DRY-RUN] {promotion_count} promotion(s) would be made")

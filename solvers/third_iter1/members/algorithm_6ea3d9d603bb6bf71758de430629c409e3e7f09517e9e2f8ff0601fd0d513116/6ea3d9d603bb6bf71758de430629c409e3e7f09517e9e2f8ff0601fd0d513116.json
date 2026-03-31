@@ -1,0 +1,28 @@
+{
+    "id": "6ea3d9d603bb6bf71758de430629c409e3e7f09517e9e2f8ff0601fd0d513116",
+    "function_name": "restart_mab",
+    "description": "Volatility-Triggered Phase-Aware Bandit Decay: Step 1: Initialize three restart strategy arms: Arm 0 (Luby sequence), Arm 1 (EMA/Glucose), and Arm 2 (Aggressive/Constant 50-conflict). Maintain success counts (S_i) and failure counts (F_i) for each arm, initialized to 1. Step 2: Every 1024 conflicts (the 'evaluation window'), select an arm by sampling a value \u03b8 from a Beta distribution Beta(S_i, F_i) for each arm and picking the maximum \u03b8. Step 3: During the window, calculate the 'Geometric Efficiency' (GE) for each conflict, defined as GE = (DecisionLevel_Conflict - DecisionLevel_Backjump) / (DecisionLevel_Conflict + 1). Step 4: At the end of the window, calculate the aggregate reward R = (Average_GE * log2(1 + Clause_Deletion_Rate)) / Average_LBD. Step 5: Normalize R against the moving average of rewards; if R > global_moving_average, increment S_chosen by 1 + (R / max_R), otherwise increment F_chosen by 1. Step 6: Dynamically adjust the decay factor based on search volatility: every 10,000 conflicts, calculate the variance of rewards over the previous 10 windows; if the variance is high (top 20th percentile), apply a sharp decay of 0.75 to all S and F values to prioritize recent information. Furthermore, perform a hard reset of all S_i and F_i to 1 whenever the Kissat solver transitions between 'stable' and 'focused' phases, as the optimal restart strategy is fundamentally different across these search regimes.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-18 12:45:49.921226",
+    "code_id_list": [
+        "7b9111ab4712280ff4a551b3fa6b9d8596c760e1b668a4dfbcece620113150f4"
+    ],
+    "parent_id": [
+        "39a6700543e5fd975e8079436a833cfd82bc9a81537cb5fde35d3b50c0fe4d8a"
+    ],
+    "parent_algorithm_description": [
+        "Geometric Efficiency Thompson Sampling Bandit: Step 1: Initialize three restart strategy arms: Arm 0 (Luby sequence), Arm 1 (EMA/Glucose), and Arm 2 (Aggressive/Constant 50-conflict). Maintain success counts (S_i) and failure counts (F_i) for each arm, initialized to 1. Step 2: Every 1024 conflicts (the 'evaluation window'), select an arm by sampling a value \u03b8 from a Beta distribution Beta(S_i, F_i) for each arm and picking the maximum \u03b8. Step 3: During the window, calculate the 'Geometric Efficiency' (GE) for each conflict, defined as GE = (DecisionLevel_Conflict - DecisionLevel_Backjump) / (DecisionLevel_Conflict + 1). Step 4: At the end of the window, calculate the aggregate reward R = (Average_GE * log2(1 + Clause_Deletion_Rate)) / Average_LBD. Step 5: Normalize R against the moving average of rewards; if R > global_moving_average, increment S_chosen by 1 + (R / max_R), otherwise increment F_chosen by 1. Step 6: Apply a decay factor of 0.95 to all S and F values every 10,000 conflicts to ensure the bandit remains sensitive to the non-stationary nature of the SAT search space phases."
+    ],
+    "raw_par2_score": [
+        50.99666666666667,
+        733.190625,
+        597.5393750000002,
+        224.84869565217397,
+        487.6008
+    ],
+    "normalized_par2_score": null,
+    "analysis": "The original Step 6 used a fixed decay factor of 0.95 regardless of the solver's state. In SAT Competition benchmarks, Kissat alternates between 'stable' (prioritizing low LBD and long restarts) and 'focused' (prioritizing high conflict rates and short restarts) modes. A fixed decay fails to account for the total shift in search dynamics during these transitions. By introducing a hard reset upon mode switching and a volatility-based decay, the bandit can flush stale information that is no longer relevant to the current search phase, significantly reducing the 'regret' of the Thompson Sampling mechanism and improving PAR2 scores.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

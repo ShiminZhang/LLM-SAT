@@ -1,0 +1,34 @@
+{
+    "id": "10acb32e454b2b1716cc6c445f2d06c9277bd866559fbc595948db9aa83fc085",
+    "function_name": "kissat_decide_phase",
+    "description": "{\n       \"name\": \"Target-Fallback LBD Phase Selection\",\n       \"algorithm\": \"Step 1: Maintain two independent phase-saving arrays, `phase_focused[v]` and `phase_stable[v]`. During backtracking, update only the array corresponding to the solver's current search mode (focused/exploration vs. stable/exploitation). Step 2: Maintain a phase quality matrix `phase_score[v][2]` (tracking scores for True and False assignments). During conflict analysis, for each variable involved in the conflict, add `1.0 / LBD` to `phase_score[v][assigned_phase]`. Decay all scores by a factor of 0.95 at every restart. Step 3: Inside `kissat_decide_phase(v)`, identify the current search mode and retrieve the baseline candidate phase: `P = phase_focused[v]` if in focused mode, otherwise `P = phase_stable[v]`. Step 4: Evaluate the historical LBD quality of the candidate phase. If the opposite phase has a significantly better track record\u2014specifically, if `phase_score[v][!P] > 1.5 * phase_score[v][P]` AND `phase_score[v][!P] > 2.0` (minimum confidence threshold)\u2014override the baseline and select `!P`. Step 5: If the override conditions in Step 4 are not met, evaluate the absolute confidence of the baseline candidate `P`. If both `phase_score[v][P] < 0.5` and `phase_score[v][!P] < 0.5` (indicating a lack of recent participation in high-quality learned clauses for this variable), return Kissat's globally saved target phase (the phase from the historically longest conflict-free assignment trail). Otherwise, return the baseline candidate phase `P`.\",\n       \"reason\": \"In Step 5 of the original algorithm, the solver blindly defaults back to the baseline candidate phase `P` when the override conditions fail, even if neither phase has yielded good recent LBDs. This variant improves upon the original by recognizing when local conflict data is weak or \"stale\" (scores < 0.5). By falling back to Kissat's target phase in these low-confidence scenarios, the heuristic effectively bridges local conflict-driven phase selection with global trail-based phase selection. This biases the search toward globally promising, satisfiable regions when local guidance is uninformative, significantly reducing timeouts on satisfiable instances and improving the overall PAR2 score.\"\n}",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:08:46.425209",
+    "code_id_list": [
+        "377e3af1440cedce4a15c4e6ecb09216377aa6dbefaffc55f0c4b5360c6874db"
+    ],
+    "parent_id": [
+        "83007e8188563b2c2b0a3af865dc627141f5517716fff8dac9002e50893d8906"
+    ],
+    "parent_algorithm_description": [
+        "Bimodal LBD-Scored Phase Selection: Step 1: Maintain two independent phase-saving arrays, `phase_focused[v]` and `phase_stable[v]`. During backtracking, update only the array corresponding to the solver's current search mode (focused/exploration vs. stable/exploitation). Step 2: Maintain a phase quality matrix `phase_score[v][2]` (tracking scores for True and False assignments). During conflict analysis, for each variable involved in the conflict, add `1.0 / LBD` to `phase_score[v][assigned_phase]`. Decay all scores by a factor of 0.95 at every restart. Step 3: Inside `kissat_decide_phase(v)`, identify the current search mode and retrieve the baseline candidate phase: `P = phase_focused[v]` if in focused mode, otherwise `P = phase_stable[v]`. Step 4: Evaluate the historical LBD quality of the candidate phase. If the opposite phase has a significantly better track record\u2014specifically, if `phase_score[v][!P] > 1.5 * phase_score[v][P]` AND `phase_score[v][!P] > 2.0` (minimum confidence threshold)\u2014override the baseline and select `!P`. Step 5: If the override conditions in Step 4 are not met, return the baseline candidate phase `P`."
+    ],
+    "raw_par2_score": [
+        19.76111111111111,
+        662.3890625,
+        471.703125,
+        234.01478260869567,
+        431.043
+    ],
+    "normalized_par2_score": [
+        0.04597531783330489,
+        1.5410847854916012,
+        1.0974434065422736,
+        0.5444483332760125,
+        1.0028453771346144
+    ],
+    "analysis": null,
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

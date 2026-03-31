@@ -1,0 +1,34 @@
+{
+    "id": "4387ac7a2cdb2c41bad45da321229fae309a7c669cb26fc63a7a8ab15f538aee",
+    "function_name": "kissat_decide_phase",
+    "description": "Target-Guided Contention Phasing: Step 1: Access a globally maintained Learned Phase Preference (LPP) table consisting of two float scores per variable: LPP[var][0] (False) and LPP[var][1] (True). (Note for implementation: Update these during conflict analysis. For each literal 'l' in a newly learned clause, add '1.0 / LBD' to LPP[var(l)][sign(l)]. Periodically decay all LPP scores by multiplying by 0.95 every 1000 conflicts). Step 2: Upon invocation of kissat_decide_phase(idx), calculate the polarity bias delta for the target variable: Delta = LPP[idx][1] - LPP[idx][0]. Step 3: Evaluate Delta against a learned-confidence threshold of 2.5. If abs(Delta) > 2.5, the conflict topology strongly implies a preferred polarity; override phase saving and return True if Delta > 0, or False if Delta < 0. Step 4: If abs(Delta) <= 2.5, indicating weak learned preference, fall back to retrieving the standard cached phase (P_saved). Step 5: Mitigate local minimum traps in the fallback state by evaluating the variable's overall conflict contention. Calculate the Contention Score = LPP[idx][0] + LPP[idx][1]. If Contention Score > 5.0 (indicating the variable is frequently involved in recent learned clauses but lacks a clear polarity consensus since abs(Delta) <= 2.5), override P_saved and return Kissat's globally maintained 'target phase' (the phase from the largest conflict-free assignment trail) to encourage convergence towards known good global states; otherwise, return P_saved exactly.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-24 16:40:22.864711",
+    "code_id_list": [
+        "5506977c6006d8ec1b99fd1081eecd46f7f42452c65ffd57a7fd73402d8cd1df"
+    ],
+    "parent_id": [
+        "8c618a8b96115c50229b5c48c07a93449be930c719fb690d6f515188c7ac08d4"
+    ],
+    "parent_algorithm_description": [
+        "LBD-Weighted Conflict Gravity Phasing: Step 1: Access a globally maintained Learned Phase Preference (LPP) table consisting of two float scores per variable: LPP[var][0] (False) and LPP[var][1] (True). (Note for implementation: Update these during conflict analysis. For each literal 'l' in a newly learned clause, add '1.0 / LBD' to LPP[var(l)][sign(l)]. Periodically decay all LPP scores by multiplying by 0.95 every 1000 conflicts). Step 2: Upon invocation of kissat_decide_phase(idx), calculate the polarity bias delta for the target variable: Delta = LPP[idx][1] - LPP[idx][0]. Step 3: Evaluate Delta against a learned-confidence threshold of 2.5. If abs(Delta) > 2.5, the conflict topology strongly implies a preferred polarity; override phase saving and return True if Delta > 0, or False if Delta < 0. Step 4: If abs(Delta) <= 2.5, indicating weak learned preference, fall back to retrieving the standard cached phase (P_saved). Step 5: Mitigate local minimum traps in the fallback state by checking the variable's recent volatility. If the variable's P_saved has flipped more than 3 times in the last 100 conflicts, apply a 5% probability to invert P_saved before returning; otherwise, return P_saved exactly."
+    ],
+    "raw_par2_score": [
+        177.905,
+        1043.5812500000002,
+        933.4300000000001,
+        520.2473913043477,
+        731.9378000000002
+    ],
+    "normalized_par2_score": [
+        0.41390582104136614,
+        2.4279494904843895,
+        2.1716765157507796,
+        1.2103843267050107,
+        1.7028937694849011
+    ],
+    "analysis": "In the original algorithm, Step 5 required tracking variable phase flips over a rolling window of 100 conflicts, which introduces significant memory and computational overhead per variable. Furthermore, it relied on a blind 5% random inversion, which can destructively perturb the search in structured instances. This variant improves upon Step 5 by replacing the expensive flip tracking with a computationally free 'Contention Score' derived directly from the already-maintained LPP table. When a variable is highly contested (high activity sum, but low bias delta), it intelligently falls back to Kissat's built-in 'target phase' rather than a random coin flip. This drives the search toward deeply consistent global states during heavy local churn, improving PAR2 scores by reducing overhead and making smarter, non-random diversification decisions.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

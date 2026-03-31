@@ -1,0 +1,28 @@
+{
+    "id": "eca52a0084ed03338d98a59fee2dd6cbf5ab85a681b774bbbd356b9e797ea036",
+    "function_name": "restart_mab",
+    "description": "Gradient-Aware Adaptive Entropy Bandit: Step 1: Define four restart arms: A1 (Luby, base 64), A2 (Luby, base 512), A3 (Glucose/EMA, fast), and A4 (Glucose/EMA, slow). Step 2: Calculate the 'Search Entropy' (H) at each restart point, defined as the Shannon entropy of the literal polarities currently assigned on the trail to detect the solver's spatial concentration. Step 3: Compute a 'Learning Efficiency Reward' (R) for the previous arm using the formula R = (Average_Backjump_Distance / (LBD_of_Learned_Clauses * log2(Conflict_Level))), which prioritizes restarts that lead to high-quality (low LBD) clauses and significant tree pruning. Step 4: Update arm weights using a Discounted UCB (D-UCB) algorithm, where past rewards are decayed by a factor gamma = 0.92 per restart to prioritize recent search performance over stale initialization data. Step 5: Implement a 'Gradient-Aware Soft Reset': Monitor the moving average and the gradient (rate of change) of Search Entropy (H). If the gradient exceeds the historical variance over the last 30 restarts, or if the LBD-to-Conflict ratio deviates by 25% from the global mean, scale the visit counts (N) for all arms by a factor of 0.3. This 'Soft Reset' preserves the relative ranking of heuristics while artificially inflating the exploration term in the D-UCB formula, allowing the solver to adapt to new formula structures without losing all historical knowledge.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-18 11:40:45.488294",
+    "code_id_list": [
+        "55dbf856a5bb8de9f8ff9bc832f53bbb5de100b29397448fc7fecd6bb6abcf7e"
+    ],
+    "parent_id": [
+        "4d66589402fad6057af6f703e96b9bd8eef75238db4807cfd8e2d144b94ea61d"
+    ],
+    "parent_algorithm_description": [
+        "Entropy-Guided Discounted Contextual Bandit: Step 1: Define four restart arms: A1 (Luby, base 64), A2 (Luby, base 512), A3 (Glucose/EMA, fast), and A4 (Glucose/EMA, slow). Step 2: Calculate the 'Search Entropy' (H) at each restart point, defined as the Shannon entropy of the literal polarities currently assigned on the trail to detect the solver's spatial concentration. Step 3: Compute a 'Learning Efficiency Reward' (R) for the previous arm using the formula R = (Average_Backjump_Distance / (LBD_of_Learned_Clauses * log2(Conflict_Level))), which prioritizes restarts that lead to high-quality (low LBD) clauses and significant tree pruning. Step 4: Update arm weights using a Discounted UCB (D-UCB) algorithm, where past rewards are decayed by a factor gamma = 0.92 per restart to prioritize recent search performance over stale initialization data. Step 5: Implement a 'Context-Shift Trigger': if the current Search Entropy (H) deviates from the moving average of the last 50 restarts by more than 2.0 standard deviations, immediately reset the arm confidence intervals to force exploration, allowing the solver to adapt to a new 'phase' of the formula."
+    ],
+    "raw_par2_score": [
+        47.2,
+        772.7490625000002,
+        627.5781250000001,
+        255.79,
+        511.55140000000006
+    ],
+    "normalized_par2_score": null,
+    "analysis": "The original Step 5 utilized a hard reset of confidence intervals based solely on entropy deviation. In modern CDCL solvers like Kissat, a total reset can be too disruptive, causing the solver to 'forget' effective heuristics during minor local search transitions. By replacing the hard reset with a 'Gradient-Aware Soft Reset' that scales visit counts, we maintain the knowledge of which arm was performing best while forcing the UCB algorithm to re-verify that preference. Additionally, incorporating the LBD-to-Conflict ratio as a secondary trigger ensures that we only force exploration when the search's physical progress (entropy) and its logical progress (learning quality) both suggest a phase shift, reducing the PAR2 penalty caused by unnecessary exploration.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

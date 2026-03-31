@@ -1,0 +1,34 @@
+{
+    "id": "df4f98617b2e874a8e8aa09caf86128e1e64c65c4815f69e888701c06c31007a",
+    "function_name": "kissat_decide_phase",
+    "description": "Optimistic Initialization Phase Quality Bandit: Step 1: Extend the solver's variable state to include a phase quality array `float Q[2]` initialized optimistically to 1.0 for each variable (representing the maximum possible reward), and track total conflicts. Step 2: During conflict analysis, after computing the LBD (Literal Block Distance) of the 1UIP learned clause, iterate through each variable `v` in the learned clause. Let `p` (0 or 1) be its currently assigned phase. Update the phase quality using an Exponential Moving Average: `Q[v][p] = 0.95 * Q[v][p] + 0.05 * (1.0 / LBD)`. Step 3: Inside `kissat_decide_phase`, first compute the standard phase `S` that Kissat would normally select (e.g., using standard phase saving or target phases). Step 4: Check if the competing phase `1-S` has a significantly better historical conflict quality. If total conflicts > 5000 and the difference `Q[v][1-S] - Q[v][S] > 0.10`, override the standard logic and return `1-S`. Step 5: If the threshold condition is not met, return the standard phase `S`.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:07:36.768418",
+    "code_id_list": [
+        "6f80aa5b4f9a6fc11ba06271b9b8de502ab881c02740ab33dcb0303154ffa8b1"
+    ],
+    "parent_id": [
+        "83380377dd320ee174d3c86af8fffa683450e20d95b2c40b282fa5d612375a17"
+    ],
+    "parent_algorithm_description": [
+        "LBD-Aware Phase Quality Bandit: Step 1: Extend the solver's variable state to include a phase quality array `float Q[2]` initialized to 0.0 for each variable, and track total conflicts. Step 2: During conflict analysis, after computing the LBD (Literal Block Distance) of the 1UIP learned clause, iterate through each variable `v` in the learned clause. Let `p` (0 or 1) be its currently assigned phase. Update the phase quality using an Exponential Moving Average: `Q[v][p] = 0.95 * Q[v][p] + 0.05 * (1.0 / LBD)`. Step 3: Inside `kissat_decide_phase`, first compute the standard phase `S` that Kissat would normally select (e.g., using standard phase saving or target phases). Step 4: Check if the competing phase `1-S` has a significantly better historical conflict quality. If total conflicts > 5000 and the difference `Q[v][1-S] - Q[v][S] > 0.10`, override the standard logic and return `1-S`. Step 5: If the threshold condition is not met, return the standard phase `S`."
+    ],
+    "raw_par2_score": [
+        20.65222222222222,
+        688.6771875000001,
+        476.54812499999997,
+        268.6117391304348,
+        448.18820000000017
+    ],
+    "normalized_par2_score": [
+        0.04804853711372719,
+        1.6022455620957612,
+        1.1087155669815272,
+        0.6249400659123233,
+        1.0427346331022291
+    ],
+    "analysis": "Modifying Step 1 to initialize the Q-values to 1.0 (the maximum possible 1/LBD reward) instead of 0.0 introduces Optimistic Initial Values, a powerful Multi-Armed Bandit technique. In the original algorithm, a 0.0 initialization means the first phase evaluated gets a positive score and immediately dominates the untried phase, discouraging exploration. Initializing to 1.0 guarantees that the unpicked phase will temporarily look strictly better than the picked phase (since 1/LBD is usually < 1.0), forcing the solver to naturally explore both polarities before exploiting the historical LBD averages.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

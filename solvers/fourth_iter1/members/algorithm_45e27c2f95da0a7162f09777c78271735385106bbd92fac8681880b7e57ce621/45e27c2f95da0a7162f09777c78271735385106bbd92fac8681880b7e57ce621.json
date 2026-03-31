@@ -1,0 +1,28 @@
+{
+    "id": "45e27c2f95da0a7162f09777c78271735385106bbd92fac8681880b7e57ce621",
+    "function_name": "restart_mab",
+    "description": "Non-linear Volatility Decay with Probing Window: Step 1: Initialize two arms representing 'Luby' and 'Glucose' restart policies with Beta distribution parameters alpha=2 and beta=2. Step 2: Define a composite reward signal R = (1 / LBD_avg) * log10(backtrack_level + 1), calculated over a window of 128 conflicts, to favor restarts that produce high-quality clauses at significant search depths. Step 3: Maintain a 'Search Volatility' index (V) calculated as the relative difference between the short-term (128 conflicts) and long-term (4096 conflicts) moving average of the reward R. Step 4: If V > 0.25, apply a non-linear decay to all alpha and beta parameters by a factor of exp(-2 * V) to aggressively discount stale history, and initiate a probing window for the next max(1, floor(10 * V)) restarts where the arm is chosen via epsilon-greedy selection (epsilon=0.5) to robustly re-sample the search landscape. Step 5: For every restart decision (outside the probing window), sample a value from the Beta distribution of each arm and select the policy with the highest sampled value, updating the chosen arm's alpha if R > global_average_R, otherwise updating beta.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-18 15:31:15.300577",
+    "code_id_list": [
+        "fcfb6e98e39bc91387098b329820d8a519189b1adfd0dd88995ebf24a821f9ec"
+    ],
+    "parent_id": [
+        "ba6fd3afe9f6af396b7f7384b52faaf5371b61287852bfb26252cdd5fcf33531"
+    ],
+    "parent_algorithm_description": [
+        "Proportional Volatility Scaling VTTS: Step 1: Initialize two arms representing 'Luby' and 'Glucose' restart policies with Beta distribution parameters alpha=2 and beta=2. Step 2: Define a composite reward signal R = (1 / LBD_avg) * log10(backtrack_level + 1), calculated over a window of 128 conflicts, to favor restarts that produce high-quality clauses at significant search depths. Step 3: Maintain a 'Search Volatility' index (V) calculated as the relative difference between the short-term (128 conflicts) and long-term (4096 conflicts) moving average of the reward R. Step 4: If V > 0.3, apply a proportional decay by scaling all alpha and beta parameters by (1.0 - min(0.8, V)), and force a single exploration step where the arm with the lower current mean is selected to rapidly probe the new search landscape. Step 5: For every restart decision, sample a value from the Beta distribution of each arm and select the policy with the highest sampled value, updating the chosen arm's alpha if R > global_average_R, otherwise updating beta."
+    ],
+    "raw_par2_score": [
+        32.63444444444445,
+        676.7359375,
+        451.041875,
+        282.6426086956522,
+        444.85939999999994
+    ],
+    "normalized_par2_score": null,
+    "analysis": "This variant improves upon Step 4 of the original algorithm by replacing the linear decay and single exploration step with a non-linear exponential decay and a multi-step probing window. In SAT solving, high volatility often signals a fundamental shift in the search space (e.g., entering a new cluster of variables). The exponential decay (exp(-2*V)) more effectively clears the 'memory' of the Thompson Sampling arms when the landscape shifts drastically. Furthermore, a single exploration step is often insufficient to re-calibrate the Beta distributions; by using a probing window proportional to the volatility, the solver gathers enough new evidence to make informed decisions for the next stable phase, which is critical for minimizing PAR2 scores on heterogeneous benchmarks.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}
