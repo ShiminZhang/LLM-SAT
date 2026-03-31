@@ -200,11 +200,11 @@ class EvaluationPipeline:
     def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> Optional[float]:
         """Collect evaluation results from solver logs and compute PAR2 score."""
         algorithm = get_algorithm_result(algorithm_id)
-        parent_id = algorithm.parent_id if algorithm else None
+        algo_role = algorithm.role if algorithm else None
         solver_dir = get_solver_result_dir(algorithm_id, code_id,
-                                           generation_tag=self.generation_tag, parent_id=parent_id)
+                                           generation_tag=self.generation_tag, role=algo_role)
         result_path = get_solver_solving_times_path(algorithm_id, code_id,
-                                                    generation_tag=self.generation_tag, parent_id=parent_id)
+                                                    generation_tag=self.generation_tag, role=algo_role)
 
         if os.path.exists(result_path) and not force_recollect:
             logger.warning(f"Results already collected for algorithm {algorithm_id}, code {code_id}")
@@ -292,7 +292,7 @@ class EvaluationPipeline:
                 # Save AlgorithmResult to disk as JSON memory bank
                 algo_dir = get_algorithm_dir(
                     algorithm_id, generation_tag=self.generation_tag,
-                    parent_id=algorithm.parent_id,
+                    role=algorithm.role,
                 )
                 algorithm.save_to_json(algo_dir)
                 logger.info(f"Saved AlgorithmResult JSON to {algo_dir}")
@@ -308,9 +308,9 @@ class EvaluationPipeline:
             return
         algorithm_id = code_result.algorithm_id
         algorithm = get_algorithm_result(algorithm_id)
-        parent_id = algorithm.parent_id if algorithm else None
+        algo_role = algorithm.role if algorithm else None
         result_dir = get_solver_result_dir(algorithm_id, code_id,
-                                           generation_tag=self.generation_tag, parent_id=parent_id)
+                                           generation_tag=self.generation_tag, role=algo_role)
 
         gen_tag_flag = f" --generation_tag {self.generation_tag}" if self.generation_tag else ""
         quick_eval_flag = " --quick-eval" if self.cnf_files is not None else ""
@@ -490,9 +490,9 @@ class EvaluationPipeline:
 
         # Copy base solver to new location
         new_solver_path = get_solver_dir(code_result.algorithm_id, code_result.id,
-                                         generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+                                         generation_tag=self.generation_tag, role=algorithm.role)
         algorithm_dir = get_algorithm_dir(code_result.algorithm_id,
-                                          generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+                                          generation_tag=self.generation_tag, role=algorithm.role)
         os.makedirs(algorithm_dir, exist_ok=True)
 
         logger.info(f"Building solver at {new_solver_path}")
@@ -903,7 +903,7 @@ exit $EXIT_CODE
         # Check if we can skip the build
         if skip_build:
             solver_path = get_solver_dir(code_result.algorithm_id, code_result.id,
-                                         generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+                                         generation_tag=self.generation_tag, role=algorithm.role)
             solver_binary = os.path.join(solver_path, "kissat")
             if os.path.exists(solver_binary):
                 logger.info(f"Skipping build, solver already exists: {solver_binary}")
@@ -917,7 +917,7 @@ exit $EXIT_CODE
             if not skip_build:
                 logger.info(f"Solver built successfully: {solver_path}")
             result_dir = get_solver_result_dir(code_result.algorithm_id, code_result.id,
-                                               generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+                                               generation_tag=self.generation_tag, role=algorithm.role)
 
             if build_only:
                 logger.info(f"Build-only mode: skipping SLURM evaluation")
@@ -963,7 +963,7 @@ exit $EXIT_CODE
             return
 
         algorithm_dir = get_algorithm_dir(algorithm_id,
-                                          generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+                                          generation_tag=self.generation_tag, role=algorithm.role)
         os.makedirs(algorithm_dir, exist_ok=True)
 
         code_id_list = algorithm.code_id_list or []
@@ -1021,7 +1021,7 @@ exit $EXIT_CODE
             logger.info(f"Processing algorithm: {algorithm_id}")
 
             algorithm_dir = get_algorithm_dir(algorithm_id,
-                                              generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+                                              generation_tag=self.generation_tag, role=algorithm.role)
             os.makedirs(algorithm_dir, exist_ok=True)
 
             code_id_list = algorithm.code_id_list or []
@@ -1040,7 +1040,7 @@ exit $EXIT_CODE
                 if skip_build:
                     # Check if solver already exists
                     solver_path = get_solver_dir(algorithm_id, code_id,
-                                                 generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+                                                 generation_tag=self.generation_tag, role=algorithm.role)
                     solver_binary = os.path.join(solver_path, "kissat")
                     if os.path.exists(solver_binary):
                         logger.info(f"Skipping build, solver already exists: {solver_binary}")
@@ -1059,7 +1059,7 @@ exit $EXIT_CODE
                     logger.info(f"Solver built successfully: {solver_path}")
 
                 result_dir = get_solver_result_dir(algorithm_id, code_id,
-                                                   generation_tag=self.generation_tag, parent_id=algorithm.parent_id)
+                                                   generation_tag=self.generation_tag, role=algorithm.role)
                 solver_tasks.append((solver_path, result_dir, code_id))
 
         logger.info(f"Built {len(solver_tasks)} solvers successfully")
@@ -1269,7 +1269,7 @@ exit $EXIT_CODE
             for algo in [best_member, leader]:
                 algo_dir = get_algorithm_dir(
                     algo.id, generation_tag=self.generation_tag,
-                    parent_id=algo.parent_id,
+                    role=algo.role,
                 )
                 algo.save_to_json(algo_dir)
                 logger.info(f"Saved updated AlgorithmResult JSON to {algo_dir}")

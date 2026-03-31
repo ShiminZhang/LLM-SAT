@@ -1164,17 +1164,12 @@ def generate_mutants_for_leaders(
         logger.error("No leaders found, nothing to do")
         return
 
-    # Register leaders under the new output tag
-    for leader_id in leaders:
-        update_router_table(CHATGPT_DATA_GENERATION_TABLE, leader_id, output_generation_tag)
-    logger.info(f"Registered {len(leaders)} leaders under {output_generation_tag}")
-
     # Read prompt templates
     variant_prompt_template = read_prompt_file(variant_prompt_path)
     code_prompt_template = read_prompt_file(code_prompt_template_path)
 
     if sync:
-        return _generate_mutants_sync(
+        result = _generate_mutants_sync(
             leaders=leaders,
             variant_prompt_template=variant_prompt_template,
             code_prompt_template=code_prompt_template,
@@ -1183,7 +1178,7 @@ def generate_mutants_for_leaders(
             model=model,
         )
     else:
-        return _generate_mutants_batch(
+        result = _generate_mutants_batch(
             leaders=leaders,
             variant_prompt_template=variant_prompt_template,
             code_prompt_template=code_prompt_template,
@@ -1191,6 +1186,13 @@ def generate_mutants_for_leaders(
             m_variants_per_leader=m_variants_per_leader,
             model=model,
         )
+
+    # Register leaders under the new output tag only after successful mutation
+    for leader_id in leaders:
+        update_router_table(CHATGPT_DATA_GENERATION_TABLE, leader_id, output_generation_tag)
+    logger.info(f"Registered {len(leaders)} leaders under {output_generation_tag}")
+
+    return result
 
 
 def resume_code_collection(generation_tag: str, batch_map_path: str):

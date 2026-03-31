@@ -34,9 +34,7 @@ This reference documents the fields, macros, and functions available when compil
 The `value` type is `typedef signed char value` — it holds -1, 0, or 1.
 
 ### Assignment State
-| Field | Type | Description |
-|-------|------|-------------|
-| `solver->values` | `value *` | Current truth values indexed by **literal** (not variable). Use `solver->values[LIT(idx)]` |
+| Field | Type | Description | |-------|------|-------------| | `solver->values` | `value *` | Current truth values indexed by **literal** (not variable). Use `solver->values[LIT(idx)]` |
 | `solver->assigned` | `assigned *` | Per-variable assignment info |
 
 The `assigned` struct fields: `.level` (decision level), `.trail` (position), `.reason` (clause reference or `DECISION_REASON`).
@@ -45,7 +43,6 @@ The `assigned` struct fields: `.level` (decision level), `.trail` (position), `.
 | Field | Type | Description |
 |-------|------|-------------|
 | `solver->scores` | `heap` | VSIDS score heap |
-| `solver->scores_chb` | `heap` | CHB score heap |
 | `solver->scinc` | `double` | Current VSIDS score increment |
 
 ### Multi-Armed Bandit (MAB) Fields
@@ -53,7 +50,6 @@ The `assigned` struct fields: `.level` (decision level), `.trail` (position), `.
 |-------|------|-------------|
 | `solver->mab` | `bool` | MAB enabled flag |
 | `solver->heuristic` | `unsigned` | Current heuristic (0=VSIDS, 1=CHB) |
-| `solver->mab_decisions` | `double` | Decisions since last MAB update |
 
 ### Random Number Generator
 | Field | Type | Description |
@@ -192,7 +188,7 @@ kissat_next_random32(&solver->random)           // Returns unsigned (32-bit)
 
 ### Heap/Score Functions
 ```c
-kissat_get_scores(solver)                       // Returns heap* for current heuristic
+SCORES                                          // Macro: expands to (&solver->scores), returns heap*
 kissat_get_heap_score(heap, idx)                // Returns double score for variable
 kissat_max_heap(heap)                           // Returns unsigned idx of max-score variable
 ```
@@ -344,21 +340,13 @@ static unsigned last_enqueued_unassigned_variable (kissat *solver) {
   return res;
 }
 
-static unsigned largest_score_unassigned_variable (kissat *solver,heap* scores) {
+static unsigned largest_score_unassigned_variable (kissat *solver) {
+  heap *scores = SCORES;
   unsigned res = kissat_max_heap (scores);
   const value *const values = solver->values;
   while (values[LIT (res)]) {
     kissat_pop_max_heap (solver, scores);
     res = kissat_max_heap (scores);
-  }
-
-  // MAB
-  if(solver->mab) {
-    solver->mab_decisions++;
-    if(!solver->mab_chosen[res]){
-      solver->mab_chosen_tot++;
-      solver->mab_chosen[res] = 1;
-    }
   }
 #if defined(LOGGING) || defined(CHECK_HEAP)
   const double score = kissat_get_heap_score (scores, res);
@@ -456,8 +444,7 @@ unsigned kissat_next_decision_variable (kissat *solver) {
 #ifdef LOGGING
       type = "maximum score";
 #endif
-      heap* scores = kissat_get_scores (solver);
-      res = largest_score_unassigned_variable (solver,scores);
+      res = largest_score_unassigned_variable (solver);
       INC (score_decisions);
     } else {
 #ifdef LOGGING
@@ -554,6 +541,11 @@ void kissat_decide (kissat *solver) {
   LOG ("decide literal %s", LOGLIT (lit));
   kissat_assign_decision (solver, lit);
   STOP (decide);
+
+  // (taomengxia) [dynamic sat] 2025-04-27
+  if (GET_OPTION (dynamicsat)) {
+    kissat_dynamicsat (solver);
+  }
 }
 
 void kissat_internal_assume (kissat *solver, unsigned lit) {
