@@ -1,0 +1,34 @@
+{
+    "id": "62b3afcd14a2740d3fe1999a1560d3d145f95e710a4021d69160e1c64a8a55e4",
+    "function_name": "kissat_decide_phase",
+    "description": "Low Entropy Peripheral Phase Fallback: Step 1: Initialize a float array `phase_momentum[v]` to 0.0. During conflict analysis, for each variable `x` bumped (involved in the conflict resolution process, not just the final learned clause), update its momentum: `phase_momentum[x] = 0.9 * phase_momentum[x] + 0.1 * (polarity(x) * (2.0 / (LBD + 1)))`, where `polarity(x)` is 1 if the current assigned phase is True, and -1 if False. Step 2: In `kissat_decide_phase(v)`, determine if the search is currently stagnant by checking if `recent_LBD_EMA > global_LBD_EMA * 1.15`. Step 3: Calculate the variable's momentum magnitude `M = abs(phase_momentum[v])`. If the search is stagnant and `M < 0.02` (indicating this variable's recent phases haven't contributed to high-quality, low-LBD conflicts), return `!saved_phase[v]` to force targeted, localized diversification. Step 4: If `M >= 0.02`, override standard phase saving entirely and return `True` if `phase_momentum[v] > 0` else `False`. This explicitly exploits polarities that historically yield tight, high-quality conflicts. Step 5: If the search is not stagnant and `M < 0.02`, the variable is currently peripheral to the productive search. To minimize entropy and prevent stale saved phases from inadvertently shifting the search space, bypass the standard saved phase entirely: return the `target` phase if it exists, or a fixed default polarity (`False`) otherwise.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 13:36:27.936372",
+    "code_id_list": [
+        "b02cad4c2b1f86954974b4ab10808e2b04bec025c904d4a36058fe3f8a3987ba"
+    ],
+    "parent_id": [
+        "83fe5c1abc9cca5410065a3cce07c6d6e6906571a65702f86f232bd12c29cd81"
+    ],
+    "parent_algorithm_description": [
+        "Bumped Variable Phase Momentum: Step 1: Initialize a float array `phase_momentum[v]` to 0.0. During conflict analysis, for each variable `x` bumped (involved in the conflict resolution process, not just the final learned clause), update its momentum: `phase_momentum[x] = 0.9 * phase_momentum[x] + 0.1 * (polarity(x) * (2.0 / (LBD + 1)))`, where `polarity(x)` is 1 if the current assigned phase is True, and -1 if False. Step 2: In `kissat_decide_phase(v)`, determine if the search is currently stagnant by checking if `recent_LBD_EMA > global_LBD_EMA * 1.15`. Step 3: Calculate the variable's momentum magnitude `M = abs(phase_momentum[v])`. If the search is stagnant and `M < 0.02` (indicating this variable's recent phases haven't contributed to high-quality, low-LBD conflicts), return `!saved_phase[v]` to force targeted, localized diversification. Step 4: If `M >= 0.02`, override standard phase saving entirely and return `True` if `phase_momentum[v] > 0` else `False`. This explicitly exploits polarities that historically yield tight, high-quality conflicts. Step 5: If the search is not stagnant and `M < 0.02`, fall back to Kissat's default hierarchical phase selection (target phase -> saved phase -> initial phase)."
+    ],
+    "raw_par2_score": [
+        35.19222222222223,
+        680.5706250000001,
+        486.33562500000005,
+        263.4073913043478,
+        448.2344000000001
+    ],
+    "normalized_par2_score": [
+        0.08187665120799922,
+        1.583385196128612,
+        1.131486727002001,
+        0.6128318628829459,
+        1.0428421199571916
+    ],
+    "analysis": "This variant improves upon the original Step 5 by recognizing that when a variable has low momentum (M < 0.02), its `saved_phase` is likely stale noise from distant, unconstrained search branches. In the original algorithm, Step 5 falls back to Kissat's standard hierarchy, which relies heavily on this potentially stale saved phase. By instead forcing peripheral variables to the globally optimal `target` phase or a uniform `False` when the search is productive (not stagnant), we drastically reduce assignment entropy. This ensures irrelevant variables do not pollute the assignment stack and accidentally derail the solver's currently successful trajectory, leading to cleaner propagations and improved PAR2 scores.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

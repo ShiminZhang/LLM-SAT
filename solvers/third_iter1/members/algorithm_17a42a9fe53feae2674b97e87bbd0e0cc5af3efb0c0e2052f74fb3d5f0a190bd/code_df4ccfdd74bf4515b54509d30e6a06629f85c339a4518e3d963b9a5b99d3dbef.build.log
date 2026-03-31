@@ -1,0 +1,449 @@
+
+============================================================
+=== ATTEMPT 1 of 2 ===
+============================================================
+
+[INFO] Injected restart_mab into solver
+
+--- ./configure ---
+[stdout]
+configure: default configuration (see '-h')
+configure: reusing existing build directory 'build'
+configure: assuming GCC version 20230526 uses C99 by default
+configure: compiler 'gcc  -W -Wall -O3 -DNDEBUG'
+configure: linker 'gcc' (no additional options)
+configure: using default 'ar' (no cross compilation)
+configure: no 'tissat' binary generated (without '--test')
+configure: no 'libkissat.so' shared library generated (without '-shared')
+configure: no 'kitten' binary generated (without '--kitten')
+configure: removing src/makefile
+configure: linking src/makefile
+
+[stderr]
+(empty)
+[OK] Configure succeeded
+
+--- make -j32 ---
+[stdout]
+make -C "/scratch/meru/LLM-SAT/solvers/third_iter1/members/algorithm_17a42a9fe53feae2674b97e87bbd0e0cc5af3efb0c0e2052f74fb3d5f0a190bd/code_df4ccfdd74bf4515b54509d30e6a06629f85c339a4518e3d963b9a5b99d3dbef/build"
+make[1]: Entering directory '/scratch/meru/LLM-SAT/solvers/third_iter1/members/algorithm_17a42a9fe53feae2674b97e87bbd0e0cc5af3efb0c0e2052f74fb3d5f0a190bd/code_df4ccfdd74bf4515b54509d30e6a06629f85c339a4518e3d963b9a5b99d3dbef/build'
+gcc -W -Wall -O3 -DNDEBUG -c ../src/allocate.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/analyze.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/ands.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/arena.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/assign.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/averages.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/backbone.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/backtrack.c
+../scripts/generate-build-header.sh > build.h
+gcc -W -Wall -O3 -DNDEBUG -c ../src/bump.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/check.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/classify.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/clause.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/collect.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/colors.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/compact.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/config.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/congruence.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/decide.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/deduce.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/definition.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/dense.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/dump.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/eliminate.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/equivalences.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/error.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/extend.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/factor.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/fastel.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/file.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/flags.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/format.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/forward.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/gates.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/heap.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/ifthenelse.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/import.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/internal.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/kimits.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/kitten.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/krite.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/learn.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/logging.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/lucky.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/minimize.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/mode.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/options.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/phases.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/preprocess.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/print.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/probe.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/profile.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/promote.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/proof.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/propbeyond.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/propdense.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/propinitially.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/proprobe.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/propsearch.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/queue.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/reduce.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/reluctant.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/reorder.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/rephase.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/report.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/resize.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/resolve.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/resources.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/restart.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/search.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/shrink.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/smooth.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/sort.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/stack.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/statistics.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/strengthen.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/substitute.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/sweep.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/terminate.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/tiers.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/trail.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/transitive.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/utilities.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/vector.c
+make[1]: Leaving directory '/scratch/meru/LLM-SAT/solvers/third_iter1/members/algorithm_17a42a9fe53feae2674b97e87bbd0e0cc5af3efb0c0e2052f74fb3d5f0a190bd/code_df4ccfdd74bf4515b54509d30e6a06629f85c339a4518e3d963b9a5b99d3dbef/build'
+
+[stderr]
+../src/restart.c:149:6: error: redefinition of ‘kissat_restarting’
+  149 | bool kissat_restarting (kissat * solver) {
+      |      ^~~~~~~~~~~~~~~~~
+../src/restart.c:15:6: note: previous definition of ‘kissat_restarting’ with type ‘_Bool(kissat *)’
+   15 | bool kissat_restarting (kissat *solver) {
+      |      ^~~~~~~~~~~~~~~~~
+../src/restart.c: In function ‘kissat_restarting’:
+../src/restart.c:191:43: error: ‘statistics’ has no member named ‘restarts_levels’
+  191 |       avg_bj = (double) solver->statistics.restarts_levels / (double) solver->statistics.restarts;
+      |                                           ^
+../src/restart.c:160:19: warning: variable ‘last_restart_conflicts’ set but not used [-Wunused-but-set-variable]
+  160 |   static uint64_t last_restart_conflicts = 0;
+      |                   ^~~~~~~~~~~~~~~~~~~~~~
+../src/restart.c: In function ‘kissat_restart’:
+../src/restart.c:317:7: warning: implicit declaration of function ‘restart_mab’ [-Wimplicit-function-declaration]
+  317 |       restart_mab(solver);
+      |       ^~~~~~~~~~~
+make[1]: *** [makefile:8: restart.o] Error 1
+make[1]: *** Waiting for unfinished jobs....
+make: *** [makefile:2: all] Error 2
+
+[FAILED] Make returned 2
+
+--- LLM Debugging ---
+[OK] LLM suggested fix
+
+============================================================
+=== ATTEMPT 2 of 2 ===
+============================================================
+
+[INFO] Injected restart_mab into solver
+
+--- make -j32 ---
+[stdout]
+make -C "/scratch/meru/LLM-SAT/solvers/third_iter1/members/algorithm_17a42a9fe53feae2674b97e87bbd0e0cc5af3efb0c0e2052f74fb3d5f0a190bd/code_df4ccfdd74bf4515b54509d30e6a06629f85c339a4518e3d963b9a5b99d3dbef/build"
+make[1]: Entering directory '/scratch/meru/LLM-SAT/solvers/third_iter1/members/algorithm_17a42a9fe53feae2674b97e87bbd0e0cc5af3efb0c0e2052f74fb3d5f0a190bd/code_df4ccfdd74bf4515b54509d30e6a06629f85c339a4518e3d963b9a5b99d3dbef/build'
+../scripts/generate-build-header.sh > build.h
+gcc -W -Wall -O3 -DNDEBUG -c ../src/restart.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/vivify.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/walk.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/warmup.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/watch.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/weaken.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/main.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/application.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/handle.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/parse.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/witness.c
+gcc -W -Wall -O3 -DNDEBUG -I../build -c ../src/build.c
+make[1]: Leaving directory '/scratch/meru/LLM-SAT/solvers/third_iter1/members/algorithm_17a42a9fe53feae2674b97e87bbd0e0cc5af3efb0c0e2052f74fb3d5f0a190bd/code_df4ccfdd74bf4515b54509d30e6a06629f85c339a4518e3d963b9a5b99d3dbef/build'
+
+[stderr]
+../src/restart.c: In function ‘luby’:
+../src/restart.c:133:35: error: expected declaration specifiers before ‘->’ token
+  133 |   auto uint64_t luby (uint64_t i) -> uint64_t {
+      |                                   ^~
+../src/restart.c:151:15: error: storage class specified for parameter ‘init’
+  151 |   static bool init = false;
+      |               ^~~~
+../src/restart.c:151:3: error: parameter ‘init’ is initialized
+  151 |   static bool init = false;
+      |   ^~~~~~
+../src/restart.c:152:19: error: storage class specified for parameter ‘last_restart_count’
+  152 |   static uint64_t last_restart_count = 0;
+      |                   ^~~~~~~~~~~~~~~~~~
+../src/restart.c:152:3: error: parameter ‘last_restart_count’ is initialized
+  152 |   static uint64_t last_restart_count = 0;
+      |   ^~~~~~
+../src/restart.c:153:14: error: storage class specified for parameter ‘active_arm’
+  153 |   static int active_arm = 0;
+      |              ^~~~~~~~~~
+../src/restart.c:153:3: error: parameter ‘active_arm’ is initialized
+  153 |   static int active_arm = 0;
+      |   ^~~~~~
+../src/restart.c:156:17: error: storage class specified for parameter ‘saved_level’
+  156 |   static double saved_level = 0.0;
+      |                 ^~~~~~~~~~~
+../src/restart.c:156:3: error: parameter ‘saved_level’ is initialized
+  156 |   static double saved_level = 0.0;
+      |   ^~~~~~
+../src/restart.c:157:17: error: storage class specified for parameter ‘saved_lbd’
+  157 |   static double saved_lbd = 0.0;
+      |                 ^~~~~~~~~
+../src/restart.c:157:3: error: parameter ‘saved_lbd’ is initialized
+  157 |   static double saved_lbd = 0.0;
+      |   ^~~~~~
+../src/restart.c:160:17: error: storage class specified for parameter ‘r_history’
+  160 |   static double r_history[WINDOW_MINMAX];
+      |                 ^~~~~~~~~
+../src/restart.c:161:14: error: storage class specified for parameter ‘r_hist_ptr’
+  161 |   static int r_hist_ptr = 0;
+      |              ^~~~~~~~~~
+../src/restart.c:161:3: error: parameter ‘r_hist_ptr’ is initialized
+  161 |   static int r_hist_ptr = 0;
+      |   ^~~~~~
+../src/restart.c:162:14: error: storage class specified for parameter ‘r_hist_total’
+  162 |   static int r_hist_total = 0;
+      |              ^~~~~~~~~~~~
+../src/restart.c:162:3: error: parameter ‘r_hist_total’ is initialized
+  162 |   static int r_hist_total = 0;
+      |   ^~~~~~
+../src/restart.c:165:17: error: storage class specified for parameter ‘h_history’
+  165 |   static double h_history[WINDOW_ENTROPY];
+      |                 ^~~~~~~~~
+../src/restart.c:166:14: error: storage class specified for parameter ‘h_hist_ptr’
+  166 |   static int h_hist_ptr = 0;
+      |              ^~~~~~~~~~
+../src/restart.c:166:3: error: parameter ‘h_hist_ptr’ is initialized
+  166 |   static int h_hist_ptr = 0;
+      |   ^~~~~~
+../src/restart.c:167:14: error: storage class specified for parameter ‘h_hist_total’
+  167 |   static int h_hist_total = 0;
+      |              ^~~~~~~~~~~~
+../src/restart.c:167:3: error: parameter ‘h_hist_total’ is initialized
+  167 |   static int h_hist_total = 0;
+      |   ^~~~~~
+../src/restart.c:170:17: error: storage class specified for parameter ‘window_R’
+  170 |   static double window_R[WINDOW_TS];
+      |                 ^~~~~~~~
+../src/restart.c:171:14: error: storage class specified for parameter ‘window_arm’
+  171 |   static int window_arm[WINDOW_TS];
+      |              ^~~~~~~~~~
+../src/restart.c:172:14: error: storage class specified for parameter ‘window_ptr’
+  172 |   static int window_ptr = 0;
+      |              ^~~~~~~~~~
+../src/restart.c:172:3: error: parameter ‘window_ptr’ is initialized
+  172 |   static int window_ptr = 0;
+      |   ^~~~~~
+../src/restart.c:173:14: error: storage class specified for parameter ‘window_total’
+  173 |   static int window_total = 0;
+      |              ^~~~~~~~~~~~
+../src/restart.c:173:3: error: parameter ‘window_total’ is initialized
+  173 |   static int window_total = 0;
+      |   ^~~~~~
+../src/restart.c:175:3: error: expected declaration specifiers before ‘if’
+  175 |   if (!init) {
+      |   ^~
+../src/restart.c:188:3: error: expected declaration specifiers before ‘if’
+  188 |   if (solver->statistics.restarts <= last_restart_count)
+      |   ^~
+../src/restart.c:192:3: error: parameter ‘avg_level’ is initialized
+  192 |   double avg_level = 0.0;
+      |   ^~~~~~
+../src/restart.c:193:3: error: expected declaration specifiers before ‘if’
+  193 |   if (solver->statistics.restarts)
+      |   ^~
+../src/restart.c:197:3: error: parameter ‘current_lbd’ is initialized
+  197 |   const double current_lbd = (saved_lbd < 1.0) ? 1.0 : saved_lbd;
+      |   ^~~~~
+../src/restart.c:198:3: error: parameter ‘denom’ is initialized
+  198 |   const double denom = current_lbd * log2 (saved_level + 2.0);
+      |   ^~~~~
+../src/restart.c:199:3: error: parameter ‘R’ is initialized
+  199 |   const double R = (denom > 0.0) ? (avg_level / denom) : 0.0;
+      |   ^~~~~
+../src/restart.c:202:3: error: expected declaration specifiers before ‘r_history’
+  202 |   r_history[r_hist_ptr] = R;
+      |   ^~~~~~~~~
+../src/restart.c:203:3: error: expected declaration specifiers before ‘r_hist_ptr’
+  203 |   r_hist_ptr = (r_hist_ptr + 1) % WINDOW_MINMAX;
+      |   ^~~~~~~~~~
+../src/restart.c:204:3: error: expected declaration specifiers before ‘if’
+  204 |   if (r_hist_total < WINDOW_MINMAX)
+      |   ^~
+../src/restart.c:207:3: error: parameter ‘min_r’ is initialized
+  207 |   double min_r = r_history[0], max_r = r_history[0];
+      |   ^~~~~~
+../src/restart.c:207:3: error: parameter ‘max_r’ is initialized
+../src/restart.c:208:3: error: expected declaration specifiers before ‘for’
+  208 |   for (int i = 1; i < r_hist_total; i++) {
+      |   ^~~
+../src/restart.c:208:19: error: expected declaration specifiers before ‘i’
+  208 |   for (int i = 1; i < r_hist_total; i++) {
+      |                   ^
+../src/restart.c:208:37: error: expected declaration specifiers before ‘i’
+  208 |   for (int i = 1; i < r_hist_total; i++) {
+      |                                     ^
+../src/restart.c:215:3: error: parameter ‘norm_R’ is initialized
+  215 |   double norm_R =
+      |   ^~~~~~
+../src/restart.c:217:3: error: expected declaration specifiers before ‘if’
+  217 |   if (norm_R < 0.0)
+      |   ^~
+../src/restart.c:219:3: error: expected declaration specifiers before ‘if’
+  219 |   if (norm_R > 1.0)
+      |   ^~
+../src/restart.c:222:3: error: expected declaration specifiers before ‘window_R’
+  222 |   window_R[window_ptr] = norm_R;
+      |   ^~~~~~~~
+../src/restart.c:223:3: error: expected declaration specifiers before ‘window_arm’
+  223 |   window_arm[window_ptr] = active_arm;
+      |   ^~~~~~~~~~
+../src/restart.c:224:3: error: expected declaration specifiers before ‘window_ptr’
+  224 |   window_ptr = (window_ptr + 1) % WINDOW_TS;
+      |   ^~~~~~~~~~
+../src/restart.c:225:3: error: expected declaration specifiers before ‘if’
+  225 |   if (window_total < WINDOW_TS)
+      |   ^~
+../src/restart.c:229:3: error: parameter ‘pos’ is initialized
+  229 |   double pos = 0.0, neg = 0.0;
+      |   ^~~~~~
+../src/restart.c:229:3: error: parameter ‘neg’ is initialized
+../src/restart.c:230:3: error: expected declaration specifiers before ‘for’
+  230 |   for (all_stack (unsigned, lit, solver->trail)) {
+      |   ^~~
+In file included from ../src/reference.h:4,
+                 from ../src/arena.h:4,
+                 from ../src/internal.h:4,
+                 from ../src/restart.c:5:
+../src/restart.c:230:29: error: expected declaration specifiers before ‘lit_PTR’
+  230 |   for (all_stack (unsigned, lit, solver->trail)) {
+      |                             ^~~
+../src/stack.h:116:3: note: in definition of macro ‘all_stack’
+  116 |   E##_PTR != E##_END && (E = *E##_PTR, true); \
+      |   ^
+../src/stack.h:117:3: error: expected declaration specifiers before ‘++’ token
+  117 |   ++E##_PTR
+      |   ^~
+../src/restart.c:230:8: note: in expansion of macro ‘all_stack’
+  230 |   for (all_stack (unsigned, lit, solver->trail)) {
+      |        ^~~~~~~~~
+../src/restart.c:236:3: error: parameter ‘total’ is initialized
+  236 |   const double total = pos + neg;
+      |   ^~~~~
+../src/restart.c:237:3: error: parameter ‘h’ is initialized
+  237 |   double h = 0.0;
+      |   ^~~~~~
+../src/restart.c:238:3: error: expected declaration specifiers before ‘if’
+  238 |   if (total > 0.0) {
+      |   ^~
+../src/restart.c:245:3: error: expected declaration specifiers before ‘if’
+  245 |   if (h_hist_total >= WINDOW_ENTROPY) {
+      |   ^~
+../src/restart.c:259:3: error: expected declaration specifiers before ‘h_history’
+  259 |   h_history[h_hist_ptr] = h;
+      |   ^~~~~~~~~
+../src/restart.c:260:3: error: expected declaration specifiers before ‘h_hist_ptr’
+  260 |   h_hist_ptr = (h_hist_ptr + 1) % WINDOW_ENTROPY;
+      |   ^~~~~~~~~~
+../src/restart.c:261:3: error: expected declaration specifiers before ‘if’
+  261 |   if (h_hist_total < WINDOW_ENTROPY)
+      |   ^~
+../src/restart.c:265:3: error: parameter ‘best_sample’ is initialized
+  265 |   double best_sample = -1e300;
+      |   ^~~~~~
+../src/restart.c:266:3: error: parameter ‘best_arm’ is initialized
+  266 |   int best_arm = 0;
+      |   ^~~
+../src/restart.c:268:3: error: expected declaration specifiers before ‘for’
+  268 |   for (int i = 0; i < ARMS; i++) {
+      |   ^~~
+../src/restart.c:268:19: error: expected declaration specifiers before ‘i’
+  268 |   for (int i = 0; i < ARMS; i++) {
+      |                   ^
+../src/restart.c:268:29: error: expected declaration specifiers before ‘i’
+  268 |   for (int i = 0; i < ARMS; i++) {
+      |                             ^
+../src/restart.c:294:3: error: expected declaration specifiers before ‘active_arm’
+  294 |   active_arm = best_arm;
+      |   ^~~~~~~~~~
+../src/restart.c:295:3: error: expected declaration specifiers before ‘last_restart_count’
+  295 |   last_restart_count = solver->statistics.restarts;
+      |   ^~~~~~~~~~~~~~~~~~
+../src/restart.c:299:3: error: expected declaration specifiers before ‘if’
+  299 |   if (active_arm == 0)
+      |   ^~
+../src/restart.c:302:3: error: expected declaration specifiers before ‘else’
+  302 |   else if (active_arm == 1)
+      |   ^~~~
+../src/restart.c:305:3: error: expected declaration specifiers before ‘else’
+  305 |   else
+      |   ^~~~
+../src/restart.c:310:3: error: expected declaration specifiers before ‘if’
+  310 |   if (active_arm == 1 || active_arm == 3)
+      |   ^~
+../src/restart.c:314:3: error: expected declaration specifiers before ‘saved_level’
+  314 |   saved_level = (double) solver->level;
+      |   ^~~~~~~~~~~
+../src/restart.c:315:3: error: expected declaration specifiers before ‘saved_lbd’
+  315 |   saved_lbd = AVERAGE (fast_glue);
+      |   ^~~~~~~~~
+../src/restart.c:316:1: error: expected declaration specifiers before ‘}’ token
+  316 | }
+      | ^
+../src/restart.c:318:38: error: expected ‘=’, ‘,’, ‘;’, ‘asm’ or ‘__attribute__’ before ‘{’ token
+  318 | void kissat_restart (kissat *solver) {
+      |                                      ^
+../src/restart.c:133:17: error: old-style parameter declarations in prototyped function definition
+  133 |   auto uint64_t luby (uint64_t i) -> uint64_t {
+      |                 ^~~~
+../src/restart.c:350: error: expected ‘{’ at end of input
+../src/restart.c:349:1: warning: no return statement in function returning non-void [-Wreturn-type]
+  349 | }
+      | ^
+../src/restart.c:133:32: warning: unused parameter ‘i’ [-Wunused-parameter]
+  133 |   auto uint64_t luby (uint64_t i) -> uint64_t {
+      |                       ~~~~~~~~~^
+../src/restart.c: In function ‘restart_mab’:
+../src/restart.c:349:1: error: expected declaration or statement at end of input
+  349 | }
+      | ^
+../src/restart.c:130:16: warning: unused variable ‘PI_VAL’ [-Wunused-variable]
+  130 |   const double PI_VAL = 3.14159265358979323846;
+      |                ^~~~~~
+../src/restart.c:129:16: warning: unused variable ‘GLUCOSE_MARGIN_A4’ [-Wunused-variable]
+  129 |   const double GLUCOSE_MARGIN_A4 = 1.25;
+      |                ^~~~~~~~~~~~~~~~~
+../src/restart.c:128:16: warning: unused variable ‘GLUCOSE_MARGIN_A3’ [-Wunused-variable]
+  128 |   const double GLUCOSE_MARGIN_A3 = 1.1;
+      |                ^~~~~~~~~~~~~~~~~
+../src/restart.c:127:18: warning: unused variable ‘LUBY_BASE_A2’ [-Wunused-variable]
+  127 |   const uint64_t LUBY_BASE_A2 = 512;
+      |                  ^~~~~~~~~~~~
+../src/restart.c:126:18: warning: unused variable ‘LUBY_BASE_A1’ [-Wunused-variable]
+  126 |   const uint64_t LUBY_BASE_A1 = 64;
+      |                  ^~~~~~~~~~~~
+../src/restart.c:113:27: warning: unused parameter ‘solver’ [-Wunused-parameter]
+  113 | void restart_mab (kissat *solver) {
+      |                   ~~~~~~~~^~~~~~
+../src/restart.c: At top level:
+../src/restart.c:133:17: warning: ‘luby’ defined but not used [-Wunused-function]
+  133 |   auto uint64_t luby (uint64_t i) -> uint64_t {
+      |                 ^~~~
+../src/restart.c:87:17: warning: ‘reuse_trail’ defined but not used [-Wunused-function]
+   87 | static unsigned reuse_trail (kissat *solver) {
+      |                 ^~~~~~~~~~~
+make[1]: *** [makefile:8: restart.o] Error 1
+make[1]: *** Waiting for unfinished jobs....
+make: *** [makefile:2: all] Error 2
+
+[FAILED] Make returned 2
+
+[FINAL] No more debugging rounds available

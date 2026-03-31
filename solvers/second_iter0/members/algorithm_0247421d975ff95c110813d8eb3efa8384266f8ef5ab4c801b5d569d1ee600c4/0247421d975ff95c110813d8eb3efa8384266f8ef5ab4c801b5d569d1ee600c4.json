@@ -1,0 +1,28 @@
+{
+    "id": "0247421d975ff95c110813d8eb3efa8384266f8ef5ab4c801b5d569d1ee600c4",
+    "function_name": "restart_mab",
+    "description": "Entropy-Adaptive Thompson Sampling MAB Kissat: Step 1: Maintain a sliding window of the last 256 conflict decision levels and calculate the Shannon Entropy (H) of this distribution to detect search stagnation. Step 2: Define three arms for the MAB: Arm 0 (Luby sequence), Arm 1 (Glucose-style LBD-based), and Arm 2 (Stochastic restart with probability p=0.01 per conflict). Step 3: Modify the MAB reward function to be R = (w1 / LBD_ema) + (w2 * H_delta), where H_delta is the change in variable activity entropy over the last restart interval, rewarding restarts that lead to both high-quality clauses and search space diversification. Step 4: Implement a 'Contextual Shift' trigger: if the global conflict entropy H falls below a threshold (T=1.5), temporarily override the MAB selection to force Arm 2 (Stochastic) for the next 3 restarts to escape local minima. Step 5: Update arm weights using Thompson Sampling with Beta distributions (\u03b1, \u03b2), where rewards update these parameters; every 500 conflicts, apply a dynamic decay factor \u03b3 = 0.9 + 0.09 * (H / 8.0) to all parameters, ensuring that the solver forgets stale rewards faster when conflict entropy is low, facilitating a quicker exit from unproductive search subspaces.",
+    "role": "member",
+    "status": "code_generated",
+    "last_updated": "2026-03-18 10:33:42.288758",
+    "code_id_list": [
+        "49fe3d7e2d00a55140c841c86a448919fd7b79adf0ac6b1eaaf1011dc52f002e"
+    ],
+    "parent_id": [
+        "6663c8545d4c81b15423d8206d3e2886b0a5ecc16b20c93c86614865336f7037"
+    ],
+    "parent_algorithm_description": [
+        "Entropy-Driven Contextual Reward MAB: Step 1: Maintain a sliding window of the last 256 conflict decision levels and calculate the Shannon Entropy (H) of this distribution to detect search stagnation. Step 2: Define three arms for the MAB: Arm 0 (Luby sequence), Arm 1 (Glucose-style LBD-based), and Arm 2 (Stochastic restart with probability p=0.01 per conflict). Step 3: Modify the MAB reward function to be R = (w1 / LBD_ema) + (w2 * H_delta), where H_delta is the change in variable activity entropy over the last restart interval, rewarding restarts that lead to both high-quality clauses and search space diversification. Step 4: Implement a 'Contextual Shift' trigger: if the global conflict entropy H falls below a threshold (T=1.5), temporarily override the MAB selection to force Arm 2 (Stochastic) for the next 3 restarts to escape local minima. Step 5: Update arm weights using a Thompson Sampling approach with a decay factor of 0.99 per 1000 conflicts to ensure the solver adapts to the evolving formula structure during the search process."
+    ],
+    "raw_par2_score": [
+        null,
+        null,
+        null,
+        null,
+        null
+    ],
+    "normalized_par2_score": null,
+    "analysis": "The original Step 5 utilized a static decay factor (0.99 per 1000 conflicts), which is suboptimal for the highly non-stationary environment of SAT solving where the 'best' restart strategy shifts as the formula simplifies. By linking the Thompson Sampling decay factor to the Shannon Entropy (H) calculated in Step 1, the solver becomes more 'forgetful' when entropy is low (indicating stagnation). This forces the MAB to re-explore arms more aggressively when the search is stuck, while maintaining stable strategy selection when entropy is high and the search is productive, ultimately reducing the PAR2 score on heterogeneous benchmarks.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

@@ -1,0 +1,34 @@
+{
+    "id": "4cc674f56f7e67282330784798a97bf7b9853c5400b197abe0e9fdf27889829d",
+    "function_name": "kissat_decide_phase",
+    "description": "Depth-Aware Activity-Gated Phasing: Step 1: Maintain a running average of all active variable scores (e.g., VSIDS activities or VMTF ranks) in the solver, denoted as `avg_score`. Step 2: During `kissat_decide_phase(v)`, fetch `P_saved` (the variable's most recently assigned polarity) and `P_target` (the variable's polarity in the historically largest conflict-free trail). Step 3: If `P_target` is uninitialized or `P_saved == P_target`, immediately return `P_saved`. Step 4: Evaluate the current heuristic score of `v`. If `score[v] > 1.5 * avg_score`, classify `v` as a 'conflict driver' and return `P_saved`. This prioritizes local conflict resolution and allows the solver to rapidly learn high-quality clauses without thrashing. Step 5: If `score[v] <= 1.5 * avg_score`, classify `v` as a 'background variable'. Compare the current decision level to the solver's exponential moving average (EMA) of conflict decision levels. If the current decision level is less than or equal to the EMA, return `P_target` to aggressively anchor the upper/global search tree to the best known assignment. If the current decision level is greater than the EMA, return `P_saved` to preserve local consistency and adapt to recent constraints deeper in the search tree.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:04:25.997632",
+    "code_id_list": [
+        "483e8f7c7d2a890f75087dc21478a3a84cbf108fcdf29625e2517df695a19d7b"
+    ],
+    "parent_id": [
+        "8336ab85269d550e1dcecf797b2ac10e9a62caaed958995f11b4e75a79ff0d04"
+    ],
+    "parent_algorithm_description": [
+        "Activity-Gated Target Phasing: Step 1: Maintain a running average of all active variable scores (e.g., VSIDS activities or VMTF ranks) in the solver, denoted as `avg_score`. Step 2: During `kissat_decide_phase(v)`, fetch `P_saved` (the variable's most recently assigned polarity) and `P_target` (the variable's polarity in the historically largest conflict-free trail). Step 3: If `P_target` is uninitialized or `P_saved == P_target`, immediately return `P_saved`. Step 4: Evaluate the current heuristic score of `v`. If `score[v] > 1.5 * avg_score`, classify `v` as a 'conflict driver' and return `P_saved`. This prioritizes local conflict resolution and allows the solver to rapidly learn high-quality clauses without thrashing. Step 5: If `score[v] <= 1.5 * avg_score`, classify `v` as a 'background variable' and return `P_target`. This aggressively anchors the non-critical search space to the best known global assignment."
+    ],
+    "raw_par2_score": [
+        131.05944444444447,
+        781.9215624999998,
+        720.175625,
+        270.145652173913,
+        547.6111999999998
+    ],
+    "normalized_par2_score": [
+        0.3049170453781687,
+        1.8191837571541571,
+        1.6755284188730166,
+        0.6285087994367712,
+        1.2740477409148012
+    ],
+    "analysis": "In the original algorithm, Step 5 unconditionally applies P_target to background variables. While this is great for global guidance, applying stale global targets deep in the search tree often violates local consistency, triggering immediate, low-quality conflicts that bloat the clause database. By modifying Step 5 to be depth-aware, we apply P_target at shallow decision levels to shape the global search space toward the historically best trail, while falling back to P_saved at deeper levels to respect recent local propagations and prevent thrashing.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

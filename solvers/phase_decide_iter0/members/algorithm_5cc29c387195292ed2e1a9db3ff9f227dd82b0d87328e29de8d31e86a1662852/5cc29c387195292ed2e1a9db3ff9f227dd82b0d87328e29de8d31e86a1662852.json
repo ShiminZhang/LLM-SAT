@@ -1,0 +1,30 @@
+{
+    "id": "5cc29c387195292ed2e1a9db3ff9f227dd82b0d87328e29de8d31e86a1662852",
+    "function_name": "kissat_decide_phase",
+    "description": "LBD-Weighted Phase Momentum: Step 1: Initialize two floating-point arrays for all variables: `phase_score[v][0]` (evaluating False) and `phase_score[v][1]` (evaluating True), both set to 0.0. Step 2: During conflict analysis, whenever a learned clause `C` is generated, iterate through its literals. For each literal `l` corresponding to variable `v`, add `1.0 / LBD(C)` to `phase_score[v][polarity(l)]`. This rewards the phase that satisfies the learned clause (which is the opposite of the phase that contributed to the conflict). Step 3: During solver restarts, apply a multiplicative decay factor of 0.95 to all `phase_score` values to prioritize recent search space dynamics. Step 4: Within `kissat_decide_phase` for a selected variable `v`, compute the confidence margin: `delta = abs(phase_score[v][1] - phase_score[v][0])`. Step 5: If `delta < 0.05`, the momentum is inconclusive; return Kissat's standard saved phase. Step 6: If `delta >= 0.05`, override phase saving and return 1 (True) if `phase_score[v][1] > phase_score[v][0]`, otherwise return 0 (False).",
+    "role": "leader",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:04:55.062130",
+    "code_id_list": [
+        "5ecfb50338d632cd0aa3f9ed12525b6483922b1ab93094d3f544185208276a32"
+    ],
+    "parent_id": null,
+    "parent_algorithm_description": null,
+    "raw_par2_score": [
+        251.21444444444438,
+        1052.74375,
+        965.630625,
+        566.9956521739131,
+        764.1932
+    ],
+    "normalized_par2_score": [
+        0.5844642977163566,
+        2.4492665534409754,
+        2.246593050579312,
+        1.31914674090064,
+        1.7779377413801127
+    ],
+    "analysis": "Standard phase saving is blind to the quality of backtracks. This algorithm steers assignments toward phases that historically produce high-quality (low LBD) learned clauses, dynamically breaking deep stagnation.",
+    "prompt": "You are designing a novel and diverse heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nThis algorithm (conceptual, not code) should modify the target function below. Your algorithm should demonstrate the same level of innovation and diversity as past SAT competition winners.\n\nBe specific about the mechanism and logic flow. Include concrete thresholds\nand parameters where necessary, but prioritize describing a structurally\nunique decision process over tuning constants. \n\nYour algorithm does not need to be long, just intelligent,. innovative, and\nmechanistically distinct from standard approaches.\n\n### Target Function\n\nkissat_decide_phase\n\n### Output Format (JSON only)\n\n```json\n{\n\t\"name\": \"Brief algorithm name (<=6 words)\",\n\n\t\"algorithm\": \"Complete algorithmic description. Be specific and quantitative. Step 1: ... Step 2: ...\",\n\n\t\"reason\": \"1-2 brief lines about why this improves performance.\",\n\n\t\"target_function\": \"exact_function_name_from_list_above\"\n}\n\nIMPORTANT: target_function must exactly match the target function name listed above (no parens).\nIMPORTANT: algorithm must specifically split substeps by Step markers \"Step 1: ... Step 2: ... \"\n\nYour algorithm will be implemented by a coder model. Make sure they generally have the requisite information in your algorithmic description to be able to implement it faithfully.\n",
+    "other_metrics": {}
+}

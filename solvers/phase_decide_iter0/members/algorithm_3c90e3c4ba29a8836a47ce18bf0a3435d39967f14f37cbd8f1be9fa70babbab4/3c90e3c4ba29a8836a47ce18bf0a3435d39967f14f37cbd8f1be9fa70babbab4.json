@@ -1,0 +1,34 @@
+{
+    "id": "3c90e3c4ba29a8836a47ce18bf0a3435d39967f14f37cbd8f1be9fa70babbab4",
+    "function_name": "kissat_decide_phase",
+    "description": "Momentum-Persistent Phase Saving: Step 1: Initialize two floating-point arrays for all variables: `phase_score[v][0]` (evaluating False) and `phase_score[v][1]` (evaluating True), both set to 0.0. Step 2: During conflict analysis, whenever a learned clause `C` is generated, iterate through its literals. For each literal `l` corresponding to variable `v`, add `1.0 / LBD(C)` to `phase_score[v][polarity(l)]`. This rewards the phase that satisfies the learned clause (which is the opposite of the phase that contributed to the conflict). Step 3: During solver restarts, apply a multiplicative decay factor of 0.95 to all `phase_score` values to prioritize recent search space dynamics. Step 4: Within `kissat_decide_phase` for a selected variable `v`, compute the confidence margin: `delta = abs(phase_score[v][1] - phase_score[v][0])`. Step 5: If `delta < 0.05`, the momentum is inconclusive; return Kissat's standard saved phase. Step 6: If `delta >= 0.05`, determine the dominant phase (1 if `phase_score[v][1] > phase_score[v][0]`, otherwise 0). Overwrite Kissat's standard saved phase for `v` with this dominant phase so the learned momentum persists across future score decays, and return this dominant phase.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:03:21.226445",
+    "code_id_list": [
+        "c0a0b2e8ad28eb008cc510ec127795445d7e4516f9d2c26b9f98bf747ff3ea31"
+    ],
+    "parent_id": [
+        "5cc29c387195292ed2e1a9db3ff9f227dd82b0d87328e29de8d31e86a1662852"
+    ],
+    "parent_algorithm_description": [
+        "LBD-Weighted Phase Momentum: Step 1: Initialize two floating-point arrays for all variables: `phase_score[v][0]` (evaluating False) and `phase_score[v][1]` (evaluating True), both set to 0.0. Step 2: During conflict analysis, whenever a learned clause `C` is generated, iterate through its literals. For each literal `l` corresponding to variable `v`, add `1.0 / LBD(C)` to `phase_score[v][polarity(l)]`. This rewards the phase that satisfies the learned clause (which is the opposite of the phase that contributed to the conflict). Step 3: During solver restarts, apply a multiplicative decay factor of 0.95 to all `phase_score` values to prioritize recent search space dynamics. Step 4: Within `kissat_decide_phase` for a selected variable `v`, compute the confidence margin: `delta = abs(phase_score[v][1] - phase_score[v][0])`. Step 5: If `delta < 0.05`, the momentum is inconclusive; return Kissat's standard saved phase. Step 6: If `delta >= 0.05`, override phase saving and return 1 (True) if `phase_score[v][1] > phase_score[v][0]`, otherwise return 0 (False)."
+    ],
+    "raw_par2_score": [
+        68.50888888888888,
+        1047.6703125,
+        810.18375,
+        559.4121739130435,
+        695.1722
+    ],
+    "normalized_par2_score": [
+        0.15938971869361332,
+        2.4374629205248706,
+        1.8849372993346052,
+        1.3015033593435472,
+        1.617356567865618
+    ],
+    "analysis": "In the original Step 6, the algorithm temporarily overrides the decision phase but leaves Kissat's underlying saved phase array unmodified. Because phase scores decay during restarts (Step 3), `delta` will eventually drop below the 0.05 threshold, which would cause the solver to revert to a potentially stale saved phase from deep in the past. By explicitly overwriting the saved phase in Step 6 whenever confidence is high, this variant ensures that strong LBD momentum permanently updates the solver's fallback mechanism. This prevents search thrashing and improves PAR2 performance by seamlessly blending dynamic momentum with long-term phase stability.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

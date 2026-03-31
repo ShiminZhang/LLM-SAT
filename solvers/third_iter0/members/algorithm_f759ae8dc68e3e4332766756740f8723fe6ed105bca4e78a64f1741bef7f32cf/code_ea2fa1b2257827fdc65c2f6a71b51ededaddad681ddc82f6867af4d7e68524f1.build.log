@@ -1,0 +1,181 @@
+
+============================================================
+=== ATTEMPT 1 of 2 ===
+============================================================
+
+[INFO] Injected restart_mab into solver
+
+--- ./configure ---
+[stdout]
+configure: default configuration (see '-h')
+configure: reusing existing build directory 'build'
+configure: assuming GCC version 20230526 uses C99 by default
+configure: compiler 'gcc  -W -Wall -O3 -DNDEBUG'
+configure: linker 'gcc' (no additional options)
+configure: using default 'ar' (no cross compilation)
+configure: no 'tissat' binary generated (without '--test')
+configure: no 'libkissat.so' shared library generated (without '-shared')
+configure: no 'kitten' binary generated (without '--kitten')
+configure: removing src/makefile
+configure: linking src/makefile
+
+[stderr]
+(empty)
+[OK] Configure succeeded
+
+--- make -j32 ---
+[stdout]
+make -C "/scratch/meru/LLM-SAT/solvers/third_iter0/members/algorithm_f759ae8dc68e3e4332766756740f8723fe6ed105bca4e78a64f1741bef7f32cf/code_ea2fa1b2257827fdc65c2f6a71b51ededaddad681ddc82f6867af4d7e68524f1/build"
+make[1]: Entering directory '/scratch/meru/LLM-SAT/solvers/third_iter0/members/algorithm_f759ae8dc68e3e4332766756740f8723fe6ed105bca4e78a64f1741bef7f32cf/code_ea2fa1b2257827fdc65c2f6a71b51ededaddad681ddc82f6867af4d7e68524f1/build'
+gcc -W -Wall -O3 -DNDEBUG -c ../src/allocate.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/analyze.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/ands.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/arena.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/assign.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/averages.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/backbone.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/backtrack.c
+../scripts/generate-build-header.sh > build.h
+gcc -W -Wall -O3 -DNDEBUG -c ../src/bump.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/check.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/classify.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/clause.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/collect.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/colors.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/compact.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/config.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/congruence.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/decide.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/deduce.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/definition.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/dense.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/dump.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/eliminate.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/equivalences.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/error.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/extend.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/factor.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/fastel.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/file.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/flags.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/format.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/forward.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/gates.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/heap.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/ifthenelse.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/import.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/internal.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/kimits.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/kitten.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/krite.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/learn.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/logging.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/lucky.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/minimize.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/mode.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/options.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/phases.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/preprocess.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/print.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/probe.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/profile.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/promote.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/proof.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/propbeyond.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/propdense.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/propinitially.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/proprobe.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/propsearch.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/queue.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/reduce.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/reluctant.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/reorder.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/rephase.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/report.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/resize.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/resolve.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/resources.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/restart.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/search.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/shrink.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/smooth.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/sort.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/stack.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/statistics.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/strengthen.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/substitute.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/sweep.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/terminate.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/tiers.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/trail.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/transitive.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/utilities.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/vector.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/vivify.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/walk.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/warmup.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/watch.c
+make[1]: Leaving directory '/scratch/meru/LLM-SAT/solvers/third_iter0/members/algorithm_f759ae8dc68e3e4332766756740f8723fe6ed105bca4e78a64f1741bef7f32cf/code_ea2fa1b2257827fdc65c2f6a71b51ededaddad681ddc82f6867af4d7e68524f1/build'
+
+[stderr]
+../src/restart.c:113:6: error: redefinition of ‘kissat_restarting’
+  113 | bool kissat_restarting (kissat *solver) {
+      |      ^~~~~~~~~~~~~~~~~
+../src/restart.c:15:6: note: previous definition of ‘kissat_restarting’ with type ‘_Bool(kissat *)’
+   15 | bool kissat_restarting (kissat *solver) {
+      |      ^~~~~~~~~~~~~~~~~
+../src/restart.c: In function ‘kissat_restarting’:
+../src/restart.c:161:55: error: ‘statistics’ has no member named ‘clauses_reduced’; did you mean ‘clauses_added’?
+  161 |         double red_rate = (double)(solver->statistics.clauses_reduced - last_red) / (double)BANDIT_WINDOW;
+      |                                                       ^~~~~~~~~~~~~~~
+      |                                                       clauses_added
+../src/restart.c:221:39: error: ‘statistics’ has no member named ‘clauses_reduced’; did you mean ‘clauses_added’?
+  221 |         last_red = solver->statistics.clauses_reduced;
+      |                                       ^~~~~~~~~~~~~~~
+      |                                       clauses_added
+../src/restart.c: In function ‘kissat_restart’:
+../src/restart.c:259:7: warning: implicit declaration of function ‘restart_mab’ [-Wimplicit-function-declaration]
+  259 |       restart_mab(solver);
+      |       ^~~~~~~~~~~
+make[1]: *** [makefile:8: restart.o] Error 1
+make[1]: *** Waiting for unfinished jobs....
+make: *** [makefile:2: all] Error 2
+
+[FAILED] Make returned 2
+
+--- LLM Debugging ---
+[OK] LLM suggested fix
+
+============================================================
+=== ATTEMPT 2 of 2 ===
+============================================================
+
+[INFO] Injected restart_mab into solver
+
+--- make -j32 ---
+[stdout]
+make -C "/scratch/meru/LLM-SAT/solvers/third_iter0/members/algorithm_f759ae8dc68e3e4332766756740f8723fe6ed105bca4e78a64f1741bef7f32cf/code_ea2fa1b2257827fdc65c2f6a71b51ededaddad681ddc82f6867af4d7e68524f1/build"
+make[1]: Entering directory '/scratch/meru/LLM-SAT/solvers/third_iter0/members/algorithm_f759ae8dc68e3e4332766756740f8723fe6ed105bca4e78a64f1741bef7f32cf/code_ea2fa1b2257827fdc65c2f6a71b51ededaddad681ddc82f6867af4d7e68524f1/build'
+../scripts/generate-build-header.sh > build.h
+gcc -W -Wall -O3 -DNDEBUG -c ../src/restart.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/weaken.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/main.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/application.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/handle.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/parse.c
+gcc -W -Wall -O3 -DNDEBUG -c ../src/witness.c
+gcc -W -Wall -O3 -DNDEBUG -I../build -c ../src/build.c
+make[1]: Leaving directory '/scratch/meru/LLM-SAT/solvers/third_iter0/members/algorithm_f759ae8dc68e3e4332766756740f8723fe6ed105bca4e78a64f1741bef7f32cf/code_ea2fa1b2257827fdc65c2f6a71b51ededaddad681ddc82f6867af4d7e68524f1/build'
+
+[stderr]
+../src/restart.c: In function ‘restart_mab’:
+../src/restart.c:177:52: error: ‘statistics’ has no member named ‘reduced’
+  177 |     const uint64_t reduced_now = solver->statistics.reduced;
+      |                                                    ^
+make[1]: *** [makefile:8: restart.o] Error 1
+make[1]: *** Waiting for unfinished jobs....
+make: *** [makefile:2: all] Error 2
+
+[FAILED] Make returned 2
+
+[FINAL] No more debugging rounds available

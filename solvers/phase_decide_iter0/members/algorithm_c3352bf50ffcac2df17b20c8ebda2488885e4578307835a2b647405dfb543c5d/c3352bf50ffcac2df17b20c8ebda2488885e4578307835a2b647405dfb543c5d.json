@@ -1,0 +1,34 @@
+{
+    "id": "c3352bf50ffcac2df17b20c8ebda2488885e4578307835a2b647405dfb543c5d",
+    "function_name": "kissat_decide_phase",
+    "description": "Volatility-Aware Target Phasing: Step 1: Maintain a running average of all active variable scores (e.g., VSIDS activities or VMTF ranks) in the solver, denoted as `avg_score`, and track a `phase_toggle_count` for each variable that increments whenever its saved phase changes. Step 2: During `kissat_decide_phase(v)`, fetch `P_saved` (the variable's most recently assigned polarity) and `P_target` (the variable's polarity in the historically largest conflict-free trail). Step 3: If `P_target` is uninitialized or `P_saved == P_target`, immediately return `P_saved`. Step 4: Evaluate the current heuristic score of `v`. If `score[v] > 1.5 * avg_score`, classify `v` as a 'conflict driver' and return `P_saved`. This prioritizes local conflict resolution and allows the solver to rapidly learn high-quality clauses without thrashing. Step 5: If `score[v] <= 1.5 * avg_score`, classify `v` as a 'background variable'. Evaluate `phase_toggle_count[v]`. If the toggle count is strictly less than the global average toggle count of all variables, return `P_target` to anchor this stable variable to the historically largest conflict-free trail. Otherwise (if it is highly volatile despite low activity), return `P_saved` to allow local flexibility and prevent the search from being trapped in an obsolete global target.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:05:14.949533",
+    "code_id_list": [
+        "a5af86df1d1df8bd161f38ac9b2c145078191a54625af18db6b498c23b58a81e"
+    ],
+    "parent_id": [
+        "8336ab85269d550e1dcecf797b2ac10e9a62caaed958995f11b4e75a79ff0d04"
+    ],
+    "parent_algorithm_description": [
+        "Activity-Gated Target Phasing: Step 1: Maintain a running average of all active variable scores (e.g., VSIDS activities or VMTF ranks) in the solver, denoted as `avg_score`. Step 2: During `kissat_decide_phase(v)`, fetch `P_saved` (the variable's most recently assigned polarity) and `P_target` (the variable's polarity in the historically largest conflict-free trail). Step 3: If `P_target` is uninitialized or `P_saved == P_target`, immediately return `P_saved`. Step 4: Evaluate the current heuristic score of `v`. If `score[v] > 1.5 * avg_score`, classify `v` as a 'conflict driver' and return `P_saved`. This prioritizes local conflict resolution and allows the solver to rapidly learn high-quality clauses without thrashing. Step 5: If `score[v] <= 1.5 * avg_score`, classify `v` as a 'background variable' and return `P_target`. This aggressively anchors the non-critical search space to the best known global assignment."
+    ],
+    "raw_par2_score": [
+        95.26111111111112,
+        769.3865624999999,
+        618.36875,
+        295.3513043478261,
+        526.7014
+    ],
+    "normalized_par2_score": [
+        0.22163024315087973,
+        1.7900203864408355,
+        1.4386690940393654,
+        0.68715114314789,
+        1.2253999348564517
+    ],
+    "analysis": "In the original Step 5, all low-activity background variables were aggressively anchored to P_target. However, some variables have low overall activity scores but high local phase volatility because they are conditionally forced to flip by the current conflict drivers. Blindly forcing P_target on these volatile variables causes unnecessary conflicts and trail thrashing. By modifying Step 5 to check the variable's phase toggle frequency, we ensure that P_target is only applied to truly 'stable' background variables, while granting volatile variables the flexibility of P_saved. This reduces wasted backtracks and improves PAR2 performance.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

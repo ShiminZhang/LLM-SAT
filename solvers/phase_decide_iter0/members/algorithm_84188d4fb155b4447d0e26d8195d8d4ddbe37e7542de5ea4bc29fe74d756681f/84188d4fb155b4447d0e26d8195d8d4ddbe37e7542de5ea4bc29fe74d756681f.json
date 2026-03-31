@@ -1,0 +1,34 @@
+{
+    "id": "84188d4fb155b4447d0e26d8195d8d4ddbe37e7542de5ea4bc29fe74d756681f",
+    "function_name": "kissat_decide_phase",
+    "description": "Epsilon-Greedy Phase Quality Bandit: Step 1: Extend the solver's variable state to include a phase quality array `float Q[2]` initialized to 0.0 for each variable, and track total conflicts. Step 2: During conflict analysis, after computing the LBD (Literal Block Distance) of the 1UIP learned clause, iterate through each variable `v` in the learned clause. Let `p` (0 or 1) be its currently assigned phase. Update the phase quality using an Exponential Moving Average: `Q[v][p] = 0.95 * Q[v][p] + 0.05 * (1.0 / LBD)`. Step 3: Inside `kissat_decide_phase`, first compute the standard phase `S` that Kissat would normally select (e.g., using standard phase saving or target phases). Step 4: Check if the competing phase `1-S` has a significantly better historical conflict quality. If total conflicts > 5000 and the difference `Q[v][1-S] - Q[v][S] > 0.10`, override the standard logic and return `1-S`. Step 5: If the threshold condition is not met, apply an epsilon-greedy exploration step: generate a random float between 0.0 and 1.0; if it is less than 0.01 (1% exploration rate), return the competing phase `1-S` to sample its quality. Otherwise, return the standard phase `S`.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 06:06:28.317843",
+    "code_id_list": [
+        "27f66cb4f80b8734fc54a159affaba3c6191abaf8c407ae87c52170f23b1b917"
+    ],
+    "parent_id": [
+        "83380377dd320ee174d3c86af8fffa683450e20d95b2c40b282fa5d612375a17"
+    ],
+    "parent_algorithm_description": [
+        "LBD-Aware Phase Quality Bandit: Step 1: Extend the solver's variable state to include a phase quality array `float Q[2]` initialized to 0.0 for each variable, and track total conflicts. Step 2: During conflict analysis, after computing the LBD (Literal Block Distance) of the 1UIP learned clause, iterate through each variable `v` in the learned clause. Let `p` (0 or 1) be its currently assigned phase. Update the phase quality using an Exponential Moving Average: `Q[v][p] = 0.95 * Q[v][p] + 0.05 * (1.0 / LBD)`. Step 3: Inside `kissat_decide_phase`, first compute the standard phase `S` that Kissat would normally select (e.g., using standard phase saving or target phases). Step 4: Check if the competing phase `1-S` has a significantly better historical conflict quality. If total conflicts > 5000 and the difference `Q[v][1-S] - Q[v][S] > 0.10`, override the standard logic and return `1-S`. Step 5: If the threshold condition is not met, return the standard phase `S`."
+    ],
+    "raw_par2_score": [
+        49.61611111111111,
+        668.0009375,
+        456.459375,
+        261.3795652173913,
+        445.38239999999996
+    ],
+    "normalized_par2_score": [
+        0.11543462638106908,
+        1.5541411230282443,
+        1.0619779791540647,
+        0.6081140133483581,
+        1.0362067842352611
+    ],
+    "analysis": "In the original Step 5, the algorithm purely defaults to the standard phase `S` if the strict quality threshold isn't met. This creates a feedback loop (phase stagnation) where the solver might never try `1-S`, meaning `Q[v][1-S]` remains artificially low simply because it is never sampled. By modifying Step 5 to introduce a 1% epsilon-greedy exploration chance, the solver occasionally tests the opposite phase. This guarantees that the Multi-Armed Bandit maintains up-to-date LBD estimates for both polarities, preventing the search from getting trapped in local minima and reducing heavy-tail runtimes on the SAT Competition benchmarks.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be: \n\n{target_step_num}\n\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}

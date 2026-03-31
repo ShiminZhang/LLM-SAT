@@ -1,0 +1,34 @@
+{
+    "id": "551cd48f98fba85e98ea0f46a921d040955e15e98dac8b7db7f28efa5fc96559",
+    "function_name": "kissat_decide_phase",
+    "description": "Mode-Aware LBD Phase Momentum: Step 1: Initialize a floating-point array `clause_phase_momentum[v] = 0.0` for all variables to track phase preferences. Step 2: During conflict analysis, for each literal `l` in a newly learned clause `C` with LBD (Literal Block Distance) score `L`, update the momentum of its variable: `clause_phase_momentum[var(l)] += (is_positive(l) ? 1.0 : -1.0) * (10.0 / L)`. Step 3: Decay the momentum globally by multiplying `clause_phase_momentum[v]` by 0.95 every 10,000 conflicts to prioritize recent search space topology over stale history. Step 4: In `kissat_decide_phase(v)`, evaluate `M = clause_phase_momentum[v]`. If `abs(M) > 1.5`, make a mode-aware phase selection: if Kissat is in STABLE mode, return `True` if `M > 0` else `False` (biasing towards satisfying high-quality learned clauses to build a global model); if in FOCUSED mode, return `True` if `M < 0` else `False` (falsifying high-quality clauses to rapidly trigger conflicts and increase LBD resolution). Step 5: If `abs(M) <= 1.5`, fall back to Kissat's default phase saving mechanism.",
+    "role": "member",
+    "status": "evaluating",
+    "last_updated": "2026-03-24 16:40:22.796098",
+    "code_id_list": [
+        "062ba5ed60152e3dd141287b24af5d4fc9cba2f3ae5a77b478f9c2b715cf75e9"
+    ],
+    "parent_id": [
+        "b5638f9ab100e39c2993f1e451bfb494de17ae145b7b89487072b885814e9478"
+    ],
+    "parent_algorithm_description": [
+        "Target-Saved Dual Fallback Phase Momentum: Step 1: Initialize a floating-point array `clause_phase_momentum[v] = 0.0` for all variables to track phase preferences. Step 2: During conflict analysis, for each literal `l` in a newly learned clause `C` with LBD (Literal Block Distance) score `L`, update the momentum of its variable: `clause_phase_momentum[var(l)] += (is_positive(l) ? 1.0 : -1.0) * (10.0 / L)`. Step 3: Decay the momentum globally by multiplying `clause_phase_momentum[v]` by 0.95 every 10,000 conflicts to prioritize recent search space topology over stale history. Step 4: In `kissat_decide_phase(v)`, evaluate `M = clause_phase_momentum[v]`. If `abs(M) > 1.5`, make a mode-aware phase selection: if Kissat is in STABLE mode, return `True` if `M > 0` else `False` (biasing towards satisfying high-quality learned clauses to build a global model); if in FOCUSED mode, return `True` if `M < 0` else `False` (falsifying high-quality clauses to rapidly trigger conflicts and increase LBD resolution). Step 5: If `abs(M) <= 1.5`, the learned momentum is too weak to override defaults. Apply a dual-tier mode-aware fallback: if in STABLE mode, return Kissat's `target` phase (the polarity from the largest conflict-free assignment found so far) to encourage deep global exploitation; if in FOCUSED mode, return Kissat's `saved` phase (the most recently forced polarity) to preserve local search continuity and rapid conflict generation."
+    ],
+    "raw_par2_score": [
+        290.8066666666666,
+        1096.8628125,
+        1053.225,
+        596.6939130434783,
+        806.6826000000001
+    ],
+    "normalized_par2_score": [
+        0.6765777922541217,
+        2.5519119922293054,
+        2.450386208180168,
+        1.388241387193426,
+        1.8767916802382396
+    ],
+    "analysis": "Dynamically aligns phase selection with search intent: satisfying core learned clauses to find models in stable mode, and falsifying them to accelerate proof resolution in focused mode.",
+    "prompt": "You are designing a novel and diverse heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nThis algorithm (conceptual, not code) should modify the target function below. Your algorithm should demonstrate the same level of innovation and diversity as past SAT competition winners.\n\nBe specific about the mechanism and logic flow. Include concrete thresholds\nand parameters where necessary, but prioritize describing a structurally\nunique decision process over tuning constants. \n\nYour algorithm does not need to be long, just intelligent,. innovative, and\nmechanistically distinct from standard approaches.\n\n### Target Function\n\nkissat_decide_phase\n\n### Output Format (JSON only)\n\n```json\n{\n\t\"name\": \"Brief algorithm name (<=6 words)\",\n\n\t\"algorithm\": \"Complete algorithmic description. Be specific and quantitative. Step 1: ... Step 2: ...\",\n\n\t\"reason\": \"1-2 brief lines about why this improves performance.\",\n\n\t\"target_function\": \"exact_function_name_from_list_above\"\n}\n\nIMPORTANT: target_function must exactly match the target function name listed above (no parens).\nIMPORTANT: algorithm must specifically split substeps by Step markers \"Step 1: ... Step 2: ... \"\n\nYour algorithm will be implemented by a coder model. Make sure they generally have the requisite information in your algorithmic description to be able to implement it faithfully.\n",
+    "other_metrics": {}
+}

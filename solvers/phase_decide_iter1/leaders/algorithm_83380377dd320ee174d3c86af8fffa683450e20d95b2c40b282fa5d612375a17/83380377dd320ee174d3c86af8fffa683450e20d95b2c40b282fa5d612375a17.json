@@ -1,0 +1,30 @@
+{
+    "id": "83380377dd320ee174d3c86af8fffa683450e20d95b2c40b282fa5d612375a17",
+    "function_name": "kissat_decide_phase",
+    "description": "LBD-Aware Phase Quality Bandit: Step 1: Extend the solver's variable state to include a phase quality array `float Q[2]` initialized to 0.0 for each variable, and track total conflicts. Step 2: During conflict analysis, after computing the LBD (Literal Block Distance) of the 1UIP learned clause, iterate through each variable `v` in the learned clause. Let `p` (0 or 1) be its currently assigned phase. Update the phase quality using an Exponential Moving Average: `Q[v][p] = 0.95 * Q[v][p] + 0.05 * (1.0 / LBD)`. Step 3: Inside `kissat_decide_phase`, first compute the standard phase `S` that Kissat would normally select (e.g., using standard phase saving or target phases). Step 4: Check if the competing phase `1-S` has a significantly better historical conflict quality. If total conflicts > 5000 and the difference `Q[v][1-S] - Q[v][S] > 0.10`, override the standard logic and return `1-S`. Step 5: If the threshold condition is not met, return the standard phase `S`.",
+    "role": "leader",
+    "status": "evaluating",
+    "last_updated": "2026-03-25 13:36:52.374317",
+    "code_id_list": [
+        "1a740154fe83352bff36e31137180a2294a7fac8645863497322b0c0abb68996"
+    ],
+    "parent_id": null,
+    "parent_algorithm_description": null,
+    "raw_par2_score": [
+        null,
+        null,
+        null,
+        null,
+        null
+    ],
+    "normalized_par2_score": [
+        null,
+        null,
+        null,
+        null,
+        null
+    ],
+    "analysis": "Standard phase saving can trap the solver in unproductive local minima by repeating assignments that lead to high-LBD conflicts. This mechanism breaks that stagnation by dynamically forcing the opposite phase only when it has statistically proven to generate much higher-quality learned clauses.",
+    "prompt": "You are designing a novel and diverse heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nThis algorithm (conceptual, not code) should modify the target function below. Your algorithm should demonstrate the same level of innovation and diversity as past SAT competition winners.\n\nBe specific about the mechanism and logic flow. Include concrete thresholds\nand parameters where necessary, but prioritize describing a structurally\nunique decision process over tuning constants. \n\nYour algorithm does not need to be long, just intelligent,. innovative, and\nmechanistically distinct from standard approaches.\n\n### Target Function\n\nkissat_decide_phase\n\n### Output Format (JSON only)\n\n```json\n{\n\t\"name\": \"Brief algorithm name (<=6 words)\",\n\n\t\"algorithm\": \"Complete algorithmic description. Be specific and quantitative. Step 1: ... Step 2: ...\",\n\n\t\"reason\": \"1-2 brief lines about why this improves performance.\",\n\n\t\"target_function\": \"exact_function_name_from_list_above\"\n}\n\nIMPORTANT: target_function must exactly match the target function name listed above (no parens).\nIMPORTANT: algorithm must specifically split substeps by Step markers \"Step 1: ... Step 2: ... \"\n\nYour algorithm will be implemented by a coder model. Make sure they generally have the requisite information in your algorithmic description to be able to implement it faithfully.\n",
+    "other_metrics": {}
+}

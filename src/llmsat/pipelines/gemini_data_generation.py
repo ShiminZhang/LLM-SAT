@@ -804,7 +804,7 @@ def _generate_mutants_sync(
     existing_members_by_leader: Dict[str, int] = {}
     for aid in all_tag_ids:
         ar = get_algorithm_result(aid)
-        if ar and ar.parent_id is not None:
+        if ar and ar.role == Role.MEMBER:
             parent = ar.parent_id[0] if isinstance(ar.parent_id, list) else ar.parent_id
             existing_members_by_leader[parent] = existing_members_by_leader.get(parent, 0) + 1
 
@@ -881,7 +881,7 @@ def _generate_mutants_sync(
     codeless_ids = []
     for aid in all_tag_ids:
         ar = get_algorithm_result(aid)
-        if ar and ar.parent_id is not None and not (ar.code_id_list and len(ar.code_id_list) > 0):
+        if ar and ar.role == Role.MEMBER and not (ar.code_id_list and len(ar.code_id_list) > 0):
             codeless_ids.append(aid)
 
     logger.info(f"[sync] Generating code for {len(codeless_ids)} codeless mutants")
@@ -1155,8 +1155,8 @@ def generate_mutants_for_leaders(
         if result is None:
             logger.warning(f"Algorithm {algorithm_id[:16]}... not found in DB, skipping")
             continue
-        if result.parent_id is not None:
-            continue  # Skip members, only load leaders
+        if result.role != Role.LEADER:
+            continue  # Skip non-leaders
         leaders[algorithm_id] = result
 
     logger.info(f"Loaded {len(leaders)} leaders")
