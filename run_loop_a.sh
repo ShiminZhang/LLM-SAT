@@ -31,6 +31,32 @@
 
 set -euo pipefail
 
+DATAGEN_MAX_RETRIES="${DATAGEN_MAX_RETRIES:-10}"
+DATAGEN_RETRY_DELAY="${DATAGEN_RETRY_DELAY:-60}"
+
+# Run a datagen command with retry logic.
+# The Python datagen functions are resumable: they skip leaders that already
+# have enough members and skip code generation for algorithms that already
+# have code. So on failure we just wait and re-run the same command.
+#
+# Usage: run_datagen_with_retry <command...>
+run_datagen_with_retry() {
+    for attempt in $(seq 1 "$DATAGEN_MAX_RETRIES"); do
+        echo "  [datagen attempt $attempt/$DATAGEN_MAX_RETRIES]"
+        if "$@"; then
+            return 0
+        fi
+
+        if [ "$attempt" -eq "$DATAGEN_MAX_RETRIES" ]; then
+            echo "  [datagen] All $DATAGEN_MAX_RETRIES attempts failed"
+            return 1
+        fi
+
+        echo "  [datagen] Failed, retrying in ${DATAGEN_RETRY_DELAY}s..."
+        sleep "$DATAGEN_RETRY_DELAY"
+    done
+}
+
 if [ $# -lt 3 ]; then
     echo "Usage: $0 <cc|nersc> <base_tag> <n_iterations> [source_tag] [--init]"
     exit 1
@@ -99,15 +125,16 @@ if [ "$INIT" = true ]; then
 
     # Step 0a: Generate initial leaders + members + code
     echo "[Init Step 1] Generating leaders, members, and code..."
-    python "$DATAGEN_SCRIPT" \
-        --generation_tag "$INIT_TAG" \
-        --designer_prompt_path "${DESIGNER_PROMPT:-data/prompts/leader_prompt_testing.txt}" \
-        --variant_prompt_path data/prompts/variant_prompt.txt \
-        --code_prompt_path data/prompts/coder_prompt_testing.txt \
-        --n_leaders "${N_LEADERS:-5}" \
-        --m_variants "$M_VARIANTS" \
-        --model "$MODEL" \
-        --sync
+    run_datagen_with_retry \
+        python "$DATAGEN_SCRIPT" \
+            --generation_tag "$INIT_TAG" \
+            --designer_prompt_path "${DESIGNER_PROMPT:-data/prompts/leader_prompt_testing.txt}" \
+            --variant_prompt_path data/prompts/variant_prompt.txt \
+            --code_prompt_path data/prompts/coder_prompt_testing.txt \
+            --n_leaders "${N_LEADERS:-5}" \
+            --m_variants "$M_VARIANTS" \
+            --model "$MODEL" \
+            --sync
 
     # Step 0b: Build & submit SLURM evaluation (no --skip-evaluated)
     echo "[Init Step 2] Building and submitting evaluation..."
@@ -171,15 +198,16 @@ for i in $(seq 1 "$N_ITERATIONS"); do
 
     # Step 1: Generate mutants for existing leaders
     echo "[Step 1] Generating mutants..."
-    python "$DATAGEN_SCRIPT" \
-        --mutants-only \
-        --source_tag "$SOURCE_TAG" \
-        --output_tag "$ITER_TAG" \
-        --variant_prompt_path data/prompts/variant_prompt.txt \
-        --code_prompt_path data/prompts/coder_prompt_testing.txt \
-        --m_variants "$M_VARIANTS" \
-        --model "$MODEL" \
-        --sync
+    run_datagen_with_retry \
+        python "$DATAGEN_SCRIPT" \
+            --mutants-only \
+            --source_tag "$SOURCE_TAG" \
+            --output_tag "$ITER_TAG" \
+            --variant_prompt_path data/prompts/variant_prompt.txt \
+            --code_prompt_path data/prompts/coder_prompt_testing.txt \
+            --m_variants "$M_VARIANTS" \
+            --model "$MODEL" \
+            --sync
 
     # Step 2: Build & submit SLURM evaluation (skip already-evaluated leaders)
     echo "[Step 2] Building and submitting evaluation..."

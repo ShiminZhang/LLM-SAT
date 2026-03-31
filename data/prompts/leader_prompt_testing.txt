@@ -11,7 +11,7 @@ mechanistically distinct from standard approaches.
 
 ### Target Function
 
-restart_mab
+kissat_decide_phase
 
 ### Output Format (JSON only)
 

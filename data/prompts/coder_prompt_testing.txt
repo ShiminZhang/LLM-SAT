@@ -346,7 +346,7 @@ Wrap your complete function in `<code>` tags (no other text outside tags):
 
 EXAMPLE:
 <code>
-void FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
+int FUNCTION_NAME_PLACEHOLDER(kissat *solver, unsigned idx) {
 
      // Your implementation here
 
@@ -359,216 +359,260 @@ IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly
 
 ### Baseline Reference
 
-Here is the entire restart.c file. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
+Here is the entire decide.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
 
 ```c
-#include "restart.h"
-#include "backtrack.h"
-#include "bump.h"
 #include "decide.h"
-#include "internal.h"
-#include "kimits.h"
-#include "logging.h"
+#include "inlineframes.h"
+#include "inlineheap.h"
+#include "inlinequeue.h"
 #include "print.h"
-#include "reluctant.h"
-#include "report.h"
 
 #include <inttypes.h>
-#include <math.h>
 
-bool kissat_restarting (kissat *solver) {
+static unsigned last_enqueued_unassigned_variable (kissat *solver) {
   assert (solver->unassigned);
-  if (!GET_OPTION (restart))
-    return false;
-  if (!solver->level)
-    return false;
-  if (CONFLICTS < solver->limits.restart.conflicts)
-    return false;
-  if (solver->stable)
-    return kissat_reluctant_triggered (&solver->reluctant);
-  const double fast = AVERAGE (fast_glue);
-  const double slow = AVERAGE (slow_glue);
-  const double margin = (100.0 + GET_OPTION (restartmargin)) / 100.0;
-  const double limit = margin * slow;
-  kissat_extremely_verbose (solver,
-                            "restart glue limit %g = "
-                            "%.02f * %g (slow glue) %c %g (fast glue)",
-                            limit, margin, slow,
-                            (limit > fast    ? '>'
-                             : limit == fast ? '='
-                                             : '<'),
-                            fast);
-  return (limit <= fast);
-}
-
-void kissat_update_focused_restart_limit (kissat *solver) {
-  assert (!solver->stable);
-  limits *limits = &solver->limits;
-  uint64_t restarts = solver->statistics.restarts;
-  uint64_t delta = GET_OPTION (restartint);
-  if (restarts)
-    delta += kissat_logn (restarts) - 1;
-  limits->restart.conflicts = CONFLICTS + delta;
-  kissat_extremely_verbose (solver,
-                            "focused restart limit at %" PRIu64
-                            " after %" PRIu64 " conflicts ",
-                            limits->restart.conflicts, delta);
-}
-
-static unsigned reuse_stable_trail (kissat *solver) {
-  const heap *const scores = kissat_get_scores(solver);
-  const unsigned next_idx = kissat_next_decision_variable (solver);
-  const double limit = kissat_get_heap_score (scores, next_idx);
-  unsigned level = solver->level, res = 0;
-  while (res < level) {
-    frame *f = &FRAME (res + 1);
-    const unsigned idx = IDX (f->decision);
-    const double score = kissat_get_heap_score (scores, idx);
-    if (score <= limit)
-      break;
-    res++;
-  }
-  return res;
-}
-
-static unsigned reuse_focused_trail (kissat *solver) {
   const links *const links = solver->links;
-  const unsigned next_idx = kissat_next_decision_variable (solver);
-  const unsigned limit = links[next_idx].stamp;
-  LOG ("next decision variable stamp %u", limit);
-  unsigned level = solver->level, res = 0;
-  while (res < level) {
-    frame *f = &FRAME (res + 1);
-    const unsigned idx = IDX (f->decision);
-    const unsigned score = links[idx].stamp;
-    if (score <= limit)
-      break;
-    res++;
+  const value *const values = solver->values;
+  unsigned res = solver->queue.search.idx;
+  if (values[LIT (res)]) {
+    do {
+      res = links[res].prev;
+      assert (!DISCONNECTED (res));
+    } while (values[LIT (res)]);
+    kissat_update_queue (solver, links, res);
   }
+#ifdef LOGGING
+  const unsigned stamp = links[res].stamp;
+  LOG ("last enqueued unassigned %s stamp %u", LOGVAR (res), stamp);
+#endif
+#ifdef CHECK_QUEUE
+  for (unsigned i = links[res].next; !DISCONNECTED (i); i = links[i].next)
+    assert (VALUE (LIT (i)));
+#endif
   return res;
 }
 
-static unsigned reuse_trail (kissat *solver) {
-  assert (solver->level);
-  assert (!EMPTY_STACK (solver->trail));
+static unsigned largest_score_unassigned_variable (kissat *solver,heap* scores) {
+  unsigned res = kissat_max_heap (scores);
+  const value *const values = solver->values;
+  while (values[LIT (res)]) {
+    kissat_pop_max_heap (solver, scores);
+    res = kissat_max_heap (scores);
+  }
 
-  if (!GET_OPTION (restartreusetrail))
-    return 0;
-
-  unsigned res;
-
-  if (solver->stable)
-    res = reuse_stable_trail (solver);
-  else
-    res = reuse_focused_trail (solver);
-
-  LOG ("matching trail level %u", res);
-
-  if (res) {
-    INC (restarts_reused_trails);
-    ADD (restarts_reused_levels, res);
-    LOG ("restart reuses trail at decision level %u", res);
-  } else
-    LOG ("restarts does not reuse the trail");
-
+  // MAB
+  if(solver->mab) {
+    solver->mab_decisions++;
+    if(!solver->mab_chosen[res]){
+      solver->mab_chosen_tot++;
+      solver->mab_chosen[res] = 1;
+    }
+  }
+#if defined(LOGGING) || defined(CHECK_HEAP)
+  const double score = kissat_get_heap_score (scores, res);
+#endif
+  LOG ("largest score unassigned %s score %g", LOGVAR (res), score);
+#ifdef CHECK_HEAP
+  for (all_variables (idx)) {
+    if (!ACTIVE (idx))
+      continue;
+    if (VALUE (LIT (idx)))
+      continue;
+    const double idx_score = kissat_get_heap_score (scores, idx);
+    assert (score >= idx_score);
+  }
+#endif
   return res;
 }
 
-void restart_mab(kissat *solver) {
-    // Reset MAB tracking variables
-    unsigned stable_restarts = 0;
-    solver->mab_reward[solver->heuristic] += log2(solver->mab_decisions) / log2(solver->mab_conflicts);
+void kissat_start_random_sequence (kissat *solver) {
+  if (!GET_OPTION (randec))
+    return;
 
-    // Clear per-variable MAB data
-    for (all_variables(idx)) {
-        solver->mab_chosen[idx] = 0;
-    }
-    solver->mab_chosen_tot = 0;
-    solver->mab_decisions = 0;
-    solver->mab_conflicts = 0;
+  if (solver->stable && !GET_OPTION (randecstable))
+    return;
 
-    // Count stable restarts across all heuristics
-    for (unsigned i = 0; i < solver->mab_heuristics; i++) {
-        stable_restarts += solver->mab_select[i];
-    }
+  if (!solver->stable && !GET_OPTION (randecfocused))
+    return;
 
-    // Track recent gains with momentum
-    static double recent_gains[10] = {0};
-    static int gain_index = 0;
-    static double momentum = 1.0;
+  if (solver->randec)
+    kissat_very_verbose (solver,
+                         "continuing random decision sequence "
+                         "at %s conflicts",
+                         FORMAT_COUNT (CONFLICTS));
+  else {
+    INC (random_sequences);
+    const uint64_t count = solver->statistics.random_sequences;
+    const unsigned length = GET_OPTION (randeclength) * LOGN (count);
+    kissat_very_verbose (solver,
+                         "starting random decision sequence "
+                         "at %s conflicts for %s conflicts",
+                         FORMAT_COUNT (CONFLICTS), FORMAT_COUNT (length));
+    solver->randec = length;
 
-    double current_gain = solver->mab_reward[solver->heuristic] / solver->mab_select[solver->heuristic];
-    recent_gains[gain_index] = current_gain;
-    gain_index = (gain_index + 1) % 10;
-
-    // Compute average gain over recent window
-    double avg_gain = 0;
-    for (int i = 0; i < 10; i++) {
-        avg_gain += recent_gains[i];
-    }
-    avg_gain /= 10;
-
-    // Update momentum based on performance
-    if (current_gain > avg_gain) {
-        momentum *= 1.1;
-    } else {
-        momentum *= 0.9;
-    }
-
-    // Compute adaptive exploration parameter
-    double adaptive_c = solver->mabc / (momentum * (stable_restarts + 1));
-
-    // Select next heuristic
-    if (stable_restarts < solver->mab_heuristics) {
-        // Exploration phase: alternate between first two heuristics
-        solver->heuristic = solver->heuristic == 0 ? 1 : 0;
-    } else {
-        // UCB-based selection
-        double ucb[2];
-        solver->heuristic = 0;
-        for (unsigned i = 0; i < solver->mab_heuristics; i++) {
-            ucb[i] = solver->mab_reward[i] / solver->mab_select[i]
-                   + sqrt(adaptive_c * log(stable_restarts + 1) / solver->mab_select[i]);
-            if (i != 0 && ucb[i] > ucb[solver->heuristic]) {
-                solver->heuristic = i;
-            }
-        }
-    }
-
-    // Update selection count for chosen heuristic
-    solver->mab_select[solver->heuristic]++;
+    UPDATE_CONFLICT_LIMIT (randec, random_sequences, LOGN, false);
+  }
 }
 
-void kissat_restart (kissat *solver) {
-  START (restart);
-  INC (restarts);
-  ADD (restarts_levels, solver->level);
-  if (solver->stable)
-    INC (stable_restarts);
+static unsigned next_random_decision (kissat *solver) {
+  if (!VARS)
+    return INVALID_IDX;
+
+  if (solver->warming)
+    return INVALID_IDX;
+
+  if (!GET_OPTION (randec))
+    return INVALID_IDX;
+
+  if (solver->stable && !GET_OPTION (randecstable))
+    return INVALID_IDX;
+
+  if (!solver->stable && !GET_OPTION (randecfocused))
+    return INVALID_IDX;
+
+  if (!solver->randec) {
+    assert (solver->level);
+    if (solver->level > 1)
+      return INVALID_IDX;
+
+    uint64_t conflicts = CONFLICTS;
+    limits *limits = &solver->limits;
+    if (conflicts < limits->randec.conflicts)
+      return INVALID_IDX;
+
+    kissat_start_random_sequence (solver);
+  }
+
+  for (;;) {
+    unsigned idx = kissat_next_random32 (&solver->random) % VARS;
+    if (!ACTIVE (idx))
+      continue;
+    unsigned lit = LIT (idx);
+    if (solver->values[lit])
+      continue;
+    return idx;
+  }
+}
+
+unsigned kissat_next_decision_variable (kissat *solver) {
+#ifdef LOGGING
+  const char *type = 0;
+#endif
+  unsigned res = next_random_decision (solver);
+  if (res == INVALID_IDX) {
+    if (solver->stable) {
+#ifdef LOGGING
+      type = "maximum score";
+#endif
+      heap* scores = kissat_get_scores (solver);
+      res = largest_score_unassigned_variable (solver,scores);
+      INC (score_decisions);
+    } else {
+#ifdef LOGGING
+      type = "dequeued";
+#endif
+      res = last_enqueued_unassigned_variable (solver);
+      INC (queue_decisions);
+    }
+  } else {
+#ifdef LOGGING
+    type = "random";
+#endif
+    INC (random_decisions);
+  }
+  LOG ("next %s decision %s", type, LOGVAR (res));
+  return res;
+}
+
+int kissat_decide_phase (kissat *solver, unsigned idx) {
+  bool force = GET_OPTION (forcephase);
+
+  value *target;
+  if (force)
+    target = 0;
+  else if (!GET_OPTION (target))
+    target = 0;
+  else if (solver->stable || GET_OPTION (target) > 1)
+    target = solver->phases.target + idx;
   else
-    INC (focused_restarts);
+    target = 0;
 
-  unsigned old_heuristic = solver->heuristic;
-  if (solver->stable && solver->mab)
-      restart_mab(solver);
-  unsigned new_heuristic = solver->heuristic;
+  value *saved;
+  if (force)
+    saved = 0;
+  else if (GET_OPTION (phasesaving))
+    saved = solver->phases.saved + idx;
+  else
+    saved = 0;
 
-  unsigned level = old_heuristic==new_heuristic?reuse_trail (solver):0;
+  value res = 0;
 
-  kissat_extremely_verbose (solver,
-                            "restarting after %" PRIu64 " conflicts"
-                            " (limit %" PRIu64 ")",
-                            CONFLICTS, solver->limits.restart.conflicts);
-  LOG ("restarting to level %u", level);
-  if (solver->stable && solver->mab) solver->heuristic = old_heuristic;
-  kissat_backtrack_in_consistent_state (solver, level);
-  if (solver->stable && solver->mab) solver->heuristic = new_heuristic;
-  if (!solver->stable)
-    kissat_update_focused_restart_limit (solver);
+  if (!solver->stable) {
+    switch ((solver->statistics.switched >> 1) & 7) {
+    case 1:
+      res = INITIAL_PHASE;
+      break;
+    case 3:
+      res = -INITIAL_PHASE;
+      break;
+    }
+  }
 
-  if (solver->stable && solver->mab && old_heuristic!=new_heuristic) kissat_update_scores(solver);
+  if (!res && target && (res = *target)) {
+    LOG ("%s uses target decision phase %d", LOGVAR (idx), (int) res);
+    INC (target_decisions);
+  }
 
-  REPORT (1, 'R');
-  STOP (restart);
+  if (!res && saved && (res = *saved)) {
+    LOG ("%s uses saved decision phase %d", LOGVAR (idx), (int) res);
+    INC (saved_decisions);
+  }
+
+  if (!res) {
+    res = INITIAL_PHASE;
+    LOG ("%s uses initial decision phase %d", LOGVAR (idx), (int) res);
+    INC (initial_decisions);
+  }
+  assert (res);
+
+  return res < 0 ? -1 : 1;
+}
+
+void kissat_decide (kissat *solver) {
+  START (decide);
+  assert (solver->unassigned);
+  if (solver->warming)
+    INC (warming_decisions);
+  else {
+    INC (decisions);
+    if (solver->stable)
+      INC (stable_decisions);
+    else
+      INC (focused_decisions);
+  }
+  solver->level++;
+  assert (solver->level != INVALID_LEVEL);
+  const unsigned idx = kissat_next_decision_variable (solver);
+  const value value = kissat_decide_phase (solver, idx);
+  unsigned lit = LIT (idx);
+  if (value < 0)
+    lit = NOT (lit);
+  kissat_push_frame (solver, lit);
+  assert (solver->level < SIZE_STACK (solver->frames));
+  LOG ("decide literal %s", LOGLIT (lit));
+  kissat_assign_decision (solver, lit);
+  STOP (decide);
+}
+
+void kissat_internal_assume (kissat *solver, unsigned lit) {
+  assert (solver->unassigned);
+  assert (!VALUE (lit));
+  solver->level++;
+  assert (solver->level != INVALID_LEVEL);
+  kissat_push_frame (solver, lit);
+  assert (solver->level < SIZE_STACK (solver->frames));
+  LOG ("assuming literal %s", LOGLIT (lit));
+  kissat_assign_decision (solver, lit);
 }
 ```
