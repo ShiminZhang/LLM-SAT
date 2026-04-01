@@ -87,11 +87,14 @@ case "$CLUSTER" in
     cc)
         EVAL_SCRIPT="src/llmsat/pipelines/evaluation.py"
         ;;
+    nb)
+        EVAL_SCRIPT="src/llmsat/pipelines/evaluation_nb.py"
+        ;;
     nersc)
         EVAL_SCRIPT="src/llmsat/pipelines/evaluation_nersc.py"
         ;;
     *)
-        echo "ERROR: cluster must be 'cc' or 'nersc', got '$CLUSTER'"
+        echo "ERROR: cluster must be 'cc', 'nb', or 'nersc', got '$CLUSTER'"
         exit 1
         ;;
 esac
@@ -99,6 +102,75 @@ POLL_INTERVAL="${POLL_INTERVAL:-120}"  # seconds between squeue checks
 M_VARIANTS="${M_VARIANTS:-3}"
 _CFG_MODEL=$(grep '^default_model:' path_config.yaml 2>/dev/null | sed 's/^default_model:[[:space:]]*//' | tr -d '"' || true)
 MODEL="${MODEL:-${_CFG_MODEL:-gemini-3-flash-preview}}"
+QUICK_EVAL="${QUICK_EVAL:-1}"
+VERIFY_PROOFS="${VERIFY_PROOFS:-1}"
+DRAT_TRIM_CMD="${DRAT_TRIM_CMD:-external/drat-trim/drat-trim}"
+PROOF_CHECK_TIMEOUT="${PROOF_CHECK_TIMEOUT:-7200}"
+PROOF_VERIFY_TIME="${PROOF_VERIFY_TIME:-02:00:00}"
+PROOF_VERIFY_MEM="${PROOF_VERIFY_MEM:-8G}"
+PROOF_VERIFY_MAX_CONCURRENT="${PROOF_VERIFY_MAX_CONCURRENT:-200}"
+
+resolve_drat_trim() {
+    local cmd="$1"
+    if [[ "$cmd" == */* ]]; then
+        if [ -x "$cmd" ]; then
+            printf '%s\n' "$cmd"
+            return 0
+        fi
+    else
+        if command -v "$cmd" >/dev/null 2>&1; then
+            command -v "$cmd"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+ensure_drat_trim_available() {
+    local resolved
+    if resolved="$(resolve_drat_trim "$DRAT_TRIM_CMD")"; then
+        DRAT_TRIM_CMD="$resolved"
+        return 0
+    fi
+
+    echo "drat-trim not available at '$DRAT_TRIM_CMD'; attempting local build..."
+    if ! make -C external/drat-trim drat-trim; then
+        echo "ERROR: failed to build drat-trim in external/drat-trim" >&2
+        return 1
+    fi
+
+    if resolved="$(resolve_drat_trim "$DRAT_TRIM_CMD")"; then
+        DRAT_TRIM_CMD="$resolved"
+        return 0
+    fi
+
+    if resolved="$(resolve_drat_trim "external/drat-trim/drat-trim")"; then
+        DRAT_TRIM_CMD="$resolved"
+        return 0
+    fi
+
+    echo "ERROR: drat-trim is still unavailable after build attempt" >&2
+    return 1
+}
+
+
+submit_proof_verification_job() {
+    local generation_tag="$1"
+    python scripts/verify_iteration_proofs.py \
+        --submit-slurm \
+        --generation_tag "$generation_tag" \
+        --benchmark_path data/benchmarks/satcomp2025 \
+        --drat_trim "$DRAT_TRIM_CMD" \
+        --check_timeout "$PROOF_CHECK_TIMEOUT" \
+        --slurm-account def-vganesh \
+        --slurm-mem "$PROOF_VERIFY_MEM" \
+        --slurm-time "$PROOF_VERIFY_TIME" \
+        --slurm-max-concurrent "$PROOF_VERIFY_MAX_CONCURRENT"
+}
+
+if [ "$VERIFY_PROOFS" = "1" ]; then
+    ensure_drat_trim_available
+fi
 
 echo "============================================"
 echo "Loop A: Leader Refinement"
@@ -109,6 +181,9 @@ echo "  Source tag:   $SOURCE_TAG"
 echo "  Init mode:    $INIT"
 echo "  Variants/leader: $M_VARIANTS"
 echo "  Model:        $MODEL"
+echo "  Quick eval:   $QUICK_EVAL"
+echo "  Verify proofs: $VERIFY_PROOFS"
+echo "  drat-trim:    $DRAT_TRIM_CMD"
 echo "  Poll interval: ${POLL_INTERVAL}s"
 if [ "$INIT" = true ]; then
     echo "  N_LEADERS:    ${N_LEADERS:-5}"
@@ -140,7 +215,7 @@ if [ "$INIT" = true ]; then
     echo "[Init Step 2] Building and submitting evaluation..."
     python "$EVAL_SCRIPT" \
         --run_all --generation_tag "$INIT_TAG" \
-        --quick-eval --batch-mode
+        $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval " )--batch-mode
 
     # Step 0c: Poll SLURM until all jobs complete
     JOB_IDS_FILE="outputs/${INIT_TAG}/submitted_job_ids.json"
@@ -179,10 +254,17 @@ except Exception as e:
     # Step 0d: Collect PAR2 results
     echo "[Init Step 4] Collecting results..."
     python "$EVAL_SCRIPT" \
-        --collect_all_results --generation_tag "$INIT_TAG" --quick-eval
+        --collect_all_results --generation_tag "$INIT_TAG" \
+        $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" )
 
     # Step 0e: Promote best member in each team
-    echo "[Init Step 5] Promoting leaders..."
+    if [ "$VERIFY_PROOFS" = "1" ]; then
+        echo "[Init Step 5] Submitting async UNSAT proof verification..."
+        submit_proof_verification_job "$INIT_TAG"
+    fi
+
+    # Step 0f: Promote best member in each team
+    echo "[Init Step 6] Promoting leaders..."
     python "$EVAL_SCRIPT" \
         --promote-leaders --generation_tag "$INIT_TAG"
 
@@ -213,7 +295,7 @@ for i in $(seq 1 "$N_ITERATIONS"); do
     echo "[Step 2] Building and submitting evaluation..."
     python "$EVAL_SCRIPT" \
         --run_all --generation_tag "$ITER_TAG" \
-        --quick-eval --batch-mode --skip-evaluated
+        $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval " )--batch-mode --skip-evaluated
 
     # Step 3: Poll SLURM until all jobs complete
     JOB_IDS_FILE="outputs/${ITER_TAG}/submitted_job_ids.json"
@@ -253,10 +335,17 @@ except Exception as e:
     # Step 4: Collect PAR2 results
     echo "[Step 4] Collecting results..."
     python "$EVAL_SCRIPT" \
-        --collect_all_results --generation_tag "$ITER_TAG" --quick-eval
+        --collect_all_results --generation_tag "$ITER_TAG" \
+        $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" )
 
-    # Step 5: Promote best member in each team
-    echo "[Step 5] Promoting leaders..."
+    # Step 5: Verify UNSAT proofs with drat-trim
+    if [ "$VERIFY_PROOFS" = "1" ]; then
+        echo "[Step 5] Submitting async UNSAT proof verification..."
+        submit_proof_verification_job "$ITER_TAG"
+    fi
+
+    # Step 6: Promote best member in each team
+    echo "[Step 6] Promoting leaders..."
     python "$EVAL_SCRIPT" \
         --promote-leaders --generation_tag "$ITER_TAG"
 

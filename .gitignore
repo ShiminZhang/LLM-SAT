@@ -22,7 +22,7 @@ path_config.yaml
 !solvers/**/code_*.build.log
 
 # Solver directories - ignore base/legacy/tooling
-solvers/base
+# solvers/base
 solvers/baseline
 solvers/test
 solvers/kissat
@@ -36,3 +36,13 @@ solvers/**/result/
 # ignore memory bank stored stuff
 src/experience_pool/data/*
 !src/experience_pool/data/.gitkeep
+# other files
+.venv/
+dumb_runner.sh
+solvers/*
+!solvers/AE_kissat2025_MAB/
+!solvers/AE_kissat2025_MAB/**
+solvers/AE_kissat2025_MAB/.embedded-git/
+!solvers/base/
+!solvers/base/**
+*.pyc

@@ -7,7 +7,7 @@ import subprocess
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 import argparse
 
 from llmsat.llmsat import (
@@ -60,6 +60,7 @@ QUICK_EVAL_TIMEOUT_SECONDS = 600
 QUICK_EVAL_WALL_TIME = "00:12:00"       
 QUICK_EVAL_PAR2_PENALTY = 1200 # 2× quick timeout
 QUICK_EVAL_BENCHMARK_LIST = "data/benchmarks/satcomp2025_quick50.txt"
+EVALUATION_SOLVER_FLAGS = "-s --check=1"
 
 INSTANCE_CATEGORIES_PATH = "data/benchmarks/instance_categories.json"
 # Baseline time threshold (seconds) for easy/hard split. Adjust as needed.
@@ -173,10 +174,10 @@ class EvaluationPipeline:
     TRACKED_STATS = [
         "conflicts", "decisions", "propagations", "restarts",
         "switched", "chronological", "reductions", "eliminated",
-        "rephased", "vivified", "walks", "reordered",
+        "rephased", "vivified", "walks", "reordered", "learning_rate", "propagation_rate"
     ]
 
-    def parse_solver_stats(self, file_path: str) -> Optional[Dict[str, int]]:
+    def parse_solver_stats(self, file_path: str) -> Optional[Dict[str, Union[int, float]]]:
         """Parse solver internal statistics from a kissat .solving.log file."""
         try:
             with open(file_path, "r") as f:
@@ -190,10 +191,11 @@ class EvaluationPipeline:
 
         stats_section = content[stats_start:]
         stats = {}
-        for match in re.finditer(r'^c\s+([\w_]+):\s+(\d+)', stats_section, re.MULTILINE):
+        for match in re.finditer(r'^c\s+([\w_]+):\s+(\d+(?:\.\d+)?)', stats_section, re.MULTILINE):
             name = match.group(1)
             if name in self.TRACKED_STATS:
-                stats[name] = int(match.group(2))
+                value = match.group(2)
+                stats[name] = float(value) if "." in value else int(value)
 
         return stats if stats else None
 
@@ -212,7 +214,7 @@ class EvaluationPipeline:
 
         logger.info(f"Collecting results from {solver_dir}")
         solving_times: Dict[str, float] = {}
-        solver_stats: Dict[str, Dict[str, int]] = {}
+        solver_stats: Dict[str, Dict[str, Union[int, float]]] = {}
         timeouts_or_errors: List[str] = []
 
         if os.path.isdir(solver_dir):
@@ -390,7 +392,7 @@ class EvaluationPipeline:
             if attempt == 0:
                 all_logs.append("\n--- ./configure ---")
                 configure_proc = subprocess.run(
-                    ["./configure"],
+                    ["./configure", "-c"],
                     cwd=solver_path,
                     capture_output=True,
                     text=True,
@@ -555,7 +557,7 @@ class EvaluationPipeline:
         timeout: int = None,
         wall_time: str = None,
         cnf_files: List[str] = None,
-        solver_flags: str = "-s",
+        solver_flags: str = EVALUATION_SOLVER_FLAGS,
     ) -> List[int]:
         """
         Submit solver evaluation using a SLURM job array.
@@ -636,6 +638,8 @@ fi
 
 CNF_FILE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$CNF_LIST")
 OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
+PROOF_DIR="${{RESULT_DIR}}/proofs"
+PROOF_FILE="${{PROOF_DIR}}/${{CNF_FILE}}.proof"
 
 if [ -z "$CNF_FILE" ]; then
     echo "ERROR: No CNF file found for array task $SLURM_ARRAY_TASK_ID"
@@ -648,11 +652,13 @@ if [ -f "$OUTPUT_FILE" ]; then
     exit 0
 fi
 
+mkdir -p "$PROOF_DIR"
+
 echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
 # Run solver with timeout, measuring CPU time (user + system) via GNU time
 "$GNU_TIME" -f "%U %S" -o "${{OUTPUT_FILE}}.time" \
-    timeout ${{TIMEOUT}}s "$SOLVER" $SOLVER_FLAGS "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+    timeout ${{TIMEOUT}}s "$SOLVER" $SOLVER_FLAGS "$BENCHMARK_PATH/$CNF_FILE" "$PROOF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
 
 if [ -f "${{OUTPUT_FILE}}.time" ]; then
@@ -664,10 +670,16 @@ fi
 
 if [ $EXIT_CODE -eq 124 ]; then
     echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+    rm -f "$PROOF_FILE"
 elif [ -z "$CPU_TIME" ]; then
     echo "ERROR: process killed (OOM or SLURM limit)" >> "$OUTPUT_FILE"
+    rm -f "$PROOF_FILE"
 else
     echo "c process-time: $CPU_TIME seconds" >> "$OUTPUT_FILE"
+    # Keep proof only for UNSAT (kissat exit code 20).
+    if [ $EXIT_CODE -ne 20 ]; then
+        rm -f "$PROOF_FILE"
+    fi
 fi
 
 echo "Solver finished with exit code $EXIT_CODE"
@@ -780,7 +792,7 @@ exit $EXIT_CODE
 TASK_LIST="{task_list_path}"
 BENCHMARK_PATH="{benchmark_path}"
 TIMEOUT={timeout}
-SOLVER_FLAGS="-s"
+SOLVER_FLAGS="{EVALUATION_SOLVER_FLAGS}"
 
 # Locate GNU time (path varies across systems; e.g. CVMFS on Compute Canada)
 GNU_TIME=$(which time 2>/dev/null)
@@ -797,6 +809,8 @@ CNF_FILE=$(echo "$TASK_LINE" | cut -f3)
 
 SOLVER="${{SOLVER_PATH}}/kissat"
 OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
+PROOF_DIR="${{RESULT_DIR}}/proofs"
+PROOF_FILE="${{PROOF_DIR}}/${{CNF_FILE}}.proof"
 
 if [ -z "$CNF_FILE" ]; then
     echo "ERROR: No task found for array task $SLURM_ARRAY_TASK_ID"
@@ -809,11 +823,13 @@ if [ -f "$OUTPUT_FILE" ]; then
     exit 0
 fi
 
+mkdir -p "$PROOF_DIR"
+
 echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
 # Run solver with timeout, measuring CPU time (user + system) via GNU time
 "$GNU_TIME" -f "%U %S" -o "${{OUTPUT_FILE}}.time" \
-    timeout ${{TIMEOUT}}s "$SOLVER" $SOLVER_FLAGS "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+    timeout ${{TIMEOUT}}s "$SOLVER" $SOLVER_FLAGS "$BENCHMARK_PATH/$CNF_FILE" "$PROOF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
 
 if [ -f "${{OUTPUT_FILE}}.time" ]; then
@@ -825,10 +841,16 @@ fi
 
 if [ $EXIT_CODE -eq 124 ]; then
     echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+    rm -f "$PROOF_FILE"
 elif [ -z "$CPU_TIME" ]; then
     echo "ERROR: process killed (OOM or SLURM limit)" >> "$OUTPUT_FILE"
+    rm -f "$PROOF_FILE"
 else
     echo "c process-time: $CPU_TIME seconds" >> "$OUTPUT_FILE"
+    # Keep proof only for UNSAT (kissat exit code 20).
+    if [ $EXIT_CODE -ne 20 ]; then
+        rm -f "$PROOF_FILE"
+    fi
 fi
 
 echo "Solver finished with exit code $EXIT_CODE"
