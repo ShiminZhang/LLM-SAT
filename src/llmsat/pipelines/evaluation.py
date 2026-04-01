@@ -204,7 +204,8 @@ class EvaluationPipeline:
         existing_code_result = get_code_result(code_id)
         algo_role = algorithm.role if algorithm else None
         solver_dir = get_solver_result_dir(algorithm_id, code_id,
-                                           generation_tag=self.generation_tag, role=algo_role)
+                                           generation_tag=self.generation_tag, role=algo_role,
+                                           mkdir=False)
         result_path = get_solver_solving_times_path(algorithm_id, code_id,
                                                     generation_tag=self.generation_tag, role=algo_role)
 
@@ -341,6 +342,7 @@ class EvaluationPipeline:
             dependency_type="afterany",
             mem="1G",
             time="00:05:00",
+            qos="regular",
         )
 
         try:
@@ -1281,14 +1283,11 @@ exit $EXIT_CODE
             leader.role = Role.MEMBER
             update_algorithm_result(leader)
 
-            # Save updated AlgorithmResult JSONs to memory bank
-            for algo in [best_member, leader]:
-                algo_dir = get_algorithm_dir(
-                    algo.id, generation_tag=self.generation_tag,
-                    role=algo.role,
-                )
-                algo.save_to_json(algo_dir)
-                logger.info(f"Saved updated AlgorithmResult JSON to {algo_dir}")
+            # NOTE: We intentionally do NOT move/re-save algorithm JSON files
+            # on disk. The leaders/ and members/ directories reflect the
+            # *original* placement at generation time and stay stable across
+            # promotions. The database is the source of truth for roles; the
+            # filesystem is only a human-readable memory bank.
 
         if dry_run:
             logger.info(f"[DRY-RUN] {promotion_count} promotion(s) would be made")

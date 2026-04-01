@@ -43,13 +43,14 @@ def get_generation_output_dir(generation_tag: str) -> str:
 
 def get_solver_result_dir(algorithm_id: str, code_id: str,
                           generation_tag: str = None, parent_id: str = None,
-                          role: Optional[Role] = None) -> str:
+                          role: Optional[Role] = None,
+                          mkdir: bool = True) -> str:
     if generation_tag is None:
         path = f"solvers/algorithm_{algorithm_id}/result/code_{code_id}/"
     else:
         role_dir = get_role_dir(role=role, parent_id=parent_id)
         path = f"solvers/{generation_tag}/{role_dir}/algorithm_{algorithm_id}/result/code_{code_id}/"
-    if not os.path.exists(path):
+    if mkdir and not os.path.exists(path):
         os.makedirs(path)
     return path
 
