@@ -322,3 +322,32 @@ Prompt files live in `data/prompts/`:
 | `leader_prompt_testing.txt` | Designer prompt for generating leader algorithms |
 | `variant_prompt.txt` | Template for generating member variants (uses `{leader_algorithm}` and `{target_step_num}` placeholders) |
 | `coder_prompt_testing.txt` | Template for translating algorithms to C code (uses `ALGORITHM_PLACEHOLDER`) |
+
+---
+
+## Validation
+To run evaluation and validation on existing best solvers from iterations:
+
+```
+PYTHONPATH=src ./run_loop_eval_success.sh <tag> <cluster> --no-clean
+```
+
+To run validation only:
+
+```
+python scripts/verify_iteration_proofs.py \
+    --submit-slurm \
+    --generation_tag "$generation_tag" \
+    --benchmark_path data/benchmarks/satcomp2025 \
+    --drat_trim "$DRAT_TRIM_CMD" \
+    --check_timeout "$PROOF_CHECK_TIMEOUT" \
+    --slurm-mem "$PROOF_VERIFY_MEM" \
+    --slurm-time "$PROOF_VERIFY_TIME" \
+    --slurm-max-concurrent "$PROOF_VERIFY_MAX_CONCURRENT"
+```
+
+The run_loop_a.sh will automatically call validation after each iteration too. (only tested on rescale env, further testing needed.)
+
+After all validation jobs are done, there will be multiple proof_verification_xxx.json in outputs/tag/ directory. All invalid (solver,formula) runs for an iteration will be recorded in proof_verification_invalid.json. They should be empty for valid solvers. 
+
+Complete results including verification timeout and verification mem-kill warning will be in proof_verification.json.
