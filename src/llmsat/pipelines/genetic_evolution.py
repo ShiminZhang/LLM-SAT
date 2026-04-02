@@ -37,6 +37,7 @@ import argparse
 import json
 import os
 import re
+import time
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -2126,6 +2127,25 @@ def save_selected_to_output_tag(
             f"(PAR2={ind.par2:.2f}, parent_id reset to None in DB)"
         )
 
+def _save_timing_log(timing: Dict[str, Any], output_dir: str, filename: str = "timing_log.json") -> None:
+    """Append a timing record to the timing log JSON in output_dir."""
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, filename)
+    records = []
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                records = json.load(f)
+            if not isinstance(records, list):
+                records = [records]
+        except Exception:
+            records = []
+    records.append(timing)
+    with open(path, "w") as f:
+        json.dump(records, f, indent=2)
+    logger.info(f"[TIMING] Saved timing log to {path}")
+
+
 def assert_output_tag_empty(table_name: str, output_tag: str) -> None:
     """
     Ensure output_tag has no existing entries before final write.
@@ -2223,6 +2243,15 @@ def run_evolution(
     logger.info(f"Evolution pipeline: {generation_tag} -> {output_tag}")
     logger.info(f"Output directory: {output_dir}")
     logger.info(f"Max iterations: {max_iterations}")
+
+    _t_run_start = time.time()
+    _timing: Dict[str, Any] = {
+        "output_tag": output_tag,
+        "generation_tag": generation_tag,
+        "timestamp": datetime.now().isoformat(),
+        "script": "genetic_evolution",
+        "iterations": [],
+    }
 
     summary: Dict[str, Any] = {
         "generation_tag": generation_tag,
@@ -2507,6 +2536,7 @@ def run_evolution(
     # ------------------------------------------------------------------
     # Stage 2: Causal Analysis (once on the initial population)
     # ------------------------------------------------------------------
+    _t0 = time.time()
     if skip_causal:
         logger.info("Skipping causal analysis, loading from file")
         if not causal_reports:
@@ -2547,6 +2577,8 @@ def run_evolution(
             logger.info(f"All {len(population)} individuals already have causal reports, skipping generation")
         save_causal_reports(causal_reports, output_dir)
 
+    _timing["initial_causal_analysis_s"] = round(time.time() - _t0, 2)
+    logger.info(f"[TIMING] Initial causal analysis: {_timing['initial_causal_analysis_s']}s")
     summary["causal_reports_count"] = len(causal_reports)
 
     if causal_only:
@@ -2579,6 +2611,8 @@ def run_evolution(
             "population_size": len(current_population),
             "best_par2_entering": best_par2_so_far,
         }
+        _iter_timing: Dict[str, Any] = {"iteration": iteration + 1}
+        _t_iter_start = time.time()
 
         # Generate causal reports for any new members of current_population
         # that don't already have one (e.g. top-tier offspring from prior iterations)
@@ -2586,6 +2620,7 @@ def run_evolution(
             ind for ind in current_population
             if ind.algorithm_id not in causal_reports
         ]
+        _t0 = time.time()
         if missing_causal:
             logger.info(
                 f"Generating causal reports for {len(missing_causal)} new population members "
@@ -2594,11 +2629,14 @@ def run_evolution(
             new_causal = generate_causal_reports(missing_causal, model=model, baseline_par2=baseline_par2)
             causal_reports.update(new_causal)
             save_causal_reports(causal_reports, output_dir)
+        _iter_timing["causal_analysis_s"] = round(time.time() - _t0, 2)
+        logger.info(f"[TIMING] Iter {iteration+1} causal analysis: {_iter_timing['causal_analysis_s']}s")
 
         # Stage 3: LLM-proposed combinations
         # The LLM receives all leaders + their causal analyses and proposes the top-k
         # most promising pairs. For large populations, minibatching is used.
         effective_top_k = top_k if top_k is not None else 5
+        _t0 = time.time()
         proposals_with_pairs = propose_combinations_llm(
             current_population,
             causal_reports,
@@ -2618,6 +2656,8 @@ def run_evolution(
         proposals = [p for p, _, _ in proposals_with_pairs]
         pairs = [(pa, pb) for _, pa, pb in proposals_with_pairs]
 
+        _iter_timing["combination_proposal_s"] = round(time.time() - _t0, 2)
+        logger.info(f"[TIMING] Iter {iteration+1} combination proposal: {_iter_timing['combination_proposal_s']}s")
         save_combination_proposals(proposals, output_dir, iteration=iteration + 1)
 
         iter_summary["combination_proposals"] = {
@@ -2631,11 +2671,16 @@ def run_evolution(
         if not pairs:
             logger.warning("No combination proposals generated, stopping loop")
             iter_summary["status"] = "no_proposals"
+            _iter_timing["iter_total_s"] = round(time.time() - _t_iter_start, 2)
+            _timing["iterations"].append(_iter_timing)
             summary["iterations"].append(iter_summary)
             break
 
         # Stage 4: Crossover — generate offspring algorithm for each proposed pair
+        _t0 = time.time()
         offspring_list = perform_crossover(pairs, causal_reports, model=model)
+        _iter_timing["crossover_s"] = round(time.time() - _t0, 2)
+        logger.info(f"[TIMING] Iter {iteration+1} crossover: {_iter_timing['crossover_s']}s")
         save_crossover_results(offspring_list, output_dir, iteration=iteration + 1)
 
         iter_summary["crossover"] = {
@@ -2646,15 +2691,20 @@ def run_evolution(
         if not offspring_list:
             logger.warning("No offspring from crossover, stopping loop")
             iter_summary["status"] = "no_offspring"
+            _iter_timing["iter_total_s"] = round(time.time() - _t_iter_start, 2)
+            _timing["iterations"].append(_iter_timing)
             summary["iterations"].append(iter_summary)
             break
 
         # Stage 5: Code generation for all offspring (LLM already filtered via proposals)
         # Pass current_population so parent C code can be included as reference
         filtered_offspring = offspring_list  # all proposed offspring proceed to code gen
+        _t0 = time.time()
         offspring_codes = generate_offspring_code(
             filtered_offspring, code_prompt_path, model=model, population=current_population
         )
+        _iter_timing["code_generation_s"] = round(time.time() - _t0, 2)
+        logger.info(f"[TIMING] Iter {iteration+1} code generation: {_iter_timing['code_generation_s']}s")
         save_offspring_codes(offspring_codes, output_dir, iteration=iteration + 1)
 
         iter_summary["code_generation"] = {
@@ -2682,6 +2732,8 @@ def run_evolution(
             if submit_only:
                 logger.info("submit_only=True: SLURM jobs submitted, stopping here. Run --collect_results after jobs finish.")
                 iter_summary["status"] = "submitted"
+                _iter_timing["iter_total_s"] = round(time.time() - _t_iter_start, 2)
+                _timing["iterations"].append(_iter_timing)
                 summary["iterations"].append(iter_summary)
                 break
 
@@ -2768,6 +2820,8 @@ def run_evolution(
                         "No PAR2 scores available yet (SLURM may not have completed). "
                         "Consider re-running after SLURM jobs finish."
                     )
+                    _iter_timing["iter_total_s"] = round(time.time() - _t_iter_start, 2)
+                    _timing["iterations"].append(_iter_timing)
                     summary["iterations"].append(iter_summary)
                     break
 
@@ -2781,10 +2835,15 @@ def run_evolution(
             iter_summary["evaluation"] = "skipped"
             iter_summary["par2_selection"] = "skipped (no evaluation)"
             iter_summary["status"] = "eval_skipped"
+            _iter_timing["iter_total_s"] = round(time.time() - _t_iter_start, 2)
+            _timing["iterations"].append(_iter_timing)
             summary["iterations"].append(iter_summary)
             # Without evaluation we can't loop meaningfully
             break
 
+        _iter_timing["iter_total_s"] = round(time.time() - _t_iter_start, 2)
+        logger.info(f"[TIMING] Iter {iteration+1} total: {_iter_timing['iter_total_s']}s")
+        _timing["iterations"].append(_iter_timing)
         summary["iterations"].append(iter_summary)
 
         # Check stopping condition: no improvement in this iteration
@@ -2814,6 +2873,10 @@ def run_evolution(
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
     logger.info(f"Saved evolution summary to {summary_path}")
+
+    _timing["total_s"] = round(time.time() - _t_run_start, 2)
+    logger.info(f"[TIMING] run_evolution total: {_timing['total_s']}s")
+    _save_timing_log(_timing, output_dir)
 
     return summary
 

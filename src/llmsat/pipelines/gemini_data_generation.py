@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from llmsat.utils.gemini_helper import (
@@ -305,6 +306,25 @@ def parse_code_response(response: Dict[str, Any]) -> str:
     return full_text
 
 
+def _save_timing_log(timing: Dict[str, Any], output_dir: str, filename: str = "timing_log.json") -> None:
+    """Append a timing record to the timing log JSON in output_dir."""
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, filename)
+    records = []
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                records = json.load(f)
+            if not isinstance(records, list):
+                records = [records]
+        except Exception:
+            records = []
+    records.append(timing)
+    with open(path, "w") as f:
+        json.dump(records, f, indent=2)
+    logger.info(f"[TIMING] Saved timing log to {path}")
+
+
 def _generate_team_data_sync(
     designer_prompt_path: str,
     variant_prompt_path: str,
@@ -324,6 +344,13 @@ def _generate_team_data_sync(
         "You are an AI researcher specialising in SAT solver heuristics.",
     )
 
+    _t_total_start = time.time()
+    _timing: Dict[str, Any] = {
+        "generation_tag": generation_tag,
+        "timestamp": datetime.now().isoformat(),
+        "script": "gemini_data_generation",
+    }
+
     # Step 1: Generate Team Leaders
     logger.info(f"[sync] Generating {n_leaders} Team Leaders")
     leader_ids = []
@@ -334,6 +361,7 @@ def _generate_team_data_sync(
         0.5 + (1.0 - 0.5) * i / max(n_leaders - 1, 1) for i in range(n_leaders)
     ]
 
+    _t0 = time.time()
     for i in range(n_leaders):
         logger.info(f"[sync] Leader {i+1}/{n_leaders} (temp={temperatures[i]:.2f})")
         raw_text = get_response_from_gemini(
@@ -364,12 +392,15 @@ def _generate_team_data_sync(
             prompt=designer_prompt,
         ))
 
+    _timing["leader_generation_s"] = round(time.time() - _t0, 2)
+    logger.info(f"[TIMING] Leader generation: {_timing['leader_generation_s']}s")
     logger.info(f"[sync] Generated {len(leader_ids)} Team Leaders")
 
     # Step 2: Generate Team Members
     logger.info(f"[sync] Generating {m_variants_per_leader} Team Members per leader")
     member_ids = []
 
+    _t0 = time.time()
     for leader_id in leader_ids:
         leader_algorithm = leader_descriptions[leader_id]
         num_steps = count_steps(leader_algorithm)
@@ -416,6 +447,8 @@ def _generate_team_data_sync(
                 prompt=variant_prompt_template,
             ))
 
+    _timing["member_generation_s"] = round(time.time() - _t0, 2)
+    logger.info(f"[TIMING] Member generation: {_timing['member_generation_s']}s")
     logger.info(f"[sync] Generated {len(member_ids)} Team Members")
 
     # Step 3: Generate code for all algorithms that don't have code yet
@@ -428,6 +461,7 @@ def _generate_team_data_sync(
 
     logger.info(f"[sync] Generating code for {len(codeless_ids)}/{len(all_algorithm_ids)} algorithms (skipping {len(all_algorithm_ids) - len(codeless_ids)} with existing code)")
 
+    _t0 = time.time()
     for idx, algorithm_id in enumerate(codeless_ids):
         logger.info(f"[sync] Code {idx+1}/{len(codeless_ids)} for {algorithm_id[:16]}...")
         algorithm_result = get_algorithm_result(algorithm_id)
@@ -454,6 +488,13 @@ def _generate_team_data_sync(
         algorithm_result.code_id_list.append(code_id)
         algorithm_result.status = AlgorithmStatus.CodeGenerated
         update_algorithm_result(algorithm_result)
+
+    _timing["code_generation_s"] = round(time.time() - _t0, 2)
+    _timing["total_s"] = round(time.time() - _t_total_start, 2)
+    logger.info(f"[TIMING] Code generation: {_timing['code_generation_s']}s")
+    logger.info(f"[TIMING] Total: {_timing['total_s']}s")
+    output_dir = get_generation_output_dir(generation_tag)
+    _save_timing_log(_timing, output_dir)
 
     logger.info(f"[sync] Code generation complete for {len(codeless_ids)} algorithms")
 
