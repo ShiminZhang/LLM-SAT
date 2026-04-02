@@ -126,6 +126,8 @@ while IFS= read -r CNF_FILE; do
         fi
 
         OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
+        PROOF_DIR="${{RESULT_DIR}}/proofs"
+        PROOF_FILE="${{PROOF_DIR}}/${{CNF_FILE}}.proof"
 
         # Skip if already done
         if [ -f "$OUTPUT_FILE" ]; then
@@ -133,19 +135,26 @@ while IFS= read -r CNF_FILE; do
             exit 0
         fi
 
+        mkdir -p "$PROOF_DIR"
+
         echo "Running solver on $CNF_FILE"
 
         # Run solver with timeout, capturing wall-clock time
         START_TIME=$(date +%s.%N)
-        timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+        timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" "$PROOF_FILE" > "$OUTPUT_FILE" 2>&1
         EXIT_CODE=$?
         END_TIME=$(date +%s.%N)
         ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
 
         if [ $EXIT_CODE -eq 124 ]; then
             echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+            rm -f "$PROOF_FILE"
         else
             echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
+            # Keep proof only for UNSAT (kissat exit code 20).
+            if [ $EXIT_CODE -ne 20 ]; then
+                rm -f "$PROOF_FILE"
+            fi
         fi
     ) &
 done < <(sed -n "${{START_LINE}},${{END_LINE}}p" "$CNF_LIST")
@@ -264,6 +273,8 @@ while IFS=$'\\t' read -r SOLVER_PATH RESULT_DIR CNF_FILE; do
 
         SOLVER="${{SOLVER_PATH}}/kissat"
         OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
+        PROOF_DIR="${{RESULT_DIR}}/proofs"
+        PROOF_FILE="${{PROOF_DIR}}/${{CNF_FILE}}.proof"
 
         # Skip if already done
         if [ -f "$OUTPUT_FILE" ]; then
@@ -271,19 +282,26 @@ while IFS=$'\\t' read -r SOLVER_PATH RESULT_DIR CNF_FILE; do
             exit 0
         fi
 
+        mkdir -p "$PROOF_DIR"
+
         echo "Running solver on $CNF_FILE"
 
         # Run solver with timeout, capturing wall-clock time
         START_TIME=$(date +%s.%N)
-        timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" > "$OUTPUT_FILE" 2>&1
+        timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" "$PROOF_FILE" > "$OUTPUT_FILE" 2>&1
         EXIT_CODE=$?
         END_TIME=$(date +%s.%N)
         ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
 
         if [ $EXIT_CODE -eq 124 ]; then
             echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+            rm -f "$PROOF_FILE"
         else
             echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
+            # Keep proof only for UNSAT (kissat exit code 20).
+            if [ $EXIT_CODE -ne 20 ]; then
+                rm -f "$PROOF_FILE"
+            fi
         fi
     ) &
 done < <(sed -n "${{START_LINE}},${{END_LINE}}p" "$TASK_LIST")

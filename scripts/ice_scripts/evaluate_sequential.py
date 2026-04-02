@@ -301,7 +301,7 @@ def build_solver(code_result: CodeResult) -> Optional[str]:
     # Compile solver
     try:
         configure_proc = subprocess.run(
-            ["./configure"],
+            ["./configure", "-c"],
             cwd=new_solver_path,
             capture_output=True,
             text=True,

@@ -62,3 +62,42 @@ def get_solver_solving_times_path(algorithm_id: str, code_id: str,
         return f"solvers/algorithm_{algorithm_id}/solving_times_{code_id}.json"
     role_dir = get_role_dir(role=role, parent_id=parent_id)
     return f"solvers/{generation_tag}/{role_dir}/algorithm_{algorithm_id}/solving_times_{code_id}.json"
+
+
+def get_solver_proof_dir(
+    algorithm_id: str,
+    code_id: str,
+    generation_tag: str = None,
+    parent_id: str = None,
+    create_dir: bool = True,
+) -> str:
+    """Return directory for benchmark proof files of one generated solver."""
+    base_result_dir = get_solver_result_dir(
+        algorithm_id,
+        code_id,
+        generation_tag=generation_tag,
+        parent_id=parent_id,
+    )
+    path = os.path.join(base_result_dir, "proofs")
+    if create_dir and not os.path.exists(path):
+        os.makedirs(path)
+    return path
+
+
+def get_solver_proof_path(
+    algorithm_id: str,
+    code_id: str,
+    benchmark_file: str,
+    generation_tag: str = None,
+    parent_id: str = None,
+    create_dir: bool = True,
+) -> str:
+    """Return proof file path for one (solver, benchmark CNF) run."""
+    proof_dir = get_solver_proof_dir(
+        algorithm_id,
+        code_id,
+        generation_tag=generation_tag,
+        parent_id=parent_id,
+        create_dir=create_dir,
+    )
+    return os.path.join(proof_dir, f"{benchmark_file}.proof")
