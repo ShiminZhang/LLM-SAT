@@ -74,8 +74,8 @@ esac
 POLL_INTERVAL="${POLL_INTERVAL:-120}"
 DRAT_TRIM_CMD="${DRAT_TRIM_CMD:-external/drat-trim/drat-trim}"
 PROOF_CHECK_TIMEOUT="${PROOF_CHECK_TIMEOUT:-7200}"
-PROOF_VERIFY_TIME="${PROOF_VERIFY_TIME:-02:00:00}"
-PROOF_VERIFY_MEM="${PROOF_VERIFY_MEM:-8G}"
+PROOF_VERIFY_TIME="${PROOF_VERIFY_TIME:-03:00:00}"
+PROOF_VERIFY_MEM="${PROOF_VERIFY_MEM:-10G}"
 PROOF_VERIFY_MAX_CONCURRENT="${PROOF_VERIFY_MAX_CONCURRENT:-200}"
 SUCCESS_PAIRS_PATH="outputs/${GENERATION_TAG}/best_solver_pairs.json"
 
@@ -133,11 +133,61 @@ from pathlib import Path
 generation_tag = sys.argv[1]
 output_path = Path(sys.argv[2])
 par2_path = Path(f"outputs/{generation_tag}/par2_scores.txt")
+solvers_root = Path(f"solvers/{generation_tag}")
 
 if not par2_path.exists():
     raise SystemExit(f"ERROR: missing {par2_path}; cannot locate BEST solvers")
 
 line_re = re.compile(r"^\s+\[(?P<role>[LM])\]\s+(?P<algorithm_id>\S+)\s+(?P<code_id>\S+)\s+PAR2:")
+
+
+def resolve_pair(algorithm_prefix: str, code_prefix: str, reported_role: str) -> dict:
+    matches = []
+    role_candidates = ["leaders", "members"]
+    preferred_roles = [reported_role] + [role for role in role_candidates if role != reported_role]
+
+    for role_dir in preferred_roles:
+        role_root = solvers_root / role_dir
+        if not role_root.exists():
+            continue
+        for algorithm_dir in sorted(role_root.glob(f"algorithm_{algorithm_prefix}*")):
+            if not algorithm_dir.is_dir():
+                continue
+            for solver_dir in sorted(algorithm_dir.glob(f"code_{code_prefix}*")):
+                if not solver_dir.is_dir():
+                    continue
+                matches.append(
+                    {
+                        "algorithm_id": algorithm_dir.name.removeprefix("algorithm_"),
+                        "code_id": solver_dir.name.removeprefix("code_"),
+                        "role": role_dir,
+                    }
+                )
+
+    unique_matches = []
+    seen = set()
+    for match in matches:
+        key = (match["algorithm_id"], match["code_id"], match["role"])
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_matches.append(match)
+
+    if len(unique_matches) == 1:
+        return unique_matches[0]
+
+    if not unique_matches:
+        raise SystemExit(
+            "ERROR: could not resolve BEST solver prefixes "
+            f"algorithm={algorithm_prefix} code={code_prefix} under {solvers_root}"
+        )
+
+    raise SystemExit(
+        "ERROR: ambiguous BEST solver prefixes "
+        f"algorithm={algorithm_prefix} code={code_prefix}: {unique_matches}"
+    )
+
+
 pairs = []
 seen = set()
 
@@ -148,20 +198,16 @@ for raw_line in par2_path.read_text().splitlines():
     if not match:
         continue
 
-    algorithm_id = match.group("algorithm_id")
-    code_id = match.group("code_id")
-    role = "leaders" if match.group("role") == "L" else "members"
-    key = (algorithm_id, code_id)
+    resolved = resolve_pair(
+        match.group("algorithm_id"),
+        match.group("code_id"),
+        "leaders" if match.group("role") == "L" else "members",
+    )
+    key = (resolved["algorithm_id"], resolved["code_id"], resolved["role"])
     if key in seen:
         continue
     seen.add(key)
-    pairs.append(
-        {
-            "algorithm_id": algorithm_id,
-            "code_id": code_id,
-            "role": role,
-        }
-    )
+    pairs.append(resolved)
 
 output_path.write_text(json.dumps(pairs, indent=2))
 print(f"Selected {len(pairs)} team-best code entries from {par2_path}")
@@ -252,7 +298,7 @@ if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
 from llmsat.llmsat import setup_logging
-from llmsat.utils.aws import get_algorithm_result
+from llmsat.utils.aws import get_algorithm_result, get_code_result
 
 generation_tag = sys.argv[1]
 module_name = sys.argv[2]
@@ -269,17 +315,20 @@ pipeline = pipeline_cls(generation_tag=generation_tag)
 pairs = json.loads(pairs_path.read_text())
 grouped = OrderedDict()
 for pair in pairs:
-    grouped.setdefault(pair["algorithm_id"], []).append(pair["code_id"])
+    code_result = get_code_result(pair["code_id"])
+    if code_result is None:
+        print(f"WARNING: missing code result for {pair['code_id']}, skipping")
+        continue
+    grouped.setdefault(code_result.algorithm_id, []).append(code_result.id)
 
 algorithms = []
 for algorithm_id, code_ids in grouped.items():
     algorithm = get_algorithm_result(algorithm_id)
     if algorithm is None:
+        print(f"WARNING: missing algorithm result for {algorithm_id}, skipping")
         continue
-    filtered_ids = [code_id for code_id in algorithm.code_id_list or [] if code_id in set(code_ids)]
-    if not filtered_ids:
-        continue
-    algorithms.append(replace(algorithm, code_id_list=filtered_ids))
+    unique_code_ids = list(OrderedDict.fromkeys(code_ids))
+    algorithms.append(replace(algorithm, code_id_list=unique_code_ids))
 
 print(
     f"Launching full evaluation for {len(algorithms)} algorithms / "
