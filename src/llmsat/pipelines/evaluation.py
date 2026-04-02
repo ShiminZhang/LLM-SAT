@@ -231,6 +231,11 @@ class EvaluationPipeline:
                     instance_stats = self.parse_solver_stats(log_path)
                     if instance_stats:
                         solver_stats[instance_name] = instance_stats
+                    mtime = os.path.getmtime(log_path)
+                    if min_mtime is None or mtime < min_mtime:
+                        min_mtime = mtime
+                    if max_mtime is None or mtime > max_mtime:
+                        max_mtime = mtime
         else:
             logger.warning(f"Solver directory missing: {solver_dir}")
 
@@ -270,6 +275,25 @@ class EvaluationPipeline:
         with open(result_path, "w") as f:
             json.dump(solving_times, f)
         logger.info(f"Wrote solving times to {result_path}")
+
+        # Append wall-clock timing entry to solver_timing_log.json
+        if min_mtime is not None and max_mtime is not None and self.generation_tag:
+            timing_log_path = os.path.join(get_generation_output_dir(self.generation_tag), "solver_timing_log.json")
+            timing_entries = []
+            if os.path.exists(timing_log_path):
+                try:
+                    with open(timing_log_path) as f:
+                        timing_entries = json.load(f)
+                except Exception:
+                    pass
+            timing_entries.append({
+                "alg_id": algorithm_id,
+                "solver_time": max_mtime - min_mtime,
+                "leader_flag": parent_id is None,
+            })
+            with open(timing_log_path, "w") as f:
+                json.dump(timing_entries, f, indent=2)
+            logger.info(f"Appended timing entry for {algorithm_id} to {timing_log_path}")
 
         if solver_stats:
             stats_path = result_path.replace("solving_times_", "solver_stats_")
