@@ -508,6 +508,8 @@ def generate_team_data(
     m_variants_per_leader: int = 3,
     model: str = DEFAULT_MODEL,
     sync: bool = False,
+    parallel: bool = False,
+    quick_eval: bool = True,
 ):
     """
     Generate team-based algorithm data and code using Gemini:
@@ -524,10 +526,29 @@ def generate_team_data(
         m_variants_per_leader: Number of Team Member variants per leader
         model: Gemini model to use
         sync: If True, use synchronous API calls instead of batch (faster for small runs)
+        parallel: If True, use streaming parallel pipeline (gen + build + submit)
+        quick_eval: Use quick-eval mode for SLURM evaluation
     """
     if generation_tag is None:
         logger.error("Generation tag is None")
         return
+
+    if parallel:
+        from llmsat.pipelines.parallel_orchestrator import run_streaming_init
+
+        designer_prompt = read_prompt_file(designer_prompt_path)
+        variant_prompt_template = read_prompt_file(variant_prompt_path)
+        code_prompt_template = read_prompt_file(code_prompt_template_path)
+        return run_streaming_init(
+            designer_prompt=designer_prompt,
+            variant_prompt_template=variant_prompt_template,
+            code_prompt_template=code_prompt_template,
+            generation_tag=generation_tag,
+            n_leaders=n_leaders,
+            m_variants_per_leader=m_variants_per_leader,
+            model=model,
+            quick_eval=quick_eval,
+        )
 
     if sync:
         return _generate_team_data_sync(
@@ -1165,6 +1186,8 @@ def generate_mutants_for_leaders(
     m_variants_per_leader: int = 3,
     model: str = DEFAULT_MODEL,
     sync: bool = False,
+    parallel: bool = False,
+    quick_eval: bool = True,
 ):
     """
     Generate mutant variants + code for existing leaders (no new leader generation).
@@ -1209,7 +1232,19 @@ def generate_mutants_for_leaders(
     variant_prompt_template = read_prompt_file(variant_prompt_path)
     code_prompt_template = read_prompt_file(code_prompt_template_path)
 
-    if sync:
+    if parallel:
+        from llmsat.pipelines.parallel_orchestrator import run_streaming_mutants
+
+        result = run_streaming_mutants(
+            leaders=leaders,
+            variant_prompt_template=variant_prompt_template,
+            code_prompt_template=code_prompt_template,
+            generation_tag=output_generation_tag,
+            m_variants_per_leader=m_variants_per_leader,
+            model=model,
+            quick_eval=quick_eval,
+        )
+    elif sync:
         result = _generate_mutants_sync(
             leaders=leaders,
             variant_prompt_template=variant_prompt_template,
@@ -1367,6 +1402,12 @@ def main():
                         help="Gemini model to use")
     parser.add_argument("--sync", action="store_true",
                         help="Use synchronous API calls instead of batch")
+    parser.add_argument("--parallel", action="store_true",
+                        help="Streaming parallel pipeline (generate + build + SLURM submit)")
+    parser.add_argument("--quick-eval", action="store_true", default=True,
+                        help="Use quick-eval mode for SLURM evaluation (default: True)")
+    parser.add_argument("--no-quick-eval", action="store_false", dest="quick_eval",
+                        help="Use full evaluation mode")
 
     args = parser.parse_args()
 
@@ -1384,6 +1425,8 @@ def main():
             m_variants_per_leader=args.m_variants,
             model=args.model,
             sync=args.sync,
+            parallel=args.parallel,
+            quick_eval=args.quick_eval,
         )
     else:
         generate_team_data(
@@ -1395,6 +1438,8 @@ def main():
             m_variants_per_leader=args.m_variants,
             model=args.model,
             sync=args.sync,
+            parallel=args.parallel,
+            quick_eval=args.quick_eval,
         )
 
 
