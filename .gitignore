@@ -22,7 +22,7 @@ path_config.yaml
 !solvers/**/code_*.build.log
 
 # Solver directories - ignore base/legacy/tooling
-solvers/base
+# solvers/base
 solvers/baseline
 solvers/test
 solvers/kissat
@@ -36,5 +36,10 @@ solvers/**/result/
 # other files
 .venv/
 dumb_runner.sh
-solvers/
+solvers/*
+!solvers/AE_kissat2025_MAB/
+!solvers/AE_kissat2025_MAB/**
+solvers/AE_kissat2025_MAB/.embedded-git/
+!solvers/base/
+!solvers/base/**
 *.pyc
