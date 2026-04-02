@@ -1,0 +1,1735 @@
+Initializing ExperiencePoolManager...
+2026-03-30 09:11:54 INFO     HTTP Request: HEAD                                                         _client.py:1025
+                             https://huggingface.co/Qwen/Qwen3-Embedding-0.6B/resolve/main/config.json                 
+                             "HTTP/1.1 307 Temporary Redirect"                                                         
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+                    WARNING  Warning: You are sending unauthenticated requests to the HF Hub. Please set a _http.py:779
+                             HF_TOKEN to enable higher rate limits and faster downloads.                               
+                    INFO     HTTP Request: HEAD                                                         _client.py:1025
+                             https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-Embedding-0.6B/                
+                             c54f2e6e80b2d7b7de06f51cec4959f6b3e03418/config.json "HTTP/1.1 200 OK"                    
+                    INFO     HTTP Request: HEAD                                                         _client.py:1025
+                             https://huggingface.co/Qwen/Qwen3-Embedding-0.6B/resolve/main/tokenizer_co                
+                             nfig.json "HTTP/1.1 307 Temporary Redirect"                                               
+                    INFO     HTTP Request: HEAD                                                         _client.py:1025
+                             https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-Embedding-0.6B/                
+                             c54f2e6e80b2d7b7de06f51cec4959f6b3e03418/tokenizer_config.json "HTTP/1.1                  
+                             200 OK"                                                                                   
+                    INFO     HTTP Request: GET                                                          _client.py:1025
+                             https://huggingface.co/api/models/Qwen/Qwen3-Embedding-0.6B/tree/main/addi                
+                             tional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not                      
+                             Found"                                                                                    
+                    INFO     HTTP Request: GET                                                          _client.py:1025
+                             https://huggingface.co/api/models/Qwen/Qwen3-Embedding-0.6B/tree/main?recu                
+                             rsive=true&expand=false "HTTP/1.1 200 OK"                                                 
+2026-03-30 09:11:55 INFO     HTTP Request: GET                                                          _client.py:1025
+                             https://huggingface.co/api/models/Qwen/Qwen3-Embedding-0.6B "HTTP/1.1 200                 
+                             OK"                                                                                       
+                    INFO     HTTP Request: HEAD                                                         _client.py:1025
+                             https://huggingface.co/Qwen/Qwen3-Embedding-0.6B/resolve/main/config.json                 
+                             "HTTP/1.1 307 Temporary Redirect"                                                         
+                    INFO     HTTP Request: HEAD                                                         _client.py:1025
+                             https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-Embedding-0.6B/                
+                             c54f2e6e80b2d7b7de06f51cec4959f6b3e03418/config.json "HTTP/1.1 200 OK"                    
+Loading weights:   0%|          | 0/310 [00:00<?, ?it/s]Loading weights:   0%|          | 1/310 [00:00<00:00, 18641.35it/s, Materializing param=embed_tokens.weight]Loading weights:   0%|          | 1/310 [00:00<00:00, 9078.58it/s, Materializing param=embed_tokens.weight] Loading weights:   1%|          | 2/310 [00:00<00:00, 8322.03it/s, Materializing param=layers.0.input_layernorm.weight]Loading weights:   1%|          | 2/310 [00:00<00:00, 6990.51it/s, Materializing param=layers.0.input_layernorm.weight]Loading weights:   1%|          | 3/310 [00:00<00:00, 7839.82it/s, Materializing param=layers.0.mlp.down_proj.weight]  Loading weights:   1%|          | 3/310 [00:00<00:00, 7092.96it/s, Materializing param=layers.0.mlp.down_proj.weight]Loading weights:   1%|▏         | 4/310 [00:00<00:00, 7605.27it/s, Materializing param=layers.0.mlp.gate_proj.weight]Loading weights:   1%|▏         | 4/310 [00:00<00:00, 7019.76it/s, Materializing param=layers.0.mlp.gate_proj.weight]Loading weights:   2%|▏         | 5/310 [00:00<00:00, 7006.86it/s, Materializing param=layers.0.mlp.up_proj.weight]  Loading weights:   2%|▏         | 5/310 [00:00<00:00, 6615.62it/s, Materializing param=layers.0.mlp.up_proj.weight]Loading weights:   2%|▏         | 6/310 [00:00<00:00, 7177.93it/s, Materializing param=layers.0.post_attention_layernorm.weight]Loading weights:   2%|▏         | 6/310 [00:00<00:00, 6840.40it/s, Materializing param=layers.0.post_attention_layernorm.weight]Loading weights:   2%|▏         | 7/310 [00:00<00:00, 7169.75it/s, Materializing param=layers.0.self_attn.k_norm.weight]        Loading weights:   2%|▏         | 7/310 [00:00<00:00, 6883.97it/s, Materializing param=layers.0.self_attn.k_norm.weight]Loading weights:   3%|▎         | 8/310 [00:00<00:00, 7189.72it/s, Materializing param=layers.0.self_attn.k_proj.weight]Loading weights:   3%|▎         | 8/310 [00:00<00:00, 6938.47it/s, Materializing param=layers.0.self_attn.k_proj.weight]Loading weights:   3%|▎         | 9/310 [00:00<00:00, 7216.35it/s, Materializing param=layers.0.self_attn.o_proj.weight]Loading weights:   3%|▎         | 9/310 [00:00<00:00, 6998.28it/s, Materializing param=layers.0.self_attn.o_proj.weight]Loading weights:   3%|▎         | 10/310 [00:00<00:00, 7232.81it/s, Materializing param=layers.0.self_attn.q_norm.weight]Loading weights:   3%|▎         | 10/310 [00:00<00:00, 7040.97it/s, Materializing param=layers.0.self_attn.q_norm.weight]Loading weights:   4%|▎         | 11/310 [00:00<00:00, 7268.01it/s, Materializing param=layers.0.self_attn.q_proj.weight]Loading weights:   4%|▎         | 11/310 [00:00<00:00, 7088.24it/s, Materializing param=layers.0.self_attn.q_proj.weight]Loading weights:   4%|▍         | 12/310 [00:00<00:00, 7240.92it/s, Materializing param=layers.0.self_attn.v_proj.weight]Loading weights:   4%|▍         | 12/310 [00:00<00:00, 7076.01it/s, Materializing param=layers.0.self_attn.v_proj.weight]Loading weights:   4%|▍         | 13/310 [00:00<00:00, 4867.08it/s, Materializing param=layers.1.input_layernorm.weight] Loading weights:   4%|▍         | 13/310 [00:00<00:00, 4791.81it/s, Materializing param=layers.1.input_layernorm.weight]Loading weights:   5%|▍         | 14/310 [00:00<00:00, 4987.28it/s, Materializing param=layers.1.mlp.down_proj.weight]  Loading weights:   5%|▍         | 14/310 [00:00<00:00, 4919.18it/s, Materializing param=layers.1.mlp.down_proj.weight]Loading weights:   5%|▍         | 15/310 [00:00<00:00, 5102.97it/s, Materializing param=layers.1.mlp.gate_proj.weight]Loading weights:   5%|▍         | 15/310 [00:00<00:00, 5037.60it/s, Materializing param=layers.1.mlp.gate_proj.weight]Loading weights:   5%|▌         | 16/310 [00:00<00:00, 4752.08it/s, Materializing param=layers.1.mlp.up_proj.weight]  Loading weights:   5%|▌         | 16/310 [00:00<00:00, 4697.86it/s, Materializing param=layers.1.mlp.up_proj.weight]Loading weights:   5%|▌         | 17/310 [00:00<00:00, 4873.10it/s, Materializing param=layers.1.post_attention_layernorm.weight]Loading weights:   5%|▌         | 17/310 [00:00<00:00, 4816.81it/s, Materializing param=layers.1.post_attention_layernorm.weight]Loading weights:   6%|▌         | 18/310 [00:00<00:00, 4962.69it/s, Materializing param=layers.1.self_attn.k_norm.weight]        Loading weights:   6%|▌         | 18/310 [00:00<00:00, 4911.04it/s, Materializing param=layers.1.self_attn.k_norm.weight]Loading weights:   6%|▌         | 19/310 [00:00<00:00, 5053.06it/s, Materializing param=layers.1.self_attn.k_proj.weight]Loading weights:   6%|▌         | 19/310 [00:00<00:00, 5001.99it/s, Materializing param=layers.1.self_attn.k_proj.weight]Loading weights:   6%|▋         | 20/310 [00:00<00:00, 4646.91it/s, Materializing param=layers.1.self_attn.o_proj.weight]Loading weights:   6%|▋         | 20/310 [00:00<00:00, 4604.82it/s, Materializing param=layers.1.self_attn.o_proj.weight]Loading weights:   7%|▋         | 21/310 [00:00<00:00, 4732.45it/s, Materializing param=layers.1.self_attn.q_norm.weight]Loading weights:   7%|▋         | 21/310 [00:00<00:00, 4692.37it/s, Materializing param=layers.1.self_attn.q_norm.weight]Loading weights:   7%|▋         | 22/310 [00:00<00:00, 4814.00it/s, Materializing param=layers.1.self_attn.q_proj.weight]Loading weights:   7%|▋         | 22/310 [00:00<00:00, 4758.63it/s, Materializing param=layers.1.self_attn.q_proj.weight]Loading weights:   7%|▋         | 23/310 [00:00<00:00, 4877.10it/s, Materializing param=layers.1.self_attn.v_proj.weight]Loading weights:   7%|▋         | 23/310 [00:00<00:00, 4837.96it/s, Materializing param=layers.1.self_attn.v_proj.weight]Loading weights:   8%|▊         | 24/310 [00:00<00:00, 4953.41it/s, Materializing param=layers.2.input_layernorm.weight] Loading weights:   8%|▊         | 24/310 [00:00<00:00, 4914.48it/s, Materializing param=layers.2.input_layernorm.weight]Loading weights:   8%|▊         | 25/310 [00:00<00:00, 5025.04it/s, Materializing param=layers.2.mlp.down_proj.weight]  Loading weights:   8%|▊         | 25/310 [00:00<00:00, 4986.81it/s, Materializing param=layers.2.mlp.down_proj.weight]Loading weights:   8%|▊         | 26/310 [00:00<00:00, 5093.98it/s, Materializing param=layers.2.mlp.gate_proj.weight]Loading weights:   8%|▊         | 26/310 [00:00<00:00, 5054.55it/s, Materializing param=layers.2.mlp.gate_proj.weight]Loading weights:   9%|▊         | 27/310 [00:00<00:00, 5155.05it/s, Materializing param=layers.2.mlp.up_proj.weight]  Loading weights:   9%|▊         | 27/310 [00:00<00:00, 5118.47it/s, Materializing param=layers.2.mlp.up_proj.weight]Loading weights:   9%|▉         | 28/310 [00:00<00:00, 4799.37it/s, Materializing param=layers.2.post_attention_layernorm.weight]Loading weights:   9%|▉         | 28/310 [00:00<00:00, 4761.42it/s, Materializing param=layers.2.post_attention_layernorm.weight]Loading weights:   9%|▉         | 29/310 [00:00<00:00, 4852.78it/s, Materializing param=layers.2.self_attn.k_norm.weight]        Loading weights:   9%|▉         | 29/310 [00:00<00:00, 4820.66it/s, Materializing param=layers.2.self_attn.k_norm.weight]Loading weights:  10%|▉         | 30/310 [00:00<00:00, 4858.83it/s, Materializing param=layers.2.self_attn.k_proj.weight]Loading weights:  10%|▉         | 30/310 [00:00<00:00, 4828.07it/s, Materializing param=layers.2.self_attn.k_proj.weight]Loading weights:  10%|█         | 31/310 [00:00<00:00, 4923.08it/s, Materializing param=layers.2.self_attn.o_proj.weight]Loading weights:  10%|█         | 31/310 [00:00<00:00, 4892.70it/s, Materializing param=layers.2.self_attn.o_proj.weight]Loading weights:  10%|█         | 32/310 [00:00<00:00, 4765.92it/s, Materializing param=layers.2.self_attn.q_norm.weight]Loading weights:  10%|█         | 32/310 [00:00<00:00, 4737.82it/s, Materializing param=layers.2.self_attn.q_norm.weight]Loading weights:  11%|█         | 33/310 [00:00<00:00, 4777.61it/s, Materializing param=layers.2.self_attn.q_proj.weight]Loading weights:  11%|█         | 33/310 [00:00<00:00, 4750.71it/s, Materializing param=layers.2.self_attn.q_proj.weight]Loading weights:  11%|█         | 34/310 [00:00<00:00, 4827.73it/s, Materializing param=layers.2.self_attn.v_proj.weight]Loading weights:  11%|█         | 34/310 [00:00<00:00, 4801.72it/s, Materializing param=layers.2.self_attn.v_proj.weight]Loading weights:  11%|█▏        | 35/310 [00:00<00:00, 4877.75it/s, Materializing param=layers.3.input_layernorm.weight] Loading weights:  11%|█▏        | 35/310 [00:00<00:00, 4850.83it/s, Materializing param=layers.3.input_layernorm.weight]Loading weights:  12%|█▏        | 36/310 [00:00<00:00, 4925.30it/s, Materializing param=layers.3.mlp.down_proj.weight]  Loading weights:  12%|█▏        | 36/310 [00:00<00:00, 4900.36it/s, Materializing param=layers.3.mlp.down_proj.weight]Loading weights:  12%|█▏        | 37/310 [00:00<00:00, 4971.62it/s, Materializing param=layers.3.mlp.gate_proj.weight]Loading weights:  12%|█▏        | 37/310 [00:00<00:00, 4945.64it/s, Materializing param=layers.3.mlp.gate_proj.weight]Loading weights:  12%|█▏        | 38/310 [00:00<00:00, 5015.53it/s, Materializing param=layers.3.mlp.up_proj.weight]  Loading weights:  12%|█▏        | 38/310 [00:00<00:00, 4980.11it/s, Materializing param=layers.3.mlp.up_proj.weight]Loading weights:  13%|█▎        | 39/310 [00:00<00:00, 4912.99it/s, Materializing param=layers.3.post_attention_layernorm.weight]Loading weights:  13%|█▎        | 39/310 [00:00<00:00, 4887.01it/s, Materializing param=layers.3.post_attention_layernorm.weight]Loading weights:  13%|█▎        | 40/310 [00:00<00:00, 4955.32it/s, Materializing param=layers.3.self_attn.k_norm.weight]        Loading weights:  13%|█▎        | 40/310 [00:00<00:00, 4930.99it/s, Materializing param=layers.3.self_attn.k_norm.weight]Loading weights:  13%|█▎        | 41/310 [00:00<00:00, 4572.24it/s, Materializing param=layers.3.self_attn.k_proj.weight]Loading weights:  13%|█▎        | 41/310 [00:00<00:00, 4550.46it/s, Materializing param=layers.3.self_attn.k_proj.weight]Loading weights:  14%|█▎        | 42/310 [00:00<00:00, 4612.02it/s, Materializing param=layers.3.self_attn.o_proj.weight]Loading weights:  14%|█▎        | 42/310 [00:00<00:00, 4592.90it/s, Materializing param=layers.3.self_attn.o_proj.weight]Loading weights:  14%|█▍        | 43/310 [00:00<00:00, 4651.56it/s, Materializing param=layers.3.self_attn.q_norm.weight]Loading weights:  14%|█▍        | 43/310 [00:00<00:00, 4632.69it/s, Materializing param=layers.3.self_attn.q_norm.weight]Loading weights:  14%|█▍        | 44/310 [00:00<00:00, 4689.71it/s, Materializing param=layers.3.self_attn.q_proj.weight]Loading weights:  14%|█▍        | 44/310 [00:00<00:00, 4670.01it/s, Materializing param=layers.3.self_attn.q_proj.weight]Loading weights:  15%|█▍        | 45/310 [00:00<00:00, 4728.17it/s, Materializing param=layers.3.self_attn.v_proj.weight]Loading weights:  15%|█▍        | 45/310 [00:00<00:00, 4708.94it/s, Materializing param=layers.3.self_attn.v_proj.weight]Loading weights:  15%|█▍        | 46/310 [00:00<00:00, 4646.20it/s, Materializing param=layers.4.input_layernorm.weight] Loading weights:  15%|█▍        | 46/310 [00:00<00:00, 4626.70it/s, Materializing param=layers.4.input_layernorm.weight]Loading weights:  15%|█▌        | 47/310 [00:00<00:00, 4605.46it/s, Materializing param=layers.4.mlp.down_proj.weight]  Loading weights:  15%|█▌        | 47/310 [00:00<00:00, 4587.78it/s, Materializing param=layers.4.mlp.down_proj.weight]Loading weights:  15%|█▌        | 48/310 [00:00<00:00, 4571.55it/s, Materializing param=layers.4.mlp.gate_proj.weight]Loading weights:  15%|█▌        | 48/310 [00:00<00:00, 4553.97it/s, Materializing param=layers.4.mlp.gate_proj.weight]Loading weights:  16%|█▌        | 49/310 [00:00<00:00, 4599.02it/s, Materializing param=layers.4.mlp.up_proj.weight]  Loading weights:  16%|█▌        | 49/310 [00:00<00:00, 4583.02it/s, Materializing param=layers.4.mlp.up_proj.weight]Loading weights:  16%|█▌        | 50/310 [00:00<00:00, 4636.33it/s, Materializing param=layers.4.post_attention_layernorm.weight]Loading weights:  16%|█▌        | 50/310 [00:00<00:00, 4619.89it/s, Materializing param=layers.4.post_attention_layernorm.weight]Loading weights:  16%|█▋        | 51/310 [00:00<00:00, 4673.78it/s, Materializing param=layers.4.self_attn.k_norm.weight]        Loading weights:  16%|█▋        | 51/310 [00:00<00:00, 4658.61it/s, Materializing param=layers.4.self_attn.k_norm.weight]Loading weights:  17%|█▋        | 52/310 [00:00<00:00, 4711.07it/s, Materializing param=layers.4.self_attn.k_proj.weight]Loading weights:  17%|█▋        | 52/310 [00:00<00:00, 4695.86it/s, Materializing param=layers.4.self_attn.k_proj.weight]Loading weights:  17%|█▋        | 53/310 [00:00<00:00, 4738.32it/s, Materializing param=layers.4.self_attn.o_proj.weight]Loading weights:  17%|█▋        | 53/310 [00:00<00:00, 4722.61it/s, Materializing param=layers.4.self_attn.o_proj.weight]Loading weights:  17%|█▋        | 54/310 [00:00<00:00, 4483.40it/s, Materializing param=layers.4.self_attn.q_norm.weight]Loading weights:  17%|█▋        | 54/310 [00:00<00:00, 4468.28it/s, Materializing param=layers.4.self_attn.q_norm.weight]Loading weights:  18%|█▊        | 55/310 [00:00<00:00, 4520.52it/s, Materializing param=layers.4.self_attn.q_proj.weight]Loading weights:  18%|█▊        | 55/310 [00:00<00:00, 4506.48it/s, Materializing param=layers.4.self_attn.q_proj.weight]Loading weights:  18%|█▊        | 56/310 [00:00<00:00, 4517.64it/s, Materializing param=layers.4.self_attn.v_proj.weight]Loading weights:  18%|█▊        | 56/310 [00:00<00:00, 4503.61it/s, Materializing param=layers.4.self_attn.v_proj.weight]Loading weights:  18%|█▊        | 57/310 [00:00<00:00, 4545.50it/s, Materializing param=layers.5.input_layernorm.weight] Loading weights:  18%|█▊        | 57/310 [00:00<00:00, 4532.23it/s, Materializing param=layers.5.input_layernorm.weight]Loading weights:  19%|█▊        | 58/310 [00:00<00:00, 4493.01it/s, Materializing param=layers.5.mlp.down_proj.weight]  Loading weights:  19%|█▊        | 58/310 [00:00<00:00, 4479.77it/s, Materializing param=layers.5.mlp.down_proj.weight]Loading weights:  19%|█▉        | 59/310 [00:00<00:00, 4520.22it/s, Materializing param=layers.5.mlp.gate_proj.weight]Loading weights:  19%|█▉        | 59/310 [00:00<00:00, 4507.05it/s, Materializing param=layers.5.mlp.gate_proj.weight]Loading weights:  19%|█▉        | 60/310 [00:00<00:00, 4549.79it/s, Materializing param=layers.5.mlp.up_proj.weight]  Loading weights:  19%|█▉        | 60/310 [00:00<00:00, 4536.51it/s, Materializing param=layers.5.mlp.up_proj.weight]Loading weights:  20%|█▉        | 61/310 [00:00<00:00, 4580.16it/s, Materializing param=layers.5.post_attention_layernorm.weight]Loading weights:  20%|█▉        | 61/310 [00:00<00:00, 4566.84it/s, Materializing param=layers.5.post_attention_layernorm.weight]Loading weights:  20%|██        | 62/310 [00:00<00:00, 4609.62it/s, Materializing param=layers.5.self_attn.k_norm.weight]        Loading weights:  20%|██        | 62/310 [00:00<00:00, 4596.74it/s, Materializing param=layers.5.self_attn.k_norm.weight]Loading weights:  20%|██        | 63/310 [00:00<00:00, 4335.09it/s, Materializing param=layers.5.self_attn.k_proj.weight]Loading weights:  20%|██        | 63/310 [00:00<00:00, 4322.82it/s, Materializing param=layers.5.self_attn.k_proj.weight]Loading weights:  21%|██        | 64/310 [00:00<00:00, 4362.11it/s, Materializing param=layers.5.self_attn.o_proj.weight]Loading weights:  21%|██        | 64/310 [00:00<00:00, 4350.51it/s, Materializing param=layers.5.self_attn.o_proj.weight]Loading weights:  21%|██        | 65/310 [00:00<00:00, 4389.96it/s, Materializing param=layers.5.self_attn.q_norm.weight]Loading weights:  21%|██        | 65/310 [00:00<00:00, 4378.54it/s, Materializing param=layers.5.self_attn.q_norm.weight]Loading weights:  21%|██▏       | 66/310 [00:00<00:00, 4417.03it/s, Materializing param=layers.5.self_attn.q_proj.weight]Loading weights:  21%|██▏       | 66/310 [00:00<00:00, 4405.15it/s, Materializing param=layers.5.self_attn.q_proj.weight]Loading weights:  22%|██▏       | 67/310 [00:00<00:00, 4444.24it/s, Materializing param=layers.5.self_attn.v_proj.weight]Loading weights:  22%|██▏       | 67/310 [00:00<00:00, 4432.89it/s, Materializing param=layers.5.self_attn.v_proj.weight]Loading weights:  22%|██▏       | 68/310 [00:00<00:00, 4420.74it/s, Materializing param=layers.6.input_layernorm.weight] Loading weights:  22%|██▏       | 68/310 [00:00<00:00, 4409.19it/s, Materializing param=layers.6.input_layernorm.weight]Loading weights:  22%|██▏       | 69/310 [00:00<00:00, 4450.22it/s, Materializing param=layers.6.mlp.down_proj.weight]  Loading weights:  22%|██▏       | 69/310 [00:00<00:00, 4438.96it/s, Materializing param=layers.6.mlp.down_proj.weight]Loading weights:  23%|██▎       | 70/310 [00:00<00:00, 4471.47it/s, Materializing param=layers.6.mlp.gate_proj.weight]Loading weights:  23%|██▎       | 70/310 [00:00<00:00, 4460.40it/s, Materializing param=layers.6.mlp.gate_proj.weight]Loading weights:  23%|██▎       | 71/310 [00:00<00:00, 4490.08it/s, Materializing param=layers.6.mlp.up_proj.weight]  Loading weights:  23%|██▎       | 71/310 [00:00<00:00, 4479.21it/s, Materializing param=layers.6.mlp.up_proj.weight]Loading weights:  23%|██▎       | 72/310 [00:00<00:00, 4519.32it/s, Materializing param=layers.6.post_attention_layernorm.weight]Loading weights:  23%|██▎       | 72/310 [00:00<00:00, 4508.05it/s, Materializing param=layers.6.post_attention_layernorm.weight]Loading weights:  24%|██▎       | 73/310 [00:00<00:00, 4544.41it/s, Materializing param=layers.6.self_attn.k_norm.weight]        Loading weights:  24%|██▎       | 73/310 [00:00<00:00, 4533.71it/s, Materializing param=layers.6.self_attn.k_norm.weight]Loading weights:  24%|██▍       | 74/310 [00:00<00:00, 4574.14it/s, Materializing param=layers.6.self_attn.k_proj.weight]Loading weights:  24%|██▍       | 74/310 [00:00<00:00, 4563.38it/s, Materializing param=layers.6.self_attn.k_proj.weight]Loading weights:  24%|██▍       | 75/310 [00:00<00:00, 4491.46it/s, Materializing param=layers.6.self_attn.o_proj.weight]Loading weights:  24%|██▍       | 75/310 [00:00<00:00, 4480.65it/s, Materializing param=layers.6.self_attn.o_proj.weight]Loading weights:  25%|██▍       | 76/310 [00:00<00:00, 4515.18it/s, Materializing param=layers.6.self_attn.q_norm.weight]Loading weights:  25%|██▍       | 76/310 [00:00<00:00, 4504.91it/s, Materializing param=layers.6.self_attn.q_norm.weight]Loading weights:  25%|██▍       | 77/310 [00:00<00:00, 4490.81it/s, Materializing param=layers.6.self_attn.q_proj.weight]Loading weights:  25%|██▍       | 77/310 [00:00<00:00, 4480.16it/s, Materializing param=layers.6.self_attn.q_proj.weight]Loading weights:  25%|██▌       | 78/310 [00:00<00:00, 4517.66it/s, Materializing param=layers.6.self_attn.v_proj.weight]Loading weights:  25%|██▌       | 78/310 [00:00<00:00, 4507.83it/s, Materializing param=layers.6.self_attn.v_proj.weight]Loading weights:  25%|██▌       | 79/310 [00:00<00:00, 4432.30it/s, Materializing param=layers.7.input_layernorm.weight] Loading weights:  25%|██▌       | 79/310 [00:00<00:00, 4422.25it/s, Materializing param=layers.7.input_layernorm.weight]Loading weights:  26%|██▌       | 80/310 [00:00<00:00, 4454.62it/s, Materializing param=layers.7.mlp.down_proj.weight]  Loading weights:  26%|██▌       | 80/310 [00:00<00:00, 4445.12it/s, Materializing param=layers.7.mlp.down_proj.weight]Loading weights:  26%|██▌       | 81/310 [00:00<00:00, 4476.55it/s, Materializing param=layers.7.mlp.gate_proj.weight]Loading weights:  26%|██▌       | 81/310 [00:00<00:00, 4466.72it/s, Materializing param=layers.7.mlp.gate_proj.weight]Loading weights:  26%|██▋       | 82/310 [00:00<00:00, 4498.68it/s, Materializing param=layers.7.mlp.up_proj.weight]  Loading weights:  26%|██▋       | 82/310 [00:00<00:00, 4489.05it/s, Materializing param=layers.7.mlp.up_proj.weight]Loading weights:  27%|██▋       | 83/310 [00:00<00:00, 4456.88it/s, Materializing param=layers.7.post_attention_layernorm.weight]Loading weights:  27%|██▋       | 83/310 [00:00<00:00, 4446.75it/s, Materializing param=layers.7.post_attention_layernorm.weight]Loading weights:  27%|██▋       | 84/310 [00:00<00:00, 4481.44it/s, Materializing param=layers.7.self_attn.k_norm.weight]        Loading weights:  27%|██▋       | 84/310 [00:00<00:00, 4471.99it/s, Materializing param=layers.7.self_attn.k_norm.weight]Loading weights:  27%|██▋       | 85/310 [00:00<00:00, 4503.34it/s, Materializing param=layers.7.self_attn.k_proj.weight]Loading weights:  27%|██▋       | 85/310 [00:00<00:00, 4494.14it/s, Materializing param=layers.7.self_attn.k_proj.weight]Loading weights:  28%|██▊       | 86/310 [00:00<00:00, 4525.00it/s, Materializing param=layers.7.self_attn.o_proj.weight]Loading weights:  28%|██▊       | 86/310 [00:00<00:00, 4515.59it/s, Materializing param=layers.7.self_attn.o_proj.weight]Loading weights:  28%|██▊       | 87/310 [00:00<00:00, 4540.93it/s, Materializing param=layers.7.self_attn.q_norm.weight]Loading weights:  28%|██▊       | 87/310 [00:00<00:00, 4531.68it/s, Materializing param=layers.7.self_attn.q_norm.weight]Loading weights:  28%|██▊       | 88/310 [00:00<00:00, 4534.44it/s, Materializing param=layers.7.self_attn.q_proj.weight]Loading weights:  28%|██▊       | 88/310 [00:00<00:00, 4524.66it/s, Materializing param=layers.7.self_attn.q_proj.weight]Loading weights:  29%|██▊       | 89/310 [00:00<00:00, 4554.52it/s, Materializing param=layers.7.self_attn.v_proj.weight]Loading weights:  29%|██▊       | 89/310 [00:00<00:00, 4545.70it/s, Materializing param=layers.7.self_attn.v_proj.weight]Loading weights:  29%|██▉       | 90/310 [00:00<00:00, 4446.00it/s, Materializing param=layers.8.input_layernorm.weight] Loading weights:  29%|██▉       | 90/310 [00:00<00:00, 4437.32it/s, Materializing param=layers.8.input_layernorm.weight]Loading weights:  29%|██▉       | 91/310 [00:00<00:00, 4468.50it/s, Materializing param=layers.8.mlp.down_proj.weight]  Loading weights:  29%|██▉       | 91/310 [00:00<00:00, 4459.05it/s, Materializing param=layers.8.mlp.down_proj.weight]Loading weights:  30%|██▉       | 92/310 [00:00<00:00, 4482.29it/s, Materializing param=layers.8.mlp.gate_proj.weight]Loading weights:  30%|██▉       | 92/310 [00:00<00:00, 4473.41it/s, Materializing param=layers.8.mlp.gate_proj.weight]Loading weights:  30%|███       | 93/310 [00:00<00:00, 4475.13it/s, Materializing param=layers.8.mlp.up_proj.weight]  Loading weights:  30%|███       | 93/310 [00:00<00:00, 4466.37it/s, Materializing param=layers.8.mlp.up_proj.weight]Loading weights:  30%|███       | 94/310 [00:00<00:00, 4496.58it/s, Materializing param=layers.8.post_attention_layernorm.weight]Loading weights:  30%|███       | 94/310 [00:00<00:00, 4488.13it/s, Materializing param=layers.8.post_attention_layernorm.weight]Loading weights:  31%|███       | 95/310 [00:00<00:00, 4515.98it/s, Materializing param=layers.8.self_attn.k_norm.weight]        Loading weights:  31%|███       | 95/310 [00:00<00:00, 4507.66it/s, Materializing param=layers.8.self_attn.k_norm.weight]Loading weights:  31%|███       | 96/310 [00:00<00:00, 4531.02it/s, Materializing param=layers.8.self_attn.k_proj.weight]Loading weights:  31%|███       | 96/310 [00:00<00:00, 4522.62it/s, Materializing param=layers.8.self_attn.k_proj.weight]Loading weights:  31%|███▏      | 97/310 [00:00<00:00, 4436.87it/s, Materializing param=layers.8.self_attn.o_proj.weight]Loading weights:  31%|███▏      | 97/310 [00:00<00:00, 4428.85it/s, Materializing param=layers.8.self_attn.o_proj.weight]Loading weights:  32%|███▏      | 98/310 [00:00<00:00, 4451.93it/s, Materializing param=layers.8.self_attn.q_norm.weight]Loading weights:  32%|███▏      | 98/310 [00:00<00:00, 4443.98it/s, Materializing param=layers.8.self_attn.q_norm.weight]Loading weights:  32%|███▏      | 99/310 [00:00<00:00, 4470.38it/s, Materializing param=layers.8.self_attn.q_proj.weight]Loading weights:  32%|███▏      | 99/310 [00:00<00:00, 4462.65it/s, Materializing param=layers.8.self_attn.q_proj.weight]Loading weights:  32%|███▏      | 100/310 [00:00<00:00, 4418.36it/s, Materializing param=layers.8.self_attn.v_proj.weight]Loading weights:  32%|███▏      | 100/310 [00:00<00:00, 4410.04it/s, Materializing param=layers.8.self_attn.v_proj.weight]Loading weights:  33%|███▎      | 101/310 [00:00<00:00, 4420.17it/s, Materializing param=layers.9.input_layernorm.weight] Loading weights:  33%|███▎      | 101/310 [00:00<00:00, 4412.21it/s, Materializing param=layers.9.input_layernorm.weight]Loading weights:  33%|███▎      | 102/310 [00:00<00:00, 4439.61it/s, Materializing param=layers.9.mlp.down_proj.weight]  Loading weights:  33%|███▎      | 102/310 [00:00<00:00, 4431.89it/s, Materializing param=layers.9.mlp.down_proj.weight]Loading weights:  33%|███▎      | 103/310 [00:00<00:00, 4447.88it/s, Materializing param=layers.9.mlp.gate_proj.weight]Loading weights:  33%|███▎      | 103/310 [00:00<00:00, 4440.20it/s, Materializing param=layers.9.mlp.gate_proj.weight]Loading weights:  34%|███▎      | 104/310 [00:00<00:00, 4468.20it/s, Materializing param=layers.9.mlp.up_proj.weight]  Loading weights:  34%|███▎      | 104/310 [00:00<00:00, 4460.70it/s, Materializing param=layers.9.mlp.up_proj.weight]Loading weights:  34%|███▍      | 105/310 [00:00<00:00, 4485.75it/s, Materializing param=layers.9.post_attention_layernorm.weight]Loading weights:  34%|███▍      | 105/310 [00:00<00:00, 4478.41it/s, Materializing param=layers.9.post_attention_layernorm.weight]Loading weights:  34%|███▍      | 106/310 [00:00<00:00, 4439.48it/s, Materializing param=layers.9.self_attn.k_norm.weight]        Loading weights:  34%|███▍      | 106/310 [00:00<00:00, 4432.09it/s, Materializing param=layers.9.self_attn.k_norm.weight]Loading weights:  35%|███▍      | 107/310 [00:00<00:00, 4456.58it/s, Materializing param=layers.9.self_attn.k_proj.weight]Loading weights:  35%|███▍      | 107/310 [00:00<00:00, 4449.77it/s, Materializing param=layers.9.self_attn.k_proj.weight]Loading weights:  35%|███▍      | 108/310 [00:00<00:00, 4440.29it/s, Materializing param=layers.9.self_attn.o_proj.weight]Loading weights:  35%|███▍      | 108/310 [00:00<00:00, 4432.77it/s, Materializing param=layers.9.self_attn.o_proj.weight]Loading weights:  35%|███▌      | 109/310 [00:00<00:00, 4458.28it/s, Materializing param=layers.9.self_attn.q_norm.weight]Loading weights:  35%|███▌      | 109/310 [00:00<00:00, 4451.16it/s, Materializing param=layers.9.self_attn.q_norm.weight]Loading weights:  35%|███▌      | 110/310 [00:00<00:00, 4477.57it/s, Materializing param=layers.9.self_attn.q_proj.weight]Loading weights:  35%|███▌      | 110/310 [00:00<00:00, 4468.12it/s, Materializing param=layers.9.self_attn.q_proj.weight]Loading weights:  36%|███▌      | 111/310 [00:00<00:00, 4491.43it/s, Materializing param=layers.9.self_attn.v_proj.weight]Loading weights:  36%|███▌      | 111/310 [00:00<00:00, 4484.50it/s, Materializing param=layers.9.self_attn.v_proj.weight]Loading weights:  36%|███▌      | 112/310 [00:00<00:00, 4504.99it/s, Materializing param=layers.10.input_layernorm.weight]Loading weights:  36%|███▌      | 112/310 [00:00<00:00, 4498.17it/s, Materializing param=layers.10.input_layernorm.weight]Loading weights:  36%|███▋      | 113/310 [00:00<00:00, 4521.58it/s, Materializing param=layers.10.mlp.down_proj.weight]  Loading weights:  36%|███▋      | 113/310 [00:00<00:00, 4514.82it/s, Materializing param=layers.10.mlp.down_proj.weight]Loading weights:  37%|███▋      | 114/310 [00:00<00:00, 4473.88it/s, Materializing param=layers.10.mlp.gate_proj.weight]Loading weights:  37%|███▋      | 114/310 [00:00<00:00, 4466.82it/s, Materializing param=layers.10.mlp.gate_proj.weight]Loading weights:  37%|███▋      | 115/310 [00:00<00:00, 4488.60it/s, Materializing param=layers.10.mlp.up_proj.weight]  Loading weights:  37%|███▋      | 115/310 [00:00<00:00, 4481.68it/s, Materializing param=layers.10.mlp.up_proj.weight]Loading weights:  37%|███▋      | 116/310 [00:00<00:00, 4503.62it/s, Materializing param=layers.10.post_attention_layernorm.weight]Loading weights:  37%|███▋      | 116/310 [00:00<00:00, 4496.13it/s, Materializing param=layers.10.post_attention_layernorm.weight]Loading weights:  38%|███▊      | 117/310 [00:00<00:00, 4518.52it/s, Materializing param=layers.10.self_attn.k_norm.weight]        Loading weights:  38%|███▊      | 117/310 [00:00<00:00, 4511.62it/s, Materializing param=layers.10.self_attn.k_norm.weight]Loading weights:  38%|███▊      | 118/310 [00:00<00:00, 4532.27it/s, Materializing param=layers.10.self_attn.k_proj.weight]Loading weights:  38%|███▊      | 118/310 [00:00<00:00, 4525.26it/s, Materializing param=layers.10.self_attn.k_proj.weight]Loading weights:  38%|███▊      | 119/310 [00:00<00:00, 4547.02it/s, Materializing param=layers.10.self_attn.o_proj.weight]Loading weights:  38%|███▊      | 119/310 [00:00<00:00, 4540.28it/s, Materializing param=layers.10.self_attn.o_proj.weight]Loading weights:  39%|███▊      | 120/310 [00:00<00:00, 4561.79it/s, Materializing param=layers.10.self_attn.q_norm.weight]Loading weights:  39%|███▊      | 120/310 [00:00<00:00, 4554.98it/s, Materializing param=layers.10.self_attn.q_norm.weight]Loading weights:  39%|███▉      | 121/310 [00:00<00:00, 4576.46it/s, Materializing param=layers.10.self_attn.q_proj.weight]Loading weights:  39%|███▉      | 121/310 [00:00<00:00, 4569.82it/s, Materializing param=layers.10.self_attn.q_proj.weight]Loading weights:  39%|███▉      | 122/310 [00:00<00:00, 4591.01it/s, Materializing param=layers.10.self_attn.v_proj.weight]Loading weights:  39%|███▉      | 122/310 [00:00<00:00, 4582.58it/s, Materializing param=layers.10.self_attn.v_proj.weight]Loading weights:  40%|███▉      | 123/310 [00:00<00:00, 4549.42it/s, Materializing param=layers.11.input_layernorm.weight] Loading weights:  40%|███▉      | 123/310 [00:00<00:00, 4542.49it/s, Materializing param=layers.11.input_layernorm.weight]Loading weights:  40%|████      | 124/310 [00:00<00:00, 4563.67it/s, Materializing param=layers.11.mlp.down_proj.weight]  Loading weights:  40%|████      | 124/310 [00:00<00:00, 4557.27it/s, Materializing param=layers.11.mlp.down_proj.weight]Loading weights:  40%|████      | 125/310 [00:00<00:00, 4578.21it/s, Materializing param=layers.11.mlp.gate_proj.weight]Loading weights:  40%|████      | 125/310 [00:00<00:00, 4571.63it/s, Materializing param=layers.11.mlp.gate_proj.weight]Loading weights:  41%|████      | 126/310 [00:00<00:00, 4499.06it/s, Materializing param=layers.11.mlp.up_proj.weight]  Loading weights:  41%|████      | 126/310 [00:00<00:00, 4492.48it/s, Materializing param=layers.11.mlp.up_proj.weight]Loading weights:  41%|████      | 127/310 [00:00<00:00, 4512.68it/s, Materializing param=layers.11.post_attention_layernorm.weight]Loading weights:  41%|████      | 127/310 [00:00<00:00, 4506.30it/s, Materializing param=layers.11.post_attention_layernorm.weight]Loading weights:  41%|████▏     | 128/310 [00:00<00:00, 4526.93it/s, Materializing param=layers.11.self_attn.k_norm.weight]        Loading weights:  41%|████▏     | 128/310 [00:00<00:00, 4520.68it/s, Materializing param=layers.11.self_attn.k_norm.weight]Loading weights:  42%|████▏     | 129/310 [00:00<00:00, 4540.74it/s, Materializing param=layers.11.self_attn.k_proj.weight]Loading weights:  42%|████▏     | 129/310 [00:00<00:00, 4534.38it/s, Materializing param=layers.11.self_attn.k_proj.weight]Loading weights:  42%|████▏     | 130/310 [00:00<00:00, 4515.08it/s, Materializing param=layers.11.self_attn.o_proj.weight]Loading weights:  42%|████▏     | 130/310 [00:00<00:00, 4508.59it/s, Materializing param=layers.11.self_attn.o_proj.weight]Loading weights:  42%|████▏     | 131/310 [00:00<00:00, 4530.05it/s, Materializing param=layers.11.self_attn.q_norm.weight]Loading weights:  42%|████▏     | 131/310 [00:00<00:00, 4523.82it/s, Materializing param=layers.11.self_attn.q_norm.weight]Loading weights:  43%|████▎     | 132/310 [00:00<00:00, 4543.42it/s, Materializing param=layers.11.self_attn.q_proj.weight]Loading weights:  43%|████▎     | 132/310 [00:00<00:00, 4537.47it/s, Materializing param=layers.11.self_attn.q_proj.weight]Loading weights:  43%|████▎     | 133/310 [00:00<00:00, 4557.24it/s, Materializing param=layers.11.self_attn.v_proj.weight]Loading weights:  43%|████▎     | 133/310 [00:00<00:00, 4551.36it/s, Materializing param=layers.11.self_attn.v_proj.weight]Loading weights:  43%|████▎     | 134/310 [00:00<00:00, 4570.70it/s, Materializing param=layers.12.input_layernorm.weight] Loading weights:  43%|████▎     | 134/310 [00:00<00:00, 4564.77it/s, Materializing param=layers.12.input_layernorm.weight]Loading weights:  44%|████▎     | 135/310 [00:00<00:00, 4579.86it/s, Materializing param=layers.12.mlp.down_proj.weight]  Loading weights:  44%|████▎     | 135/310 [00:00<00:00, 4573.53it/s, Materializing param=layers.12.mlp.down_proj.weight]Loading weights:  44%|████▍     | 136/310 [00:00<00:00, 4592.24it/s, Materializing param=layers.12.mlp.gate_proj.weight]Loading weights:  44%|████▍     | 136/310 [00:00<00:00, 4586.19it/s, Materializing param=layers.12.mlp.gate_proj.weight]Loading weights:  44%|████▍     | 137/310 [00:00<00:00, 4600.01it/s, Materializing param=layers.12.mlp.up_proj.weight]  Loading weights:  44%|████▍     | 137/310 [00:00<00:00, 4594.09it/s, Materializing param=layers.12.mlp.up_proj.weight]Loading weights:  45%|████▍     | 138/310 [00:00<00:00, 4613.90it/s, Materializing param=layers.12.post_attention_layernorm.weight]Loading weights:  45%|████▍     | 138/310 [00:00<00:00, 4607.66it/s, Materializing param=layers.12.post_attention_layernorm.weight]Loading weights:  45%|████▍     | 139/310 [00:00<00:00, 4542.83it/s, Materializing param=layers.12.self_attn.k_norm.weight]        Loading weights:  45%|████▍     | 139/310 [00:00<00:00, 4534.63it/s, Materializing param=layers.12.self_attn.k_norm.weight]Loading weights:  45%|████▌     | 140/310 [00:00<00:00, 4552.88it/s, Materializing param=layers.12.self_attn.k_proj.weight]Loading weights:  45%|████▌     | 140/310 [00:00<00:00, 4546.92it/s, Materializing param=layers.12.self_attn.k_proj.weight]Loading weights:  45%|████▌     | 141/310 [00:00<00:00, 4562.23it/s, Materializing param=layers.12.self_attn.o_proj.weight]Loading weights:  45%|████▌     | 141/310 [00:00<00:00, 4556.11it/s, Materializing param=layers.12.self_attn.o_proj.weight]Loading weights:  46%|████▌     | 142/310 [00:00<00:00, 4574.19it/s, Materializing param=layers.12.self_attn.q_norm.weight]Loading weights:  46%|████▌     | 142/310 [00:00<00:00, 4568.75it/s, Materializing param=layers.12.self_attn.q_norm.weight]Loading weights:  46%|████▌     | 143/310 [00:00<00:00, 4587.30it/s, Materializing param=layers.12.self_attn.q_proj.weight]Loading weights:  46%|████▌     | 143/310 [00:00<00:00, 4581.59it/s, Materializing param=layers.12.self_attn.q_proj.weight]Loading weights:  46%|████▋     | 144/310 [00:00<00:00, 4599.58it/s, Materializing param=layers.12.self_attn.v_proj.weight]Loading weights:  46%|████▋     | 144/310 [00:00<00:00, 4593.74it/s, Materializing param=layers.12.self_attn.v_proj.weight]Loading weights:  47%|████▋     | 145/310 [00:00<00:00, 4510.24it/s, Materializing param=layers.13.input_layernorm.weight] Loading weights:  47%|████▋     | 145/310 [00:00<00:00, 4504.26it/s, Materializing param=layers.13.input_layernorm.weight]Loading weights:  47%|████▋     | 146/310 [00:00<00:00, 4521.59it/s, Materializing param=layers.13.mlp.down_proj.weight]  Loading weights:  47%|████▋     | 146/310 [00:00<00:00, 4516.02it/s, Materializing param=layers.13.mlp.down_proj.weight]Loading weights:  47%|████▋     | 147/310 [00:00<00:00, 4533.75it/s, Materializing param=layers.13.mlp.gate_proj.weight]Loading weights:  47%|████▋     | 147/310 [00:00<00:00, 4528.39it/s, Materializing param=layers.13.mlp.gate_proj.weight]Loading weights:  48%|████▊     | 148/310 [00:00<00:00, 4546.10it/s, Materializing param=layers.13.mlp.up_proj.weight]  Loading weights:  48%|████▊     | 148/310 [00:00<00:00, 4540.85it/s, Materializing param=layers.13.mlp.up_proj.weight]Loading weights:  48%|████▊     | 149/310 [00:00<00:00, 4556.23it/s, Materializing param=layers.13.post_attention_layernorm.weight]Loading weights:  48%|████▊     | 149/310 [00:00<00:00, 4550.86it/s, Materializing param=layers.13.post_attention_layernorm.weight]Loading weights:  48%|████▊     | 150/310 [00:00<00:00, 4558.23it/s, Materializing param=layers.13.self_attn.k_norm.weight]        Loading weights:  48%|████▊     | 150/310 [00:00<00:00, 4552.69it/s, Materializing param=layers.13.self_attn.k_norm.weight]Loading weights:  49%|████▊     | 151/310 [00:00<00:00, 4567.28it/s, Materializing param=layers.13.self_attn.k_proj.weight]Loading weights:  49%|████▊     | 151/310 [00:00<00:00, 4561.82it/s, Materializing param=layers.13.self_attn.k_proj.weight]Loading weights:  49%|████▉     | 152/310 [00:00<00:00, 4580.71it/s, Materializing param=layers.13.self_attn.o_proj.weight]Loading weights:  49%|████▉     | 152/310 [00:00<00:00, 4575.39it/s, Materializing param=layers.13.self_attn.o_proj.weight]Loading weights:  49%|████▉     | 153/310 [00:00<00:00, 4592.30it/s, Materializing param=layers.13.self_attn.q_norm.weight]Loading weights:  49%|████▉     | 153/310 [00:00<00:00, 4586.76it/s, Materializing param=layers.13.self_attn.q_norm.weight]Loading weights:  50%|████▉     | 154/310 [00:00<00:00, 4574.62it/s, Materializing param=layers.13.self_attn.q_proj.weight]Loading weights:  50%|████▉     | 154/310 [00:00<00:00, 4568.99it/s, Materializing param=layers.13.self_attn.q_proj.weight]Loading weights:  50%|█████     | 155/310 [00:00<00:00, 4585.26it/s, Materializing param=layers.13.self_attn.v_proj.weight]Loading weights:  50%|█████     | 155/310 [00:00<00:00, 4579.77it/s, Materializing param=layers.13.self_attn.v_proj.weight]Loading weights:  50%|█████     | 156/310 [00:00<00:00, 4596.43it/s, Materializing param=layers.14.input_layernorm.weight] Loading weights:  50%|█████     | 156/310 [00:00<00:00, 4591.56it/s, Materializing param=layers.14.input_layernorm.weight]Loading weights:  51%|█████     | 157/310 [00:00<00:00, 4608.22it/s, Materializing param=layers.14.mlp.down_proj.weight]  Loading weights:  51%|█████     | 157/310 [00:00<00:00, 4602.97it/s, Materializing param=layers.14.mlp.down_proj.weight]Loading weights:  51%|█████     | 158/310 [00:00<00:00, 4572.87it/s, Materializing param=layers.14.mlp.gate_proj.weight]Loading weights:  51%|█████     | 158/310 [00:00<00:00, 4567.45it/s, Materializing param=layers.14.mlp.gate_proj.weight]Loading weights:  51%|█████▏    | 159/310 [00:00<00:00, 4581.51it/s, Materializing param=layers.14.mlp.up_proj.weight]  Loading weights:  51%|█████▏    | 159/310 [00:00<00:00, 4576.45it/s, Materializing param=layers.14.mlp.up_proj.weight]Loading weights:  52%|█████▏    | 160/310 [00:00<00:00, 4589.61it/s, Materializing param=layers.14.post_attention_layernorm.weight]Loading weights:  52%|█████▏    | 160/310 [00:00<00:00, 4584.19it/s, Materializing param=layers.14.post_attention_layernorm.weight]Loading weights:  52%|█████▏    | 161/310 [00:00<00:00, 4601.96it/s, Materializing param=layers.14.self_attn.k_norm.weight]        Loading weights:  52%|█████▏    | 161/310 [00:00<00:00, 4596.64it/s, Materializing param=layers.14.self_attn.k_norm.weight]Loading weights:  52%|█████▏    | 162/310 [00:00<00:00, 4612.47it/s, Materializing param=layers.14.self_attn.k_proj.weight]Loading weights:  52%|█████▏    | 162/310 [00:00<00:00, 4607.41it/s, Materializing param=layers.14.self_attn.k_proj.weight]Loading weights:  53%|█████▎    | 163/310 [00:00<00:00, 4621.12it/s, Materializing param=layers.14.self_attn.o_proj.weight]Loading weights:  53%|█████▎    | 163/310 [00:00<00:00, 4615.91it/s, Materializing param=layers.14.self_attn.o_proj.weight]Loading weights:  53%|█████▎    | 164/310 [00:00<00:00, 4608.38it/s, Materializing param=layers.14.self_attn.q_norm.weight]Loading weights:  53%|█████▎    | 164/310 [00:00<00:00, 4601.42it/s, Materializing param=layers.14.self_attn.q_norm.weight]Loading weights:  53%|█████▎    | 165/310 [00:00<00:00, 4570.26it/s, Materializing param=layers.14.self_attn.q_proj.weight]Loading weights:  53%|█████▎    | 165/310 [00:00<00:00, 4565.01it/s, Materializing param=layers.14.self_attn.q_proj.weight]Loading weights:  54%|█████▎    | 166/310 [00:00<00:00, 4580.71it/s, Materializing param=layers.14.self_attn.v_proj.weight]Loading weights:  54%|█████▎    | 166/310 [00:00<00:00, 4575.80it/s, Materializing param=layers.14.self_attn.v_proj.weight]Loading weights:  54%|█████▍    | 167/310 [00:00<00:00, 4591.33it/s, Materializing param=layers.15.input_layernorm.weight] Loading weights:  54%|█████▍    | 167/310 [00:00<00:00, 4586.46it/s, Materializing param=layers.15.input_layernorm.weight]Loading weights:  54%|█████▍    | 168/310 [00:00<00:00, 4592.51it/s, Materializing param=layers.15.mlp.down_proj.weight]  Loading weights:  54%|█████▍    | 168/310 [00:00<00:00, 4585.64it/s, Materializing param=layers.15.mlp.down_proj.weight]Loading weights:  55%|█████▍    | 169/310 [00:00<00:00, 4600.93it/s, Materializing param=layers.15.mlp.gate_proj.weight]Loading weights:  55%|█████▍    | 169/310 [00:00<00:00, 4596.10it/s, Materializing param=layers.15.mlp.gate_proj.weight]Loading weights:  55%|█████▍    | 170/310 [00:00<00:00, 4512.72it/s, Materializing param=layers.15.mlp.up_proj.weight]  Loading weights:  55%|█████▍    | 170/310 [00:00<00:00, 4507.87it/s, Materializing param=layers.15.mlp.up_proj.weight]Loading weights:  55%|█████▌    | 171/310 [00:00<00:00, 4505.22it/s, Materializing param=layers.15.post_attention_layernorm.weight]Loading weights:  55%|█████▌    | 171/310 [00:00<00:00, 4500.50it/s, Materializing param=layers.15.post_attention_layernorm.weight]Loading weights:  55%|█████▌    | 172/310 [00:00<00:00, 4508.34it/s, Materializing param=layers.15.self_attn.k_norm.weight]        Loading weights:  55%|█████▌    | 172/310 [00:00<00:00, 4503.64it/s, Materializing param=layers.15.self_attn.k_norm.weight]Loading weights:  56%|█████▌    | 173/310 [00:00<00:00, 4519.84it/s, Materializing param=layers.15.self_attn.k_proj.weight]Loading weights:  56%|█████▌    | 173/310 [00:00<00:00, 4515.42it/s, Materializing param=layers.15.self_attn.k_proj.weight]Loading weights:  56%|█████▌    | 174/310 [00:00<00:00, 4530.61it/s, Materializing param=layers.15.self_attn.o_proj.weight]Loading weights:  56%|█████▌    | 174/310 [00:00<00:00, 4526.03it/s, Materializing param=layers.15.self_attn.o_proj.weight]Loading weights:  56%|█████▋    | 175/310 [00:00<00:00, 4540.98it/s, Materializing param=layers.15.self_attn.q_norm.weight]Loading weights:  56%|█████▋    | 175/310 [00:00<00:00, 4536.54it/s, Materializing param=layers.15.self_attn.q_norm.weight]Loading weights:  57%|█████▋    | 176/310 [00:00<00:00, 4549.87it/s, Materializing param=layers.15.self_attn.q_proj.weight]Loading weights:  57%|█████▋    | 176/310 [00:00<00:00, 4545.19it/s, Materializing param=layers.15.self_attn.q_proj.weight]Loading weights:  57%|█████▋    | 177/310 [00:00<00:00, 4561.88it/s, Materializing param=layers.15.self_attn.v_proj.weight]Loading weights:  57%|█████▋    | 177/310 [00:00<00:00, 4557.32it/s, Materializing param=layers.15.self_attn.v_proj.weight]Loading weights:  57%|█████▋    | 178/310 [00:00<00:00, 4572.12it/s, Materializing param=layers.16.input_layernorm.weight] Loading weights:  57%|█████▋    | 178/310 [00:00<00:00, 4567.78it/s, Materializing param=layers.16.input_layernorm.weight]Loading weights:  58%|█████▊    | 179/310 [00:00<00:00, 4582.79it/s, Materializing param=layers.16.mlp.down_proj.weight]  Loading weights:  58%|█████▊    | 179/310 [00:00<00:00, 4578.21it/s, Materializing param=layers.16.mlp.down_proj.weight]Loading weights:  58%|█████▊    | 180/310 [00:00<00:00, 4592.72it/s, Materializing param=layers.16.mlp.gate_proj.weight]Loading weights:  58%|█████▊    | 180/310 [00:00<00:00, 4588.06it/s, Materializing param=layers.16.mlp.gate_proj.weight]Loading weights:  58%|█████▊    | 181/310 [00:00<00:00, 4602.61it/s, Materializing param=layers.16.mlp.up_proj.weight]  Loading weights:  58%|█████▊    | 181/310 [00:00<00:00, 4598.21it/s, Materializing param=layers.16.mlp.up_proj.weight]Loading weights:  59%|█████▊    | 182/310 [00:00<00:00, 4613.25it/s, Materializing param=layers.16.post_attention_layernorm.weight]Loading weights:  59%|█████▊    | 182/310 [00:00<00:00, 4608.54it/s, Materializing param=layers.16.post_attention_layernorm.weight]Loading weights:  59%|█████▉    | 183/310 [00:00<00:00, 4623.51it/s, Materializing param=layers.16.self_attn.k_norm.weight]        Loading weights:  59%|█████▉    | 183/310 [00:00<00:00, 4617.64it/s, Materializing param=layers.16.self_attn.k_norm.weight]Loading weights:  59%|█████▉    | 184/310 [00:00<00:00, 4632.28it/s, Materializing param=layers.16.self_attn.k_proj.weight]Loading weights:  59%|█████▉    | 184/310 [00:00<00:00, 4627.84it/s, Materializing param=layers.16.self_attn.k_proj.weight]Loading weights:  60%|█████▉    | 185/310 [00:00<00:00, 4642.52it/s, Materializing param=layers.16.self_attn.o_proj.weight]Loading weights:  60%|█████▉    | 185/310 [00:00<00:00, 4638.11it/s, Materializing param=layers.16.self_attn.o_proj.weight]Loading weights:  60%|██████    | 186/310 [00:00<00:00, 4585.12it/s, Materializing param=layers.16.self_attn.q_norm.weight]Loading weights:  60%|██████    | 186/310 [00:00<00:00, 4579.04it/s, Materializing param=layers.16.self_attn.q_norm.weight]Loading weights:  60%|██████    | 187/310 [00:00<00:00, 4566.48it/s, Materializing param=layers.16.self_attn.q_proj.weight]Loading weights:  60%|██████    | 187/310 [00:00<00:00, 4562.16it/s, Materializing param=layers.16.self_attn.q_proj.weight]Loading weights:  61%|██████    | 188/310 [00:00<00:00, 4576.14it/s, Materializing param=layers.16.self_attn.v_proj.weight]Loading weights:  61%|██████    | 188/310 [00:00<00:00, 4571.85it/s, Materializing param=layers.16.self_attn.v_proj.weight]Loading weights:  61%|██████    | 189/310 [00:00<00:00, 4586.01it/s, Materializing param=layers.17.input_layernorm.weight] Loading weights:  61%|██████    | 189/310 [00:00<00:00, 4581.71it/s, Materializing param=layers.17.input_layernorm.weight]Loading weights:  61%|██████▏   | 190/310 [00:00<00:00, 4595.33it/s, Materializing param=layers.17.mlp.down_proj.weight]  Loading weights:  61%|██████▏   | 190/310 [00:00<00:00, 4591.12it/s, Materializing param=layers.17.mlp.down_proj.weight]Loading weights:  62%|██████▏   | 191/310 [00:00<00:00, 4593.30it/s, Materializing param=layers.17.mlp.gate_proj.weight]Loading weights:  62%|██████▏   | 191/310 [00:00<00:00, 4587.17it/s, Materializing param=layers.17.mlp.gate_proj.weight]Loading weights:  62%|██████▏   | 192/310 [00:00<00:00, 4595.16it/s, Materializing param=layers.17.mlp.up_proj.weight]  Loading weights:  62%|██████▏   | 192/310 [00:00<00:00, 4590.79it/s, Materializing param=layers.17.mlp.up_proj.weight]Loading weights:  62%|██████▏   | 193/310 [00:00<00:00, 4603.88it/s, Materializing param=layers.17.post_attention_layernorm.weight]Loading weights:  62%|██████▏   | 193/310 [00:00<00:00, 4599.38it/s, Materializing param=layers.17.post_attention_layernorm.weight]Loading weights:  63%|██████▎   | 194/310 [00:00<00:00, 4612.73it/s, Materializing param=layers.17.self_attn.k_norm.weight]        Loading weights:  63%|██████▎   | 194/310 [00:00<00:00, 4608.45it/s, Materializing param=layers.17.self_attn.k_norm.weight]Loading weights:  63%|██████▎   | 195/310 [00:00<00:00, 4569.55it/s, Materializing param=layers.17.self_attn.k_proj.weight]Loading weights:  63%|██████▎   | 195/310 [00:00<00:00, 4565.36it/s, Materializing param=layers.17.self_attn.k_proj.weight]Loading weights:  63%|██████▎   | 196/310 [00:00<00:00, 4579.65it/s, Materializing param=layers.17.self_attn.o_proj.weight]Loading weights:  63%|██████▎   | 196/310 [00:00<00:00, 4575.52it/s, Materializing param=layers.17.self_attn.o_proj.weight]Loading weights:  64%|██████▎   | 197/310 [00:00<00:00, 4588.85it/s, Materializing param=layers.17.self_attn.q_norm.weight]Loading weights:  64%|██████▎   | 197/310 [00:00<00:00, 4584.50it/s, Materializing param=layers.17.self_attn.q_norm.weight]Loading weights:  64%|██████▍   | 198/310 [00:00<00:00, 4597.52it/s, Materializing param=layers.17.self_attn.q_proj.weight]Loading weights:  64%|██████▍   | 198/310 [00:00<00:00, 4593.29it/s, Materializing param=layers.17.self_attn.q_proj.weight]Loading weights:  64%|██████▍   | 199/310 [00:00<00:00, 4604.32it/s, Materializing param=layers.17.self_attn.v_proj.weight]Loading weights:  64%|██████▍   | 199/310 [00:00<00:00, 4600.21it/s, Materializing param=layers.17.self_attn.v_proj.weight]Loading weights:  65%|██████▍   | 200/310 [00:00<00:00, 4613.13it/s, Materializing param=layers.18.input_layernorm.weight] Loading weights:  65%|██████▍   | 200/310 [00:00<00:00, 4608.87it/s, Materializing param=layers.18.input_layernorm.weight]Loading weights:  65%|██████▍   | 201/310 [00:00<00:00, 4603.56it/s, Materializing param=layers.18.mlp.down_proj.weight]  Loading weights:  65%|██████▍   | 201/310 [00:00<00:00, 4599.14it/s, Materializing param=layers.18.mlp.down_proj.weight]Loading weights:  65%|██████▌   | 202/310 [00:00<00:00, 4516.62it/s, Materializing param=layers.18.mlp.gate_proj.weight]Loading weights:  65%|██████▌   | 202/310 [00:00<00:00, 4512.33it/s, Materializing param=layers.18.mlp.gate_proj.weight]Loading weights:  65%|██████▌   | 203/310 [00:00<00:00, 4524.79it/s, Materializing param=layers.18.mlp.up_proj.weight]  Loading weights:  65%|██████▌   | 203/310 [00:00<00:00, 4520.71it/s, Materializing param=layers.18.mlp.up_proj.weight]Loading weights:  66%|██████▌   | 204/310 [00:00<00:00, 4497.94it/s, Materializing param=layers.18.post_attention_layernorm.weight]Loading weights:  66%|██████▌   | 204/310 [00:00<00:00, 4493.68it/s, Materializing param=layers.18.post_attention_layernorm.weight]Loading weights:  66%|██████▌   | 205/310 [00:00<00:00, 4507.21it/s, Materializing param=layers.18.self_attn.k_norm.weight]        Loading weights:  66%|██████▌   | 205/310 [00:00<00:00, 4503.37it/s, Materializing param=layers.18.self_attn.k_norm.weight]Loading weights:  66%|██████▋   | 206/310 [00:00<00:00, 4514.62it/s, Materializing param=layers.18.self_attn.k_proj.weight]Loading weights:  66%|██████▋   | 206/310 [00:00<00:00, 4510.73it/s, Materializing param=layers.18.self_attn.k_proj.weight]Loading weights:  67%|██████▋   | 207/310 [00:00<00:00, 4523.14it/s, Materializing param=layers.18.self_attn.o_proj.weight]Loading weights:  67%|██████▋   | 207/310 [00:00<00:00, 4519.23it/s, Materializing param=layers.18.self_attn.o_proj.weight]Loading weights:  67%|██████▋   | 208/310 [00:00<00:00, 4531.51it/s, Materializing param=layers.18.self_attn.q_norm.weight]Loading weights:  67%|██████▋   | 208/310 [00:00<00:00, 4527.68it/s, Materializing param=layers.18.self_attn.q_norm.weight]Loading weights:  67%|██████▋   | 209/310 [00:00<00:00, 4540.30it/s, Materializing param=layers.18.self_attn.q_proj.weight]Loading weights:  67%|██████▋   | 209/310 [00:00<00:00, 4536.49it/s, Materializing param=layers.18.self_attn.q_proj.weight]Loading weights:  68%|██████▊   | 210/310 [00:00<00:00, 4540.93it/s, Materializing param=layers.18.self_attn.v_proj.weight]Loading weights:  68%|██████▊   | 210/310 [00:00<00:00, 4536.93it/s, Materializing param=layers.18.self_attn.v_proj.weight]Loading weights:  68%|██████▊   | 211/310 [00:00<00:00, 4550.45it/s, Materializing param=layers.19.input_layernorm.weight] Loading weights:  68%|██████▊   | 211/310 [00:00<00:00, 4546.80it/s, Materializing param=layers.19.input_layernorm.weight]Loading weights:  68%|██████▊   | 212/310 [00:00<00:00, 4559.05it/s, Materializing param=layers.19.mlp.down_proj.weight]  Loading weights:  68%|██████▊   | 212/310 [00:00<00:00, 4555.01it/s, Materializing param=layers.19.mlp.down_proj.weight]Loading weights:  69%|██████▊   | 213/310 [00:00<00:00, 4565.46it/s, Materializing param=layers.19.mlp.gate_proj.weight]Loading weights:  69%|██████▊   | 213/310 [00:00<00:00, 4561.59it/s, Materializing param=layers.19.mlp.gate_proj.weight]Loading weights:  69%|██████▉   | 214/310 [00:00<00:00, 4573.64it/s, Materializing param=layers.19.mlp.up_proj.weight]  Loading weights:  69%|██████▉   | 214/310 [00:00<00:00, 4569.77it/s, Materializing param=layers.19.mlp.up_proj.weight]Loading weights:  69%|██████▉   | 215/310 [00:00<00:00, 4551.48it/s, Materializing param=layers.19.post_attention_layernorm.weight]Loading weights:  69%|██████▉   | 215/310 [00:00<00:00, 4547.23it/s, Materializing param=layers.19.post_attention_layernorm.weight]Loading weights:  70%|██████▉   | 216/310 [00:00<00:00, 4559.19it/s, Materializing param=layers.19.self_attn.k_norm.weight]        Loading weights:  70%|██████▉   | 216/310 [00:00<00:00, 4555.34it/s, Materializing param=layers.19.self_attn.k_norm.weight]Loading weights:  70%|███████   | 217/310 [00:00<00:00, 4567.19it/s, Materializing param=layers.19.self_attn.k_proj.weight]Loading weights:  70%|███████   | 217/310 [00:00<00:00, 4563.48it/s, Materializing param=layers.19.self_attn.k_proj.weight]Loading weights:  70%|███████   | 218/310 [00:00<00:00, 4574.03it/s, Materializing param=layers.19.self_attn.o_proj.weight]Loading weights:  70%|███████   | 218/310 [00:00<00:00, 4570.26it/s, Materializing param=layers.19.self_attn.o_proj.weight]Loading weights:  71%|███████   | 219/310 [00:00<00:00, 4541.71it/s, Materializing param=layers.19.self_attn.q_norm.weight]Loading weights:  71%|███████   | 219/310 [00:00<00:00, 4537.90it/s, Materializing param=layers.19.self_attn.q_norm.weight]Loading weights:  71%|███████   | 220/310 [00:00<00:00, 4550.75it/s, Materializing param=layers.19.self_attn.q_proj.weight]Loading weights:  71%|███████   | 220/310 [00:00<00:00, 4547.21it/s, Materializing param=layers.19.self_attn.q_proj.weight]Loading weights:  71%|███████▏  | 221/310 [00:00<00:00, 4558.87it/s, Materializing param=layers.19.self_attn.v_proj.weight]Loading weights:  71%|███████▏  | 221/310 [00:00<00:00, 4555.13it/s, Materializing param=layers.19.self_attn.v_proj.weight]Loading weights:  72%|███████▏  | 222/310 [00:00<00:00, 4500.39it/s, Materializing param=layers.20.input_layernorm.weight] Loading weights:  72%|███████▏  | 222/310 [00:00<00:00, 4496.70it/s, Materializing param=layers.20.input_layernorm.weight]Loading weights:  72%|███████▏  | 223/310 [00:00<00:00, 4509.48it/s, Materializing param=layers.20.mlp.down_proj.weight]  Loading weights:  72%|███████▏  | 223/310 [00:00<00:00, 4505.81it/s, Materializing param=layers.20.mlp.down_proj.weight]Loading weights:  72%|███████▏  | 224/310 [00:00<00:00, 4517.12it/s, Materializing param=layers.20.mlp.gate_proj.weight]Loading weights:  72%|███████▏  | 224/310 [00:00<00:00, 4512.54it/s, Materializing param=layers.20.mlp.gate_proj.weight]Loading weights:  73%|███████▎  | 225/310 [00:00<00:00, 4515.07it/s, Materializing param=layers.20.mlp.up_proj.weight]  Loading weights:  73%|███████▎  | 225/310 [00:00<00:00, 4511.54it/s, Materializing param=layers.20.mlp.up_proj.weight]Loading weights:  73%|███████▎  | 226/310 [00:00<00:00, 4523.80it/s, Materializing param=layers.20.post_attention_layernorm.weight]Loading weights:  73%|███████▎  | 226/310 [00:00<00:00, 4520.20it/s, Materializing param=layers.20.post_attention_layernorm.weight]Loading weights:  73%|███████▎  | 227/310 [00:00<00:00, 4531.47it/s, Materializing param=layers.20.self_attn.k_norm.weight]        Loading weights:  73%|███████▎  | 227/310 [00:00<00:00, 4527.85it/s, Materializing param=layers.20.self_attn.k_norm.weight]Loading weights:  74%|███████▎  | 228/310 [00:00<00:00, 4443.94it/s, Materializing param=layers.20.self_attn.k_proj.weight]Loading weights:  74%|███████▎  | 228/310 [00:00<00:00, 4440.25it/s, Materializing param=layers.20.self_attn.k_proj.weight]Loading weights:  74%|███████▍  | 229/310 [00:00<00:00, 4452.16it/s, Materializing param=layers.20.self_attn.o_proj.weight]Loading weights:  74%|███████▍  | 229/310 [00:00<00:00, 4448.72it/s, Materializing param=layers.20.self_attn.o_proj.weight]Loading weights:  74%|███████▍  | 230/310 [00:00<00:00, 4460.05it/s, Materializing param=layers.20.self_attn.q_norm.weight]Loading weights:  74%|███████▍  | 230/310 [00:00<00:00, 4455.78it/s, Materializing param=layers.20.self_attn.q_norm.weight]Loading weights:  75%|███████▍  | 231/310 [00:00<00:00, 4467.19it/s, Materializing param=layers.20.self_attn.q_proj.weight]Loading weights:  75%|███████▍  | 231/310 [00:00<00:00, 4463.83it/s, Materializing param=layers.20.self_attn.q_proj.weight]Loading weights:  75%|███████▍  | 232/310 [00:00<00:00, 4473.27it/s, Materializing param=layers.20.self_attn.v_proj.weight]Loading weights:  75%|███████▍  | 232/310 [00:00<00:00, 4469.86it/s, Materializing param=layers.20.self_attn.v_proj.weight]Loading weights:  75%|███████▌  | 233/310 [00:00<00:00, 4457.37it/s, Materializing param=layers.21.input_layernorm.weight] Loading weights:  75%|███████▌  | 233/310 [00:00<00:00, 4453.91it/s, Materializing param=layers.21.input_layernorm.weight]Loading weights:  75%|███████▌  | 234/310 [00:00<00:00, 4464.95it/s, Materializing param=layers.21.mlp.down_proj.weight]  Loading weights:  75%|███████▌  | 234/310 [00:00<00:00, 4461.54it/s, Materializing param=layers.21.mlp.down_proj.weight]Loading weights:  76%|███████▌  | 235/310 [00:00<00:00, 4472.45it/s, Materializing param=layers.21.mlp.gate_proj.weight]Loading weights:  76%|███████▌  | 235/310 [00:00<00:00, 4469.09it/s, Materializing param=layers.21.mlp.gate_proj.weight]Loading weights:  76%|███████▌  | 236/310 [00:00<00:00, 4454.96it/s, Materializing param=layers.21.mlp.up_proj.weight]  Loading weights:  76%|███████▌  | 236/310 [00:00<00:00, 4451.57it/s, Materializing param=layers.21.mlp.up_proj.weight]Loading weights:  76%|███████▋  | 237/310 [00:00<00:00, 4462.23it/s, Materializing param=layers.21.post_attention_layernorm.weight]Loading weights:  76%|███████▋  | 237/310 [00:00<00:00, 4458.86it/s, Materializing param=layers.21.post_attention_layernorm.weight]Loading weights:  77%|███████▋  | 238/310 [00:00<00:00, 4469.66it/s, Materializing param=layers.21.self_attn.k_norm.weight]        Loading weights:  77%|███████▋  | 238/310 [00:00<00:00, 4466.40it/s, Materializing param=layers.21.self_attn.k_norm.weight]Loading weights:  77%|███████▋  | 239/310 [00:00<00:00, 4477.03it/s, Materializing param=layers.21.self_attn.k_proj.weight]Loading weights:  77%|███████▋  | 239/310 [00:00<00:00, 4473.81it/s, Materializing param=layers.21.self_attn.k_proj.weight]Loading weights:  77%|███████▋  | 240/310 [00:00<00:00, 4451.92it/s, Materializing param=layers.21.self_attn.o_proj.weight]Loading weights:  77%|███████▋  | 240/310 [00:00<00:00, 4448.58it/s, Materializing param=layers.21.self_attn.o_proj.weight]Loading weights:  78%|███████▊  | 241/310 [00:00<00:00, 4459.17it/s, Materializing param=layers.21.self_attn.q_norm.weight]Loading weights:  78%|███████▊  | 241/310 [00:00<00:00, 4455.83it/s, Materializing param=layers.21.self_attn.q_norm.weight]Loading weights:  78%|███████▊  | 242/310 [00:00<00:00, 4466.52it/s, Materializing param=layers.21.self_attn.q_proj.weight]Loading weights:  78%|███████▊  | 242/310 [00:00<00:00, 4463.22it/s, Materializing param=layers.21.self_attn.q_proj.weight]Loading weights:  78%|███████▊  | 243/310 [00:00<00:00, 4474.15it/s, Materializing param=layers.21.self_attn.v_proj.weight]Loading weights:  78%|███████▊  | 243/310 [00:00<00:00, 4470.87it/s, Materializing param=layers.21.self_attn.v_proj.weight]Loading weights:  79%|███████▊  | 244/310 [00:00<00:00, 4481.49it/s, Materializing param=layers.22.input_layernorm.weight] Loading weights:  79%|███████▊  | 244/310 [00:00<00:00, 4478.17it/s, Materializing param=layers.22.input_layernorm.weight]Loading weights:  79%|███████▉  | 245/310 [00:00<00:00, 4423.59it/s, Materializing param=layers.22.mlp.down_proj.weight]  Loading weights:  79%|███████▉  | 245/310 [00:00<00:00, 4420.30it/s, Materializing param=layers.22.mlp.down_proj.weight]Loading weights:  79%|███████▉  | 246/310 [00:00<00:00, 4430.62it/s, Materializing param=layers.22.mlp.gate_proj.weight]Loading weights:  79%|███████▉  | 246/310 [00:00<00:00, 4427.47it/s, Materializing param=layers.22.mlp.gate_proj.weight]Loading weights:  80%|███████▉  | 247/310 [00:00<00:00, 4382.86it/s, Materializing param=layers.22.mlp.up_proj.weight]  Loading weights:  80%|███████▉  | 247/310 [00:00<00:00, 4378.13it/s, Materializing param=layers.22.mlp.up_proj.weight]Loading weights:  80%|████████  | 248/310 [00:00<00:00, 4386.85it/s, Materializing param=layers.22.post_attention_layernorm.weight]Loading weights:  80%|████████  | 248/310 [00:00<00:00, 4383.61it/s, Materializing param=layers.22.post_attention_layernorm.weight]Loading weights:  80%|████████  | 249/310 [00:00<00:00, 4390.26it/s, Materializing param=layers.22.self_attn.k_norm.weight]        Loading weights:  80%|████████  | 249/310 [00:00<00:00, 4385.23it/s, Materializing param=layers.22.self_attn.k_norm.weight]Loading weights:  81%|████████  | 250/310 [00:00<00:00, 4394.26it/s, Materializing param=layers.22.self_attn.k_proj.weight]Loading weights:  81%|████████  | 250/310 [00:00<00:00, 4391.13it/s, Materializing param=layers.22.self_attn.k_proj.weight]Loading weights:  81%|████████  | 251/310 [00:00<00:00, 4300.41it/s, Materializing param=layers.22.self_attn.o_proj.weight]Loading weights:  81%|████████  | 251/310 [00:00<00:00, 4291.96it/s, Materializing param=layers.22.self_attn.o_proj.weight]Loading weights:  81%|████████▏ | 252/310 [00:00<00:00, 4295.14it/s, Materializing param=layers.22.self_attn.q_norm.weight]Loading weights:  81%|████████▏ | 252/310 [00:00<00:00, 4291.56it/s, Materializing param=layers.22.self_attn.q_norm.weight]Loading weights:  82%|████████▏ | 253/310 [00:00<00:00, 4196.46it/s, Materializing param=layers.22.self_attn.q_proj.weight]Loading weights:  82%|████████▏ | 253/310 [00:00<00:00, 4189.12it/s, Materializing param=layers.22.self_attn.q_proj.weight]Loading weights:  82%|████████▏ | 254/310 [00:00<00:00, 4176.56it/s, Materializing param=layers.22.self_attn.v_proj.weight]Loading weights:  82%|████████▏ | 254/310 [00:00<00:00, 4173.27it/s, Materializing param=layers.22.self_attn.v_proj.weight]Loading weights:  82%|████████▏ | 255/310 [00:00<00:00, 4171.21it/s, Materializing param=layers.23.input_layernorm.weight] Loading weights:  82%|████████▏ | 255/310 [00:00<00:00, 4168.28it/s, Materializing param=layers.23.input_layernorm.weight]Loading weights:  83%|████████▎ | 256/310 [00:00<00:00, 4175.76it/s, Materializing param=layers.23.mlp.down_proj.weight]  Loading weights:  83%|████████▎ | 256/310 [00:00<00:00, 4172.87it/s, Materializing param=layers.23.mlp.down_proj.weight]Loading weights:  83%|████████▎ | 257/310 [00:00<00:00, 4182.08it/s, Materializing param=layers.23.mlp.gate_proj.weight]Loading weights:  83%|████████▎ | 257/310 [00:00<00:00, 4179.31it/s, Materializing param=layers.23.mlp.gate_proj.weight]Loading weights:  83%|████████▎ | 258/310 [00:00<00:00, 4188.78it/s, Materializing param=layers.23.mlp.up_proj.weight]  Loading weights:  83%|████████▎ | 258/310 [00:00<00:00, 4184.80it/s, Materializing param=layers.23.mlp.up_proj.weight]Loading weights:  84%|████████▎ | 259/310 [00:00<00:00, 4194.56it/s, Materializing param=layers.23.post_attention_layernorm.weight]Loading weights:  84%|████████▎ | 259/310 [00:00<00:00, 4191.70it/s, Materializing param=layers.23.post_attention_layernorm.weight]Loading weights:  84%|████████▍ | 260/310 [00:00<00:00, 4195.47it/s, Materializing param=layers.23.self_attn.k_norm.weight]        Loading weights:  84%|████████▍ | 260/310 [00:00<00:00, 4192.47it/s, Materializing param=layers.23.self_attn.k_norm.weight]Loading weights:  84%|████████▍ | 261/310 [00:00<00:00, 4202.05it/s, Materializing param=layers.23.self_attn.k_proj.weight]Loading weights:  84%|████████▍ | 261/310 [00:00<00:00, 4199.23it/s, Materializing param=layers.23.self_attn.k_proj.weight]Loading weights:  85%|████████▍ | 262/310 [00:00<00:00, 4185.60it/s, Materializing param=layers.23.self_attn.o_proj.weight]Loading weights:  85%|████████▍ | 262/310 [00:00<00:00, 4181.82it/s, Materializing param=layers.23.self_attn.o_proj.weight]Loading weights:  85%|████████▍ | 263/310 [00:00<00:00, 4192.15it/s, Materializing param=layers.23.self_attn.q_norm.weight]Loading weights:  85%|████████▍ | 263/310 [00:00<00:00, 4189.49it/s, Materializing param=layers.23.self_attn.q_norm.weight]Loading weights:  85%|████████▌ | 264/310 [00:00<00:00, 4190.34it/s, Materializing param=layers.23.self_attn.q_proj.weight]Loading weights:  85%|████████▌ | 264/310 [00:00<00:00, 4187.61it/s, Materializing param=layers.23.self_attn.q_proj.weight]Loading weights:  85%|████████▌ | 265/310 [00:00<00:00, 4196.92it/s, Materializing param=layers.23.self_attn.v_proj.weight]Loading weights:  85%|████████▌ | 265/310 [00:00<00:00, 4194.21it/s, Materializing param=layers.23.self_attn.v_proj.weight]Loading weights:  86%|████████▌ | 266/310 [00:00<00:00, 4203.45it/s, Materializing param=layers.24.input_layernorm.weight] Loading weights:  86%|████████▌ | 266/310 [00:00<00:00, 4200.73it/s, Materializing param=layers.24.input_layernorm.weight]Loading weights:  86%|████████▌ | 267/310 [00:00<00:00, 4210.14it/s, Materializing param=layers.24.mlp.down_proj.weight]  Loading weights:  86%|████████▌ | 267/310 [00:00<00:00, 4207.60it/s, Materializing param=layers.24.mlp.down_proj.weight]Loading weights:  86%|████████▋ | 268/310 [00:00<00:00, 4216.63it/s, Materializing param=layers.24.mlp.gate_proj.weight]Loading weights:  86%|████████▋ | 268/310 [00:00<00:00, 4214.04it/s, Materializing param=layers.24.mlp.gate_proj.weight]Loading weights:  87%|████████▋ | 269/310 [00:00<00:00, 4211.23it/s, Materializing param=layers.24.mlp.up_proj.weight]  Loading weights:  87%|████████▋ | 269/310 [00:00<00:00, 4208.65it/s, Materializing param=layers.24.mlp.up_proj.weight]Loading weights:  87%|████████▋ | 270/310 [00:00<00:00, 4217.66it/s, Materializing param=layers.24.post_attention_layernorm.weight]Loading weights:  87%|████████▋ | 270/310 [00:00<00:00, 4215.02it/s, Materializing param=layers.24.post_attention_layernorm.weight]Loading weights:  87%|████████▋ | 271/310 [00:00<00:00, 4218.34it/s, Materializing param=layers.24.self_attn.k_norm.weight]        Loading weights:  87%|████████▋ | 271/310 [00:00<00:00, 4215.57it/s, Materializing param=layers.24.self_attn.k_norm.weight]Loading weights:  88%|████████▊ | 272/310 [00:00<00:00, 4225.42it/s, Materializing param=layers.24.self_attn.k_proj.weight]Loading weights:  88%|████████▊ | 272/310 [00:00<00:00, 4222.87it/s, Materializing param=layers.24.self_attn.k_proj.weight]Loading weights:  88%|████████▊ | 273/310 [00:00<00:00, 4232.08it/s, Materializing param=layers.24.self_attn.o_proj.weight]Loading weights:  88%|████████▊ | 273/310 [00:00<00:00, 4229.32it/s, Materializing param=layers.24.self_attn.o_proj.weight]Loading weights:  88%|████████▊ | 274/310 [00:00<00:00, 4237.59it/s, Materializing param=layers.24.self_attn.q_norm.weight]Loading weights:  88%|████████▊ | 274/310 [00:00<00:00, 4235.00it/s, Materializing param=layers.24.self_attn.q_norm.weight]Loading weights:  89%|████████▊ | 275/310 [00:00<00:00, 4244.37it/s, Materializing param=layers.24.self_attn.q_proj.weight]Loading weights:  89%|████████▊ | 275/310 [00:00<00:00, 4241.80it/s, Materializing param=layers.24.self_attn.q_proj.weight]Loading weights:  89%|████████▉ | 276/310 [00:00<00:00, 4250.95it/s, Materializing param=layers.24.self_attn.v_proj.weight]Loading weights:  89%|████████▉ | 276/310 [00:00<00:00, 4248.38it/s, Materializing param=layers.24.self_attn.v_proj.weight]Loading weights:  89%|████████▉ | 277/310 [00:00<00:00, 4257.43it/s, Materializing param=layers.25.input_layernorm.weight] Loading weights:  89%|████████▉ | 277/310 [00:00<00:00, 4254.81it/s, Materializing param=layers.25.input_layernorm.weight]Loading weights:  90%|████████▉ | 278/310 [00:00<00:00, 4263.63it/s, Materializing param=layers.25.mlp.down_proj.weight]  Loading weights:  90%|████████▉ | 278/310 [00:00<00:00, 4261.06it/s, Materializing param=layers.25.mlp.down_proj.weight]Loading weights:  90%|█████████ | 279/310 [00:00<00:00, 4270.98it/s, Materializing param=layers.25.mlp.gate_proj.weight]Loading weights:  90%|█████████ | 279/310 [00:00<00:00, 4268.43it/s, Materializing param=layers.25.mlp.gate_proj.weight]Loading weights:  90%|█████████ | 280/310 [00:00<00:00, 4276.33it/s, Materializing param=layers.25.mlp.up_proj.weight]  Loading weights:  90%|█████████ | 280/310 [00:00<00:00, 4273.80it/s, Materializing param=layers.25.mlp.up_proj.weight]Loading weights:  91%|█████████ | 281/310 [00:00<00:00, 4280.29it/s, Materializing param=layers.25.post_attention_layernorm.weight]Loading weights:  91%|█████████ | 281/310 [00:00<00:00, 4277.62it/s, Materializing param=layers.25.post_attention_layernorm.weight]Loading weights:  91%|█████████ | 282/310 [00:00<00:00, 4280.46it/s, Materializing param=layers.25.self_attn.k_norm.weight]        Loading weights:  91%|█████████ | 282/310 [00:00<00:00, 4277.77it/s, Materializing param=layers.25.self_attn.k_norm.weight]Loading weights:  91%|█████████▏| 283/310 [00:00<00:00, 4265.58it/s, Materializing param=layers.25.self_attn.k_proj.weight]Loading weights:  91%|█████████▏| 283/310 [00:00<00:00, 4263.01it/s, Materializing param=layers.25.self_attn.k_proj.weight]Loading weights:  92%|█████████▏| 284/310 [00:00<00:00, 4265.98it/s, Materializing param=layers.25.self_attn.o_proj.weight]Loading weights:  92%|█████████▏| 284/310 [00:00<00:00, 4262.47it/s, Materializing param=layers.25.self_attn.o_proj.weight]Loading weights:  92%|█████████▏| 285/310 [00:00<00:00, 4271.43it/s, Materializing param=layers.25.self_attn.q_norm.weight]Loading weights:  92%|█████████▏| 285/310 [00:00<00:00, 4268.91it/s, Materializing param=layers.25.self_attn.q_norm.weight]Loading weights:  92%|█████████▏| 286/310 [00:00<00:00, 4268.22it/s, Materializing param=layers.25.self_attn.q_proj.weight]Loading weights:  92%|█████████▏| 286/310 [00:00<00:00, 4265.82it/s, Materializing param=layers.25.self_attn.q_proj.weight]Loading weights:  93%|█████████▎| 287/310 [00:00<00:00, 4257.82it/s, Materializing param=layers.25.self_attn.v_proj.weight]Loading weights:  93%|█████████▎| 287/310 [00:00<00:00, 4255.32it/s, Materializing param=layers.25.self_attn.v_proj.weight]Loading weights:  93%|█████████▎| 288/310 [00:00<00:00, 4229.91it/s, Materializing param=layers.26.input_layernorm.weight] Loading weights:  93%|█████████▎| 288/310 [00:00<00:00, 4223.01it/s, Materializing param=layers.26.input_layernorm.weight]Loading weights:  93%|█████████▎| 289/310 [00:00<00:00, 4225.96it/s, Materializing param=layers.26.mlp.down_proj.weight]  Loading weights:  93%|█████████▎| 289/310 [00:00<00:00, 4222.65it/s, Materializing param=layers.26.mlp.down_proj.weight]Loading weights:  94%|█████████▎| 290/310 [00:00<00:00, 4228.83it/s, Materializing param=layers.26.mlp.gate_proj.weight]Loading weights:  94%|█████████▎| 290/310 [00:00<00:00, 4225.07it/s, Materializing param=layers.26.mlp.gate_proj.weight]Loading weights:  94%|█████████▍| 291/310 [00:00<00:00, 4232.91it/s, Materializing param=layers.26.mlp.up_proj.weight]  Loading weights:  94%|█████████▍| 291/310 [00:00<00:00, 4230.40it/s, Materializing param=layers.26.mlp.up_proj.weight]Loading weights:  94%|█████████▍| 292/310 [00:00<00:00, 4238.75it/s, Materializing param=layers.26.post_attention_layernorm.weight]Loading weights:  94%|█████████▍| 292/310 [00:00<00:00, 4236.11it/s, Materializing param=layers.26.post_attention_layernorm.weight]Loading weights:  95%|█████████▍| 293/310 [00:00<00:00, 4244.10it/s, Materializing param=layers.26.self_attn.k_norm.weight]        Loading weights:  95%|█████████▍| 293/310 [00:00<00:00, 4241.58it/s, Materializing param=layers.26.self_attn.k_norm.weight]Loading weights:  95%|█████████▍| 294/310 [00:00<00:00, 4249.78it/s, Materializing param=layers.26.self_attn.k_proj.weight]Loading weights:  95%|█████████▍| 294/310 [00:00<00:00, 4247.29it/s, Materializing param=layers.26.self_attn.k_proj.weight]Loading weights:  95%|█████████▌| 295/310 [00:00<00:00, 4255.60it/s, Materializing param=layers.26.self_attn.o_proj.weight]Loading weights:  95%|█████████▌| 295/310 [00:00<00:00, 4253.13it/s, Materializing param=layers.26.self_attn.o_proj.weight]Loading weights:  95%|█████████▌| 296/310 [00:00<00:00, 4260.31it/s, Materializing param=layers.26.self_attn.q_norm.weight]Loading weights:  95%|█████████▌| 296/310 [00:00<00:00, 4257.83it/s, Materializing param=layers.26.self_attn.q_norm.weight]Loading weights:  96%|█████████▌| 297/310 [00:00<00:00, 4265.44it/s, Materializing param=layers.26.self_attn.q_proj.weight]Loading weights:  96%|█████████▌| 297/310 [00:00<00:00, 4263.00it/s, Materializing param=layers.26.self_attn.q_proj.weight]Loading weights:  96%|█████████▌| 298/310 [00:00<00:00, 4254.86it/s, Materializing param=layers.26.self_attn.v_proj.weight]Loading weights:  96%|█████████▌| 298/310 [00:00<00:00, 4252.21it/s, Materializing param=layers.26.self_attn.v_proj.weight]Loading weights:  96%|█████████▋| 299/310 [00:00<00:00, 4260.45it/s, Materializing param=layers.27.input_layernorm.weight] Loading weights:  96%|█████████▋| 299/310 [00:00<00:00, 4257.99it/s, Materializing param=layers.27.input_layernorm.weight]Loading weights:  97%|█████████▋| 300/310 [00:00<00:00, 4266.32it/s, Materializing param=layers.27.mlp.down_proj.weight]  Loading weights:  97%|█████████▋| 300/310 [00:00<00:00, 4263.86it/s, Materializing param=layers.27.mlp.down_proj.weight]Loading weights:  97%|█████████▋| 301/310 [00:00<00:00, 4272.11it/s, Materializing param=layers.27.mlp.gate_proj.weight]Loading weights:  97%|█████████▋| 301/310 [00:00<00:00, 4269.65it/s, Materializing param=layers.27.mlp.gate_proj.weight]Loading weights:  97%|█████████▋| 302/310 [00:00<00:00, 4277.81it/s, Materializing param=layers.27.mlp.up_proj.weight]  Loading weights:  97%|█████████▋| 302/310 [00:00<00:00, 4274.63it/s, Materializing param=layers.27.mlp.up_proj.weight]Loading weights:  98%|█████████▊| 303/310 [00:00<00:00, 4282.84it/s, Materializing param=layers.27.post_attention_layernorm.weight]Loading weights:  98%|█████████▊| 303/310 [00:00<00:00, 4280.36it/s, Materializing param=layers.27.post_attention_layernorm.weight]Loading weights:  98%|█████████▊| 304/310 [00:00<00:00, 4286.16it/s, Materializing param=layers.27.self_attn.k_norm.weight]        Loading weights:  98%|█████████▊| 304/310 [00:00<00:00, 4283.70it/s, Materializing param=layers.27.self_attn.k_norm.weight]Loading weights:  98%|█████████▊| 305/310 [00:00<00:00, 4269.55it/s, Materializing param=layers.27.self_attn.k_proj.weight]Loading weights:  98%|█████████▊| 305/310 [00:00<00:00, 4267.04it/s, Materializing param=layers.27.self_attn.k_proj.weight]Loading weights:  99%|█████████▊| 306/310 [00:00<00:00, 4276.37it/s, Materializing param=layers.27.self_attn.o_proj.weight]Loading weights:  99%|█████████▊| 306/310 [00:00<00:00, 4274.06it/s, Materializing param=layers.27.self_attn.o_proj.weight]Loading weights:  99%|█████████▉| 307/310 [00:00<00:00, 4282.62it/s, Materializing param=layers.27.self_attn.q_norm.weight]Loading weights:  99%|█████████▉| 307/310 [00:00<00:00, 4280.34it/s, Materializing param=layers.27.self_attn.q_norm.weight]Loading weights:  99%|█████████▉| 308/310 [00:00<00:00, 4289.77it/s, Materializing param=layers.27.self_attn.q_proj.weight]Loading weights:  99%|█████████▉| 308/310 [00:00<00:00, 4287.46it/s, Materializing param=layers.27.self_attn.q_proj.weight]Loading weights: 100%|█████████▉| 309/310 [00:00<00:00, 4296.82it/s, Materializing param=layers.27.self_attn.v_proj.weight]Loading weights: 100%|█████████▉| 309/310 [00:00<00:00, 4294.57it/s, Materializing param=layers.27.self_attn.v_proj.weight]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 4304.09it/s, Materializing param=norm.weight]                      Loading weights: 100%|██████████| 310/310 [00:00<00:00, 4301.95it/s, Materializing param=norm.weight]Loading weights: 100%|██████████| 310/310 [00:00<00:00, 4296.58it/s, Materializing param=norm.weight]
+
+Calling manager.update() on /local-scratch1/jla1045/LLM-SAT/solvers/mutation_curated with debug=True...
+
+
+[DEBUG] Selected GOOD candidates:
+ - 64b8f8d3efca4601ce56eda928948f8367d54fba659a92f2a92538f208e87314__4a9e6122f284e216d7e78beb8b84f080e3fcf82883d009716556a93350efdc2b: leader_id=64b8f8d3efca4601ce56eda928948f8367d54fba659a92f2a92538f208e87314, member_id=4a9e6122f284e216d7e78beb8b84f080e3fcf82883d009716556a93350efdc2b, step=Step 2: Maintain a sliding window of the last 512 learned clause LBDs to calculate 'Search Entropy' (H), defined as the normalized Shannon entropy of the LBD distribution., rel_change=0.2068
+ - aaa4743e5b70424ca4bfa769dc51ba9d0993f2925ad2fa21e05bb857c00784fb__650fd310af4e23a11906e352514eaae2998e9a826e0eb6b4b2a90dc53e8be111: leader_id=aaa4743e5b70424ca4bfa769dc51ba9d0993f2925ad2fa21e05bb857c00784fb, member_id=650fd310af4e23a11906e352514eaae2998e9a826e0eb6b4b2a90dc53e8be111, step=Step 4, rel_change=0.0394
+ - aaa4743e5b70424ca4bfa769dc51ba9d0993f2925ad2fa21e05bb857c00784fb__bdc0767848dc162e13fd5a91fbd863b00a5912d0fb35f943594631c3198debe8: leader_id=aaa4743e5b70424ca4bfa769dc51ba9d0993f2925ad2fa21e05bb857c00784fb, member_id=bdc0767848dc162e13fd5a91fbd863b00a5912d0fb35f943594631c3198debe8, step=Step 6, rel_change=0.0293
+
+[DEBUG] Selected BAD candidates:
+ - 64b8f8d3efca4601ce56eda928948f8367d54fba659a92f2a92538f208e87314__6cfadaed9f9dc9e040ca905fcbf038f72520b85f9bba0794a2fa16661cf3ed8f: leader_id=64b8f8d3efca4601ce56eda928948f8367d54fba659a92f2a92538f208e87314, member_id=6cfadaed9f9dc9e040ca905fcbf038f72520b85f9bba0794a2fa16661cf3ed8f, step=Step 3, rel_change=1.6311
+ - 64b8f8d3efca4601ce56eda928948f8367d54fba659a92f2a92538f208e87314__908e78f731436440108a9b3b49f539e9bea92355b962645890638c2fceff0e2b: leader_id=64b8f8d3efca4601ce56eda928948f8367d54fba659a92f2a92538f208e87314, member_id=908e78f731436440108a9b3b49f539e9bea92355b962645890638c2fceff0e2b, step=Step 5, rel_change=1.1775
+ - aaa4743e5b70424ca4bfa769dc51ba9d0993f2925ad2fa21e05bb857c00784fb__1ba395ba447b368f48fc34948c2a4a7650b06416f0335bff4a19369bb60ebf26: leader_id=aaa4743e5b70424ca4bfa769dc51ba9d0993f2925ad2fa21e05bb857c00784fb, member_id=1ba395ba447b368f48fc34948c2a4a7650b06416f0335bff4a19369bb60ebf26, step=Step 1: Initialize two arms representing the Luby and Glucose restart policies. Maintain a Beta distribution (alpha, beta) for each arm, initialized to (1, 1), rel_change=0.0690
+
+
+[DEBUG] === BATCH PROMPT for good ===
+You are analyzing mutation outcomes for SAT solver heuristics.
+
+Setup:
+- Each pair compares a `leader` algorithm (parent) to a `member` algorithm (mutated child).
+- ALL provided pairs are IMPROVEMENT cases: member PAR2 is better (smaller) than leader PAR2.
+- For each pair, use the provided code diff, descriptions, and PAR2 values to carefully analyze and provide a detailed analysis on the causes of improved performance.
+
+Task:
+- Produce exactly 3 analyses, one per `pair_key`.
+- Explain concrete reasons for improvement grounded in the given code changes and algorithm descriptions.
+- Keep analysis concise, technical, and specific to each pair.
+- You might be able to identify common patterns in the cause of improvements in the provided pairs, if so, include such explanation in the analysis output.
+
+Provided fields for each pair:
+- `pair_key`: Local key for this batch item; copy it exactly into output.
+- `leader_par2`: PAR2 score of the leader algorithm (lower is better).
+- `member_par2`: PAR2 score of the member algorithm (lower is better).
+- `relative_change`: Relative improvement ratio vs leader; larger means stronger gain.
+- `leader_description`: Natural-language description of leader strategy.
+- `step_mutated`: The step from the leader_description that was mutated to reach the member_description.
+- `member_description`: Natural-language description of member strategy.
+- `code_diff`: Unified diff showing how member code changed from leader code.
+
+Required output format:
+- Return ONLY a single valid JSON object wrapped in a markdown ```json ``` fence.
+- Do NOT output any text before or after the fenced JSON.
+- JSON schema:
+
+```json
+{
+  "pairs": [
+    {
+      "pair_key": "<exact pair_key from input>",
+      "analysis": "<non-empty explanation of why member improved over leader>"
+    }
+  ]
+}
+```
+
+Strict constraints:
+- Include every provided `pair_key` exactly once.
+- `pairs` length must be exactly 3.
+- `analysis` must be non-empty strings.
+
+Batch data:
+PAIR 1
+
+pair_key: pair_1
+
+leader_par2: 200.0
+
+member_par2: 158.6317302
+
+relative_change: 20.684134900000004%
+
+leader_description:
+
+Agility-Gated Entropy-Biased Thompson Sampling: Step 1: Initialize four bandit arms representing distinct restart regimes: Arm 0 (Luby, base 32), Arm 1 (Luby, base 256), Arm 2 (EMA, alpha=1e-5), and Arm 3 (EMA, alpha=1e-7). Step 2: Maintain a sliding window of the last 512 learned clause LBDs to calculate 'Search Entropy' (H), defined as the normalized Shannon entropy of the LBD distribution. Step 3: Define the reward (R) for the active arm as R = (Agility / (1 + |H_current - H_previous|)) * (Conflicts_per_Second / Global_Average_CPS). Step 4: Update the Beta distribution parameters (alpha_i, beta_i) for the active arm i using a success increment if R > 1.0 and a failure increment otherwise. Step 5: Every 1024 conflicts, sample from the Beta distributions to select the next arm, but replace the rigid topology constraint with an 'Agility-Modulated Hysteresis Gate': if Agility < 0.1 (low search fluidity), apply strict masking (if H > 0.8, mask EMA arms; if H < 0.3, mask Luby arms). If Agility >= 0.1, instead of masking, scale the sampled Thompson values theta_i by a bias factor B, where B_Luby = (1 + H) and B_EMA = (2 - H). This allows the bandit to override entropy-based suggestions if an arm is currently generating high assignment volatility. Step 6: Replace the fixed decay with a context-aware retention mechanism: every 10,000 conflicts, scale all alpha and beta parameters by a factor lambda = 0.95 * (1.0 - Agility); if the Search Entropy (H) has shifted by more than 0.2 since the last update, trigger an immediate 'Phase Reset' by halving all parameters to allow the bandit to rapidly re-learn the optimal strategy for the new search topology.
+
+step_mutated:
+
+Step 2: Maintain a sliding window of the last 512 learned clause LBDs to calculate 'Search Entropy' (H), defined as the normalized Shannon entropy of the LBD distribution.
+
+member_description:
+
+Sigmoid-Blended Entropy-Agility Bandit: Step 1: Initialize four bandit arms representing distinct restart regimes: Arm 0 (Luby, base 32), Arm 1 (Luby, base 256), Arm 2 (EMA, alpha=1e-5), and Arm 3 (EMA, alpha=1e-7). Step 2: Maintain a sliding window of the last 512 learned clause LBDs to calculate 'Search Entropy' (H), defined as the normalized Shannon entropy of the LBD distribution. Step 3: Define the reward (R) for the active arm as R = (Agility / (1 + |H_current - H_previous|)) * (Conflicts_per_Second / Global_Average_CPS). Step 4: Update the Beta distribution parameters (alpha_i, beta_i) for the active arm i using a success increment if R > 1.0 and a failure increment otherwise. Step 5: Every 1024 conflicts, sample theta_i from the Beta distributions. Calculate a gating weight w = 1 / (1 + exp(-20 * (Agility - 0.12))), representing the transition from stuck to fluid search. If w < 0.5 (low search fluidity), apply 'Stochastic Entropy Masking': discard samples for EMA arms if H > 0.75 and for Luby arms if H < 0.35 with probability (1-w). If w >= 0.5, instead of masking, apply an 'Accelerated Entropy Bias' to the sampled values: theta'_i = theta_i * B, where B_Luby = (1 + H)^2 and B_EMA = (2 - H)^2. The arm with the highest theta'_i is selected. Step 6: Replace the fixed decay with a context-aware retention mechanism: every 10,000 conflicts, scale all alpha and beta parameters by a factor lambda = 0.95 * (1.0 - Agility); if the Search Entropy (H) has shifted by more than 0.2 since the last update, trigger an immediate 'Phase Reset' by halving all parameters to allow the bandit to rapidly re-learn the optimal strategy for the new search topology.
+
+code_diff:
+
+--- leader_algorithm
++++ member_algorithm
+@@ -1,136 +1,161 @@
++#include <math.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <inttypes.h>
++
++/**
++ * Sigmoid-Blended Entropy-Agility Bandit Implementation for Kissat
++ * 
++ * Arms:
++ * 0: Luby (base 32)
++ * 1: Luby (base 256)
++ * 2: EMA (alpha=1e-5)
++ * 3: EMA (alpha=1e-7)
++ */
+ void restart_mab(kissat *solver) {
+-    // Step 1: Persistent state for four bandit arms and search statistics
++    // Persistent Bandit State
+     static double alpha[4] = {1.0, 1.0, 1.0, 1.0};
+     static double beta[4] = {1.0, 1.0, 1.0, 1.0};
+-    static unsigned window[512];
+-    static unsigned w_idx = 0;
+-    static bool window_full = false;
+-    static double last_h = 0.0;
+-    static double last_h_reset = 0.0;
+-    static double global_cps = 0.0;
+-    static uint64_t last_mab_conf = 0;
+-    static uint64_t last_scale_conf = 0;
++    static uint64_t last_mab_conflicts = 0;
++    static uint64_t last_retention_conflicts = 0;
++    static uint64_t last_glue_counts[128] = {0};
++    static uint64_t last_ticks = 0;
++    static double prev_H = 0.0;
+     static bool initialized = false;
+-    static unsigned current_arm = 0;
+ 
+-    // Initialize on first entry
++    // Initialize state on first call
+     if (!initialized) {
+-        for (int i = 0; i < 512; i++) window[i] = 0;
+-        current_arm = solver->heuristic % 4;
+-        last_mab_conf = CONFLICTS;
+-        last_scale_conf = CONFLICTS;
++        for (unsigned k = 0; k < 128; k++) {
++            last_glue_counts[k] = solver->statistics.used[solver->stable].glue[k];
++        }
++        last_mab_conflicts = CONFLICTS;
++        last_retention_conflicts = CONFLICTS;
++        last_ticks = solver->ticks;
+         initialized = true;
++        return;
+     }
+ 
+-    // Step 2: Maintain sliding window of 512 LBDs and calculate Search Entropy (H)
+-    unsigned added = 0;
+-    for (all_clauses(c)) {
+-        if (c->redundant) {
+-            // Map LBD to [0, 127] range as per MAX_GLUE_USED
+-            window[w_idx] = (c->glue > 127) ? 127 : c->glue;
+-            w_idx = (w_idx + 1) % 512;
+-            if (w_idx == 0) window_full = true;
+-            if (++added >= 512) break;
++    // --- Step 2: Calculate Search Entropy (H) ---
++    // We use the distribution of LBDs of clauses used since the last restart
++    uint64_t total_glues = 0;
++    for (unsigned k = 0; k < 128; k++) {
++        uint64_t current = solver->statistics.used[solver->stable].glue[k];
++        if (current > last_glue_counts[k]) {
++            total_glues += (current - last_glue_counts[k]);
+         }
+     }
+ 
+-    double h = 0.0;
+-    unsigned bins[128];
+-    for (int i = 0; i < 128; i++) bins[i] = 0;
+-    unsigned total_samples = window_full ? 512 : (w_idx ? w_idx : 1);
+-    for (unsigned i = 0; i < (window_full ? 512 : w_idx); i++) {
+-        bins[window[i]]++;
++    double H = 0.0;
++    if (total_glues > 0) {
++        for (unsigned k = 0; k < 128; k++) {
++            uint64_t current = solver->statistics.used[solver->stable].glue[k];
++            if (current > last_glue_counts[k]) {
++                double p = (double)(current - last_glue_counts[k]) / total_glues;
++                H -= p * (log(p) / log(2.0));
++            }
++        }
++        H /= 7.0; // Normalized by log2(128)
+     }
+-    for (unsigned i = 0; i < 128; i++) {
+-        if (bins[i] > 0) {
+-            double p = (double)bins[i] / total_samples;
+-            h -= p * log2(p);
++
++    // --- Step 3: Define Reward (R) ---
++    double agility = solver->averages[solver->stable].agility.value;
++    double global_cps = (double)CONFLICTS / (solver->ticks + 1.0);
++    double current_cps = (double)(CONFLICTS - last_mab_conflicts + 1.0) / (solver->ticks - last_ticks + 1.0);
++    double delta_H = fabs(H - prev_H);
++    double reward = (agility / (1.0 + delta_H)) * (current_cps / (global_cps + 1e-9));
++
++    // --- Step 4: Update Beta Parameters ---
++    unsigned current_arm = solver->heuristic;
++    if (current_arm > 3) current_arm = 0; // Safety check
++
++    if (reward > 1.0) {
++        alpha[current_arm] += 1.0;
++    } else {
++        beta[current_arm] += 1.0;
++    }
++
++    // --- Step 6: Context-aware Retention & Phase Reset ---
++    if (CONFLICTS - last_retention_conflicts >= 10000) {
++        double lambda = 0.95 * (1.0 - agility);
++        bool phase_reset = (delta_H > 0.2);
++
++        for (int i = 0; i < 4; i++) {
++            alpha[i] *= lambda;
++            beta[i] *= lambda;
++            if (phase_reset) {
++                alpha[i] *= 0.5;
++                beta[i] *= 0.5;
++            }
++            // Ensure parameters don't vanish
++            if (alpha[i] < 1.0) alpha[i] = 1.0;
++            if (beta[i] < 1.0) beta[i] = 1.0;
+         }
++        last_retention_conflicts = CONFLICTS;
+     }
+-    h /= 7.0; // Normalized Shannon Entropy (log2(128) = 7)
+ 
+-    // Step 3: Define Reward (R) for the active arm
+-    // Agility is retrieved from statistics and normalized (assuming 0-100 range)
+-    double agility = (double)GET(agility) / 100.0;
+-    double current_cps = (double)CONFLICTS / (double)(solver->ticks ? solver->ticks : 1);
+-    
+-    // Update Global Average CPS using a slow EMA
+-    if (global_cps == 0) global_cps = current_cps;
+-    else global_cps = 0.99 * global_cps + 0.01 * current_cps;
++    // --- Step 5: Arm Selection (Every 1024 conflicts) ---
++    if (CONFLICTS - last_mab_conflicts >= 1024) {
++        double theta_prime[4];
++        double w = 1.0 / (1.0 + exp(-20.0 * (agility - 0.12)));
+ 
+-    double h_diff = fabs(h - last_h);
+-    double cps_ratio = (global_cps > 1e-9) ? (current_cps / global_cps) : 1.0;
+-    double reward = (agility / (1.0 + h_diff)) * cps_ratio;
++        for (int i = 0; i < 4; i++) {
++            // Thompson Sampling from Beta(alpha, beta) using Gamma approximation
++            double x = 0.0, y = 0.0;
++            for (int j = 0; j < (int)alpha[i] + 1; j++) x -= log(kissat_pick_double(&solver->random) + 1e-9);
++            for (int j = 0; j < (int)beta[i] + 1; j++) y -= log(kissat_pick_double(&solver->random) + 1e-9);
++            double theta = x / (x + y + 1e-9);
+ 
+-    // Step 4: Update Beta parameters for the active arm
+-    if (reward > 1.0) alpha[current_arm] += 1.0;
+-    else beta[current_arm] += 1.0;
+-
+-    // Step 5: Every 1024 conflicts, sample and select next arm with Agility-Modulated Hysteresis
+-    if (CONFLICTS >= last_mab_conf + 1024) {
+-        last_mab_conf = CONFLICTS;
+-        double theta[4];
+-        for (int i = 0; i < 4; i++) {
+-            double a = alpha[i];
+-            double b = beta[i];
+-            double mu = a / (a + b);
+-            double var = (a * b) / (pow(a + b, 2) * (a + b + 1.0));
+-            // Thompson sampling approximation using Normal distribution
+-            theta[i] = mu + sqrt(var) * (kissat_pick_double(&solver->random) - 0.5) * 3.46;
++            if (w < 0.5) {
++                // Stochastic Entropy Masking
++                bool discard = false;
++                if (i >= 2 && H > 0.75) { // EMA Arms
++                    if (kissat_pick_double(&solver->random) < (1.0 - w)) discard = true;
++                } else if (i < 2 && H < 0.35) { // Luby Arms
++                    if (kissat_pick_double(&solver->random) < (1.0 - w)) discard = true;
++                }
++                theta_prime[i] = discard ? -1.0 : theta;
++            } else {
++                // Accelerated Entropy Bias
++                double bias = (i < 2) ? (1.0 + H) * (1.0 + H) : (2.0 - H) * (2.0 - H);
++                theta_prime[i] = theta * bias;
++            }
+         }
+ 
+-        if (agility < 0.1) {
+-            // Strict masking for low search fluidity
+-            if (h > 0.8) { theta[2] = -1.0; theta[3] = -1.0; } // Mask EMA arms
+-            if (h < 0.3) { theta[0] = -1.0; theta[1] = -1.0; } // Mask Luby arms
+-        } else {
+-            // Bias Thompson values based on entropy
+-            double b_luby = 1.0 + h;
+-            double b_ema = 2.0 - h;
+-            theta[0] *= b_luby; theta[1] *= b_luby;
+-            theta[2] *= b_ema; theta[3] *= b_ema;
+-        }
+-
++        // Select arm with highest theta'
+         unsigned best_arm = 0;
+-        double max_val = theta[0];
+         for (unsigned i = 1; i < 4; i++) {
+-            if (theta[i] > max_val) {
+-                max_val = theta[i];
++            if (theta_prime[i] > theta_prime[best_arm]) {
+                 best_arm = i;
+             }
+         }
+-        current_arm = best_arm;
+-        solver->heuristic = current_arm; // Update solver state with chosen arm
+-    }
+ 
+-    // Step 6: Context-aware retention and Phase Reset every 10,000 conflicts
+-    if (CONFLICTS >= last_scale_conf + 10000) {
+-        last_scale_conf = CONFLICTS;
+-        double lambda = 0.95 * (1.0 - agility);
+-        for (int i = 0; i < 4; i++) {
+-            alpha[i] *= lambda;
+-            beta[i] *= lambda;
+-            if (alpha[i] < 1.0) alpha[i] = 1.0;
+-            if (beta[i] < 1.0) beta[i] = 1.0;
++        solver->heuristic = best_arm;
++
++        // Apply chosen regime parameters
++        if (best_arm == 0) {
++            solver->reluctant.limit = 32;
++            solver->reluctant.period = 0;
++        } else if (best_arm == 1) {
++            solver->reluctant.limit = 256;
++            solver->reluctant.period = 0;
++        } else if (best_arm == 2) {
++            EMA(fast_glue).alpha = 1e-5;
++        } else if (best_arm == 3) {
++            EMA(fast_glue).alpha = 1e-7;
+         }
+ 
+-        // Trigger Phase Reset if Search Entropy shift is significant
+-        if (fabs(h - last_h_reset) > 0.2) {
+-            for (int i = 0; i < 4; i++) {
+-                alpha[i] *= 0.5;
+-                beta[i] *= 0.5;
+-                if (alpha[i] < 1.0) alpha[i] = 1.0;
+-                if (beta[i] < 1.0) beta[i] = 1.0;
+-            }
+-            last_h_reset = h;
++        last_mab_conflicts = CONFLICTS;
++        last_ticks = solver->ticks;
++        prev_H = H;
++        for (unsigned k = 0; k < 128; k++) {
++            last_glue_counts[k] = solver->statistics.used[solver->stable].glue[k];
+         }
+     }
+ 
+-    last_h = h;
+-
+-    // Cleanup baseline MAB tracking to prevent interference
++    // Reset Kissat's internal MAB tracking to prevent interference
+     solver->mab_decisions = 0;
+     solver->mab_conflicts = 0;
++    solver->mab_chosen_tot = 0;
+     for (all_variables(idx)) {
+         solver->mab_chosen[idx] = 0;
+     }
+
+
+
+
+
+
+
+
+
+PAIR 2
+
+pair_key: pair_2
+
+leader_par2: 540.0
+
+member_par2: 518.7500859600001
+
+relative_change: 3.9351692666666493%
+
+leader_description:
+
+Hysteresis-Aware Thompson Restart Selection: Step 1: Initialize two arms representing the Luby and Glucose restart policies. Maintain a Beta distribution (alpha, beta) for each arm, initialized to (1, 1). Step 2: During search, maintain a 'Search Pressure' metric (Sp), defined as the moving average of (trail_level / decision_level) calculated at each conflict over a window of 256 conflicts. Step 3: When the restart_mab function is triggered to select a policy, perform Thompson Sampling by drawing a random variable X_i from Beta(alpha_i, beta_i) for each arm. Step 4: Apply a contextual bias to the samples: if Sp > 0.45 (indicating a dense search space), multiply the Glucose sample (X_glucose) by (1 + Sp); if Sp <= 0.45 (indicating a sparse or deep search space), multiply the Luby sample (X_luby) by (2 - Sp). Step 5: Identify the arm with the highest biased sample. To prevent oscillation and maintain search stability, only switch to this arm if its biased sample exceeds the currently active arm's biased sample by a hysteresis margin epsilon = 0.15 * (1 - Sp). If the margin is not met, retain the current arm for the next period. Step 6: Calculate the reward (R) after the period ends as R = (Moving_Average_LBD_Initial / Moving_Average_LBD_Current). If R > 1.05, increment the alpha of the chosen arm by 1; otherwise, increment its beta by 1. Step 7: Apply a periodic decay to alpha and beta (multiply by 0.95) every 1024 restarts to ensure the bandit remains sensitive to the non-stationary nature of the SAT search.
+
+step_mutated:
+
+Step 4
+
+member_description:
+
+Volatility-Indexed Thompson Decay (VITD): Step 1: Initialize two arms representing the Luby and Glucose restart policies. Maintain a Beta distribution (alpha, beta) for each arm, initialized to (1, 1). Step 2: During search, maintain a 'Search Pressure' metric (Sp), defined as the moving average of (trail_level / decision_level) calculated at each conflict over a window of 256 conflicts. Step 3: When the restart_mab function is triggered to select a policy, perform Thompson Sampling by drawing a random variable X_i from Beta(alpha_i, beta_i) for each arm. Step 4: Apply a contextual bias to the samples: if Sp > 0.45 (indicating a dense search space), multiply the Glucose sample (X_glucose) by (1 + Sp); if Sp <= 0.45 (indicating a sparse or deep search space), multiply the Luby sample (X_luby) by (2 - Sp). Step 5: Identify the arm with the highest biased sample. To prevent oscillation and maintain search stability, only switch to this arm if its biased sample exceeds the currently active arm's biased sample by a hysteresis margin epsilon = 0.15 * (1 - Sp). If the margin is not met, retain the current arm for the next period. Step 6: Calculate the reward (R) after the period ends as R = (Moving_Average_LBD_Initial / Moving_Average_LBD_Current). If R > 1.05, increment the alpha of the chosen arm by 1; otherwise, increment its beta by 1. Step 7: Apply a dynamic decay to alpha and beta: every 512 restarts, calculate the variance of the Search Pressure (Sp) recorded during that window. If Var(Sp) > 0.02, multiply alpha and beta by 0.75 to facilitate rapid re-learning in a volatile search space; otherwise, multiply by 0.98 to preserve stable knowledge. If the sum of alpha and beta for any arm exceeds 100, rescale both values by 0.5 to prevent the distribution from becoming too narrow and unresponsive.
+
+code_diff:
+
+--- leader_algorithm
++++ member_algorithm
+@@ -1,86 +1,123 @@
+ void restart_mab(kissat *solver) {
+-    // Step 1: Initialize Beta distribution (alpha, beta) for each arm to (1, 1)
+-    // Using mab_reward[2] (double) for alpha and mab_select[2] (unsigned) for beta.
+-    // Initialization check for both arms.
+-    for (unsigned i = 0; i < 2; i++) {
+-        if (solver->mab_reward[i] < 1.0) solver->mab_reward[i] = 1.0;
+-        if (solver->mab_select[i] < 1) solver->mab_select[i] = 1;
++    // VITD internal state persistent across calls
++    static bool initialized = false;
++    static double betas[2];
++    static double sp_ema = 0.5;
++    static double sp_history[512];
++    static uint64_t sp_idx = 0;
++    static double last_lbd = 0.0;
++
++    // 1. Initialization (Step 1)
++    if (!initialized) {
++        solver->mab_reward[0] = 1.0; // alpha_luby
++        solver->mab_reward[1] = 1.0; // alpha_glucose
++        betas[0] = 1.0;              // beta_luby
++        betas[1] = 1.0;              // beta_glucose
++        last_lbd = AVERAGE(slow_glue);
++        initialized = true;
+     }
+ 
+-    // Step 6: Calculate reward (R) after the period ends and update alpha/beta of chosen arm.
+-    // R = (Moving_Average_LBD_Initial / Moving_Average_LBD_Current).
+-    // Using slow_glue as Initial MA and fast_glue as Current MA.
+-    double slow_lbd = AVERAGE(slow_glue);
+-    double fast_lbd = AVERAGE(fast_glue);
+-    if (fast_lbd > 1e-6) {
+-        double R = slow_lbd / fast_lbd;
+-        if (R > 1.05) {
+-            solver->mab_reward[solver->heuristic] += 1.0;
+-        } else {
+-            solver->mab_select[solver->heuristic] += 1;
++    // 2. Search Pressure Update (Step 2)
++    // Note: We update Sp EMA at restart as an approximation of the average pressure since last restart.
++    if (solver->level > 0) {
++        double current_sp = (double)SIZE_STACK(solver->trail) / (double)solver->level;
++        double sp_alpha = 2.0 / (256.0 + 1.0);
++        sp_ema = (sp_ema * (1.0 - sp_alpha)) + (current_sp * sp_alpha);
++    }
++    sp_history[sp_idx % 512] = sp_ema;
++    sp_idx++;
++
++    // 3. Reward Calculation (Step 6)
++    // Reward is calculated based on the performance of the arm active during the period that just ended.
++    double current_lbd = AVERAGE(slow_glue);
++    if (current_lbd > 1e-6) {
++        double R = last_lbd / current_lbd;
++        unsigned chosen_arm = solver->heuristic;
++        if (chosen_arm < 2) {
++            if (R > 1.05) {
++                solver->mab_reward[chosen_arm] += 1.0;
++            } else {
++                betas[chosen_arm] += 1.0;
++            }
+         }
+     }
+ 
+-    // Step 7: Apply periodic decay (multiply by 0.95) every 1024 restarts.
+-    if (GET(restarts) % 1024 == 0) {
++    // 4. Dynamic Decay & Rescaling (Step 7)
++    if (sp_idx > 0 && (sp_idx % 512 == 0)) {
++        double sum = 0;
++        double sum_sq = 0;
++        for (int i = 0; i < 512; i++) {
++            sum += sp_history[i];
++            sum_sq += sp_history[i] * sp_history[i];
++        }
++        double mean = sum / 512.0;
++        double variance = (sum_sq / 512.0) - (mean * mean);
++        double decay_factor = (variance > 0.02) ? 0.75 : 0.98;
++        
+         for (unsigned i = 0; i < 2; i++) {
+-            solver->mab_reward[i] *= 0.95;
+-            if (solver->mab_reward[i] < 1.0) solver->mab_reward[i] = 1.0;
+-            
+-            double decayed_beta = (double)solver->mab_select[i] * 0.95;
+-            solver->mab_select[i] = (unsigned)decayed_beta;
+-            if (solver->mab_select[i] < 1) solver->mab_select[i] = 1;
++            solver->mab_reward[i] *= decay_factor;
++            betas[i] *= decay_factor;
+         }
+     }
+ 
+-    // Step 2: Maintain Search Pressure (Sp) metric.
+-    // Sp = moving average of (trail_level / decision_level).
+-    // Using EMAs of trail and level as the faithful proxy for the 256-conflict window.
+-    double trail_avg = AVERAGE(trail);
+-    double level_avg = AVERAGE(level);
+-    double Sp = (level_avg > 1e-6) ? (trail_avg / level_avg) : 0.0;
++    // Rescale to prevent distribution from becoming too narrow
++    for (unsigned i = 0; i < 2; i++) {
++        if (solver->mab_reward[i] + betas[i] > 100.0) {
++            solver->mab_reward[i] *= 0.5;
++            betas[i] *= 0.5;
++        }
++    }
+ 
+-    // Step 3: Thompson Sampling by drawing random variable X_i from Beta(alpha_i, beta_i).
+-    // Using Normal approximation for Beta(a, b): mean = a/(a+b), var = (ab)/((a+b)^2(a+b+1)).
+-    double samples[2];
++    // 5. Thompson Sampling (Step 3)
++    // Using Normal Approximation for Beta distribution sampling
++    double X[2];
+     for (unsigned i = 0; i < 2; i++) {
+         double a = solver->mab_reward[i];
+-        double b = (double)solver->mab_select[i];
++        double b = betas[i];
++        double sum = a + b;
++        double mu = a / sum;
++        double sigma = sqrt((a * b) / (sum * sum * (sum + 1.0)));
+         
+-        double mean = a / (a + b);
+-        double var = (a * b) / ((a + b) * (a + b) * (a + b + 1.0));
+-        double sd = sqrt(var);
+-        
+-        // Box-Muller transform for N(0,1) sampling
+         double u1 = kissat_pick_double(&solver->random);
+         double u2 = kissat_pick_double(&solver->random);
+-        double z = sqrt(-2.0 * log(u1 + 1e-12)) * cos(2.0 * 3.14159265358979 * u2);
++        if (u1 < 1e-9) u1 = 1e-9;
++        double z = sqrt(-2.0 * log(u1)) * cos(2.0 * 3.141592653589793 * u2);
+         
+-        samples[i] = mean + sd * z;
+-        if (samples[i] < 0.0) samples[i] = 0.0;
+-        if (samples[i] > 1.0) samples[i] = 1.0;
++        X[i] = mu + z * sigma;
++        if (X[i] < 0.0) X[i] = 0.0;
++        if (X[i] > 1.0) X[i] = 1.0;
+     }
+ 
+-    // Step 4: Apply contextual bias to the samples.
+-    // Arm 0: Luby, Arm 1: Glucose.
+-    double x_luby = samples[0];
+-    double x_glucose = samples[1];
+-    if (Sp > 0.45) {
+-        x_glucose *= (1.0 + Sp);
++    // 6. Contextual Bias (Step 4)
++    // Arm 0 = Luby, Arm 1 = Glucose
++    if (sp_ema > 0.45) {
++        X[1] *= (1.0 + sp_ema);
+     } else {
+-        x_luby *= (2.0 - Sp);
++        X[0] *= (2.0 - sp_ema);
+     }
+ 
+-    // Step 5: Identify arm with highest biased sample and apply hysteresis.
+-    // epsilon = 0.15 * (1 - Sp).
+-    double epsilon = 0.15 * (1.0 - Sp);
+-    unsigned current = solver->heuristic;
+-    unsigned winner = (x_glucose > x_luby) ? 1 : 0;
++    // 7. Policy Selection with Hysteresis (Step 5)
++    unsigned current_arm = solver->heuristic;
++    unsigned best_arm = (X[0] > X[1]) ? 0 : 1;
++    if (best_arm != current_arm) {
++        double epsilon = 0.15 * (1.0 - sp_ema);
++        if (X[best_arm] > X[current_arm] + epsilon) {
++            solver->heuristic = best_arm;
++        }
++    }
++
++    // 8. Finalize Period & Housekeeping
++    last_lbd = current_lbd;
++
++    // Standard Kissat MAB housekeeping to maintain solver consistency
++    for (all_variables(idx)) {
++        solver->mab_chosen[idx] = 0;
++    }
++    solver->mab_chosen_tot = 0;
++    solver->mab_decisions = 0;
++    solver->mab_conflicts = 0;
+     
+-    double winner_biased = (winner == 1) ? x_glucose : x_luby;
+-    double current_biased = (current == 1) ? x_glucose : x_luby;
+-    
+-    if (winner_biased > current_biased + epsilon) {
+-        solver->heuristic = winner;
+-    }
++    // Sync integer representation of beta for statistics
++    solver->mab_select[0] = (unsigned)betas[0];
++    solver->mab_select[1] = (unsigned)betas[1];
+ }
+
+
+
+
+
+
+
+
+PAIR 3
+
+pair_key: pair_3
+
+leader_par2: 540.0
+
+member_par2: 524.1829246
+
+relative_change: 2.929088037037041%
+
+leader_description:
+
+Hysteresis-Aware Thompson Restart Selection: Step 1: Initialize two arms representing the Luby and Glucose restart policies. Maintain a Beta distribution (alpha, beta) for each arm, initialized to (1, 1). Step 2: During search, maintain a 'Search Pressure' metric (Sp), defined as the moving average of (trail_level / decision_level) calculated at each conflict over a window of 256 conflicts. Step 3: When the restart_mab function is triggered to select a policy, perform Thompson Sampling by drawing a random variable X_i from Beta(alpha_i, beta_i) for each arm. Step 4: Apply a contextual bias to the samples: if Sp > 0.45 (indicating a dense search space), multiply the Glucose sample (X_glucose) by (1 + Sp); if Sp <= 0.45 (indicating a sparse or deep search space), multiply the Luby sample (X_luby) by (2 - Sp). Step 5: Identify the arm with the highest biased sample. To prevent oscillation and maintain search stability, only switch to this arm if its biased sample exceeds the currently active arm's biased sample by a hysteresis margin epsilon = 0.15 * (1 - Sp). If the margin is not met, retain the current arm for the next period. Step 6: Calculate the reward (R) after the period ends as R = (Moving_Average_LBD_Initial / Moving_Average_LBD_Current). If R > 1.05, increment the alpha of the chosen arm by 1; otherwise, increment its beta by 1. Step 7: Apply a periodic decay to alpha and beta (multiply by 0.95) every 1024 restarts to ensure the bandit remains sensitive to the non-stationary nature of the SAT search.
+
+step_mutated:
+
+Step 6
+
+member_description:
+
+Throughput-Augmented LBD Reward Bandit: Step 1: Initialize two arms representing the Luby and Glucose restart policies. Maintain a Beta distribution (alpha, beta) for each arm, initialized to (1, 1). Step 2: During search, maintain a 'Search Pressure' metric (Sp), defined as the moving average of (trail_level / decision_level) calculated at each conflict over a window of 256 conflicts. Step 3: When the restart_mab function is triggered to select a policy, perform Thompson Sampling by drawing a random variable X_i from Beta(alpha_i, beta_i) for each arm. Step 4: Apply a contextual bias to the samples: if Sp > 0.45 (indicating a dense search space), multiply the Glucose sample (X_glucose) by (1 + Sp); if Sp <= 0.45 (indicating a sparse or deep search space), multiply the Luby sample (X_luby) by (2 - Sp). Step 5: Identify the arm with the highest biased sample. To prevent oscillation and maintain search stability, only switch to this arm if its biased sample exceeds the currently active arm's biased sample by a hysteresis margin epsilon = 0.15 * (1 - Sp). If the margin is not met, retain the current arm for the next period. Step 6: Calculate the reward (R) relative to the global search history: R = (Global_Moving_Average_LBD / Period_Moving_Average_LBD). If R > 1.0, increment the alpha of the chosen arm by 1; otherwise, increment its beta by 1. Additionally, to optimize for PAR2, if the conflict throughput (conflicts per second) during the period is at least 5% higher than the global conflict throughput, increment the alpha of the chosen arm by an additional 1 to reward search speed. Step 7: Apply a periodic decay to alpha and beta (multiply by 0.95) every 1024 restarts to ensure the bandit remains sensitive to the non-stationary nature of the SAT search.
+
+code_diff:
+
+--- leader_algorithm
++++ member_algorithm
+@@ -1,86 +1,98 @@
+ void restart_mab(kissat *solver) {
+-    // Step 1: Initialize Beta distribution (alpha, beta) for each arm to (1, 1)
+-    // Using mab_reward[2] (double) for alpha and mab_select[2] (unsigned) for beta.
+-    // Initialization check for both arms.
+-    for (unsigned i = 0; i < 2; i++) {
+-        if (solver->mab_reward[i] < 1.0) solver->mab_reward[i] = 1.0;
+-        if (solver->mab_select[i] < 1) solver->mab_select[i] = 1;
++    // Step 1: Arms and Beta Distribution State (Luby=0, Glucose=1)
++    // Using static variables to maintain state across function calls as required for Beta distribution
++    static double mab_alpha[2] = {1.0, 1.0};
++    static double mab_beta[2] = {1.0, 1.0};
++    static uint64_t last_ticks = 0;
++
++    // Step 6: Reward Calculation (relative to global search history)
++    // Identify the arm that was active during the period that just finished
++    unsigned chosen = solver->heuristic;
++    if (chosen >= 2) chosen = 0;
++
++    // Global Moving Average LBD (slow) vs Period Moving Average LBD (fast)
++    const double global_lbd = AVERAGE(slow_glue);
++    const double period_lbd = AVERAGE(fast_glue);
++    const double R = (period_lbd > 1e-6) ? (global_lbd / period_lbd) : 0.0;
++
++    // Update Beta parameters based on LBD performance
++    if (R > 1.0) {
++        mab_alpha[chosen] += 1.0;
++    } else {
++        mab_beta[chosen] += 1.0;
+     }
+ 
+-    // Step 6: Calculate reward (R) after the period ends and update alpha/beta of chosen arm.
+-    // R = (Moving_Average_LBD_Initial / Moving_Average_LBD_Current).
+-    // Using slow_glue as Initial MA and fast_glue as Current MA.
+-    double slow_lbd = AVERAGE(slow_glue);
+-    double fast_lbd = AVERAGE(fast_glue);
+-    if (fast_lbd > 1e-6) {
+-        double R = slow_lbd / fast_lbd;
+-        if (R > 1.05) {
+-            solver->mab_reward[solver->heuristic] += 1.0;
+-        } else {
+-            solver->mab_select[solver->heuristic] += 1;
++    // PAR2 Throughput Reward: Reward search speed if conflict throughput is 5% higher than global
++    const double global_throughput = (double)CONFLICTS / (double)(solver->ticks + 1);
++    const double period_throughput = (double)solver->mab_conflicts / (double)(solver->ticks - last_ticks + 1);
++    
++    if (period_throughput >= 1.05 * global_throughput) {
++        mab_alpha[chosen] += 1.0;
++    }
++    last_ticks = solver->ticks;
++
++    // Step 7: Periodic Decay (multiply by 0.95 every 1024 restarts)
++    if (GET(restarts) % 1024 == 0) {
++        for (unsigned i = 0; i < 2; i++) {
++            mab_alpha[i] *= 0.95;
++            mab_beta[i] *= 0.95;
+         }
+     }
+ 
+-    // Step 7: Apply periodic decay (multiply by 0.95) every 1024 restarts.
+-    if (GET(restarts) % 1024 == 0) {
+-        for (unsigned i = 0; i < 2; i++) {
+-            solver->mab_reward[i] *= 0.95;
+-            if (solver->mab_reward[i] < 1.0) solver->mab_reward[i] = 1.0;
+-            
+-            double decayed_beta = (double)solver->mab_select[i] * 0.95;
+-            solver->mab_select[i] = (unsigned)decayed_beta;
+-            if (solver->mab_select[i] < 1) solver->mab_select[i] = 1;
+-        }
+-    }
++    // Step 2: Search Pressure (Sp) calculation
++    // Moving average of (trail_level / decision_level) using solver EMA macros
++    const double avg_trail = AVERAGE(trail);
++    const double avg_level = AVERAGE(level);
++    double Sp = (avg_level > 1e-6) ? (avg_trail / avg_level) : 0.0;
++    if (Sp > 1.0) Sp = 1.0;
+ 
+-    // Step 2: Maintain Search Pressure (Sp) metric.
+-    // Sp = moving average of (trail_level / decision_level).
+-    // Using EMAs of trail and level as the faithful proxy for the 256-conflict window.
+-    double trail_avg = AVERAGE(trail);
+-    double level_avg = AVERAGE(level);
+-    double Sp = (level_avg > 1e-6) ? (trail_avg / level_avg) : 0.0;
+-
+-    // Step 3: Thompson Sampling by drawing random variable X_i from Beta(alpha_i, beta_i).
+-    // Using Normal approximation for Beta(a, b): mean = a/(a+b), var = (ab)/((a+b)^2(a+b+1)).
++    // Step 3: Thompson Sampling
++    // Drawing random variables from Beta(alpha, beta) using Normal approximation
+     double samples[2];
+     for (unsigned i = 0; i < 2; i++) {
+-        double a = solver->mab_reward[i];
+-        double b = (double)solver->mab_select[i];
++        const double a = mab_alpha[i];
++        const double b = mab_beta[i];
++        const double mean = a / (a + b);
++        const double var = (a * b) / ((a + b) * (a + b) * (a + b + 1.0));
++        const double std = sqrt(var);
+         
+-        double mean = a / (a + b);
+-        double var = (a * b) / ((a + b) * (a + b) * (a + b + 1.0));
+-        double sd = sqrt(var);
+-        
+-        // Box-Muller transform for N(0,1) sampling
++        // Box-Muller transform to sample from Normal(mean, std)
+         double u1 = kissat_pick_double(&solver->random);
+         double u2 = kissat_pick_double(&solver->random);
+-        double z = sqrt(-2.0 * log(u1 + 1e-12)) * cos(2.0 * 3.14159265358979 * u2);
++        if (u1 < 1e-9) u1 = 1e-9;
++        const double z = sqrt(-2.0 * log(u1)) * cos(2.0 * 3.14159265358979 * u2);
+         
+-        samples[i] = mean + sd * z;
++        samples[i] = mean + z * std;
+         if (samples[i] < 0.0) samples[i] = 0.0;
+         if (samples[i] > 1.0) samples[i] = 1.0;
+     }
++    double X_luby = samples[0];
++    double X_glucose = samples[1];
+ 
+-    // Step 4: Apply contextual bias to the samples.
+-    // Arm 0: Luby, Arm 1: Glucose.
+-    double x_luby = samples[0];
+-    double x_glucose = samples[1];
++    // Step 4: Apply Contextual Bias
+     if (Sp > 0.45) {
+-        x_glucose *= (1.0 + Sp);
++        X_glucose *= (1.0 + Sp); // Dense search space bias
+     } else {
+-        x_luby *= (2.0 - Sp);
++        X_luby *= (2.0 - Sp);    // Sparse/Deep search space bias
+     }
+ 
+-    // Step 5: Identify arm with highest biased sample and apply hysteresis.
+-    // epsilon = 0.15 * (1 - Sp).
+-    double epsilon = 0.15 * (1.0 - Sp);
+-    unsigned current = solver->heuristic;
+-    unsigned winner = (x_glucose > x_luby) ? 1 : 0;
+-    
+-    double winner_biased = (winner == 1) ? x_glucose : x_luby;
+-    double current_biased = (current == 1) ? x_glucose : x_luby;
+-    
+-    if (winner_biased > current_biased + epsilon) {
+-        solver->heuristic = winner;
++    // Step 5: Hysteresis and Arm Selection
++    const double epsilon = 0.15 * (1.0 - Sp);
++    const double biased_samples[2] = { X_luby, X_glucose };
++    const unsigned current_arm = chosen;
++    const unsigned best_arm = (biased_samples[1] > biased_samples[0]) ? 1 : 0;
++
++    // Only switch if the best arm exceeds the current arm by the hysteresis margin
++    if (biased_samples[best_arm] > biased_samples[current_arm] + epsilon) {
++        solver->heuristic = best_arm;
+     }
++
++    // Reset Kissat MAB tracking variables for the next period
++    solver->mab_select[solver->heuristic]++;
++    for (all_variables(idx)) {
++        solver->mab_chosen[idx] = 0;
++    }
++    solver->mab_chosen_tot = 0;
++    solver->mab_decisions = 0;
++    solver->mab_conflicts = 0;
+ }
+
+
+
+
+
+
+
+
+[DEBUG] =======================================
+
+2026-03-30 09:12:02 INFO     Routing LLM call to OpenAI (model=gpt-5.4-2026-03-05)                 chatgpt_helper.py:41
+2026-03-30 09:12:17 INFO     HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"   _client.py:1025
+
+[DEBUG] === RAW RESPONSE (ATTEMPT 1) for good ===
+```json
+{
+  "pairs": [
+    {
+      "pair_key": "pair_1",
+      "analysis": "The improvement mainly comes from replacing a noisy, expensive entropy estimate with a cleaner period-local signal and making the gating less brittle. The leader rebuilt H by scanning clauses into a 512-entry window each call, which mixes stale and current clause information and can misrepresent the active search regime. The member instead computes entropy from deltas in glue-use histograms since the last decision, so H reflects the current restart period and aligns better with the reward term and arm-selection context. Step 5 also improves robustness: the hard agility threshold and strict masking in the leader could completely suppress useful arms near the boundary, while the sigmoid weight and probabilistic masking create a smooth transition between stuck and fluid states, reducing bad discrete switches. The stronger squared bias in the high-agility regime amplifies clear entropy preferences once the search is stable enough to trust them. Finally, the member explicitly applies the selected arm parameters and resets internal Kissat MAB bookkeeping more completely, so the learned choice has cleaner effect and less interference from the built-in machinery."
+    },
+    {
+      "pair_key": "pair_2",
+      "analysis": "The gain is modest but consistent with the member making the bandit less inertial and better matched to non-stationary search. The leader used fixed 0.95 decay every 1024 restarts and stored beta in an integer field, which makes posterior adaptation coarse and slow. The member keeps a separate double-precision beta state, updates reward against the LBD change over the just-finished period (`last_lbd` to current), and decays every 512 restarts based on variance of search pressure. When pressure is volatile, the stronger 0.75 decay rapidly forgets obsolete arm preferences; when stable, 0.98 preserves useful history. The added rescaling when alpha+beta exceeds 100 prevents overconfident, narrow posteriors that would otherwise reduce exploration and trap the solver in a suboptimal restart policy. Overall, the mutation improves responsiveness to regime changes while keeping hysteresis and contextual bias intact."
+    },
+    {
+      "pair_key": "pair_3",
+      "analysis": "This mutation improves the reward model so the bandit optimizes not just clause quality but also progress rate, which is directly relevant to PAR2. The leader rewarded an arm only when `slow_glue / fast_glue > 1.05`, a relatively strict binary test that can miss useful but smaller gains and ignores throughput entirely. The member lowers the LBD success threshold to `R > 1.0`, making credit assignment denser and less sparse, so promising arms accumulate evidence faster. It also adds an extra alpha increment when period conflict throughput exceeds global throughput by 5%, favoring restart policies that maintain solver speed even if LBD improvement alone is marginal. Using static double alpha/beta state also avoids the leader’s mixed double/integer posterior representation and preserves more accurate bandit statistics across calls. The common pattern with the other improvements is better calibration of adaptation: more informative period-level feedback and less brittle posterior updates produce faster convergence to effective restart choices."
+    }
+  ]
+}
+```
+[DEBUG] ==================================================
+
+
+[DEBUG] === PARSED RESPONSE (ATTEMPT 1) for good ===
+{'pair_1': 'The improvement mainly comes from replacing a noisy, expensive entropy estimate with a cleaner period-local signal and making the gating less brittle. The leader rebuilt H by scanning clauses into a 512-entry window each call, which mixes stale and current clause information and can misrepresent the active search regime. The member instead computes entropy from deltas in glue-use histograms since the last decision, so H reflects the current restart period and aligns better with the reward term and arm-selection context. Step 5 also improves robustness: the hard agility threshold and strict masking in the leader could completely suppress useful arms near the boundary, while the sigmoid weight and probabilistic masking create a smooth transition between stuck and fluid states, reducing bad discrete switches. The stronger squared bias in the high-agility regime amplifies clear entropy preferences once the search is stable enough to trust them. Finally, the member explicitly applies the selected arm parameters and resets internal Kissat MAB bookkeeping more completely, so the learned choice has cleaner effect and less interference from the built-in machinery.', 'pair_2': 'The gain is modest but consistent with the member making the bandit less inertial and better matched to non-stationary search. The leader used fixed 0.95 decay every 1024 restarts and stored beta in an integer field, which makes posterior adaptation coarse and slow. The member keeps a separate double-precision beta state, updates reward against the LBD change over the just-finished period (`last_lbd` to current), and decays every 512 restarts based on variance of search pressure. When pressure is volatile, the stronger 0.75 decay rapidly forgets obsolete arm preferences; when stable, 0.98 preserves useful history. The added rescaling when alpha+beta exceeds 100 prevents overconfident, narrow posteriors that would otherwise reduce exploration and trap the solver in a suboptimal restart policy. Overall, the mutation improves responsiveness to regime changes while keeping hysteresis and contextual bias intact.', 'pair_3': 'This mutation improves the reward model so the bandit optimizes not just clause quality but also progress rate, which is directly relevant to PAR2. The leader rewarded an arm only when `slow_glue / fast_glue > 1.05`, a relatively strict binary test that can miss useful but smaller gains and ignores throughput entirely. The member lowers the LBD success threshold to `R > 1.0`, making credit assignment denser and less sparse, so promising arms accumulate evidence faster. It also adds an extra alpha increment when period conflict throughput exceeds global throughput by 5%, favoring restart policies that maintain solver speed even if LBD improvement alone is marginal. Using static double alpha/beta state also avoids the leader’s mixed double/integer posterior representation and preserves more accurate bandit statistics across calls. The common pattern with the other improvements is better calibration of adaptation: more informative period-level feedback and less brittle posterior updates produce faster convergence to effective restart choices.'}
+[DEBUG] =====================================================
+
+
+[DEBUG] === BATCH PROMPT for bad ===
+You are analyzing mutation outcomes for SAT solver heuristics.
+
+Setup:
+- Each pair compares a `leader` algorithm (parent) to a `member` algorithm (mutated child).
+- ALL provided pairs are DEGRADATION cases: member PAR2 is worse (larger) than leader PAR2.
+- For each pair, use the provided code diff, descriptions, and PAR2 values to carefully analyze and provide a detailed analysis on the causes of regression.
+
+Task:
+- Produce exactly 3 analyses, one per `pair_key`.
+- Explain concrete reasons for degradation grounded in the algorithm descriptions and provided contexts.
+- Keep analysis concise, technical, and specific to each pair.
+- You might be able to identify common patterns in the cause of degradation in the provided pairs, if so, include such explanation in the analysis output.
+
+Provided fields for each pair:
+- `pair_key`: Local key for this batch item; copy it exactly into output.
+- `leader_par2`: PAR2 score of the leader algorithm (lower is better).
+- `member_par2`: PAR2 score of the member algorithm (lower is better).
+- `relative_change`: Relative degradation ratio vs leader; larger means stronger regression.
+- `leader_description`: Natural language description of leader strategy.
+- `step_mutated`: The step from the leader_description that was mutated to reach the member_description.
+- `member_description`: Natural language description of member strategy.
+- `code_diff`: Unified diff showing how member code changed from leader code.
+
+Required output format:
+- Return ONLY a single valid JSON object wrapped in a markdown ```json ``` fence.
+- Do NOT output any text before or after the fenced JSON.
+- JSON schema:
+
+```json
+{
+  "pairs": [
+    {
+      "pair_key": "<exact pair_key from input>",
+      "analysis": "<non-empty explanation of why member degraded vs leader>"
+    }
+  ]
+}
+```
+
+Strict constraints:
+- Include every provided `pair_key` exactly once.
+- `pairs` length must be exactly 3, one analysis per pair.
+- `analysis` must be non-empty strings.
+
+Batch data:
+PAIR 1
+
+pair_key: pair_1
+
+leader_par2: 200.0
+
+member_par2: 435.49449766
+
+relative_change: 117.74724882999999%
+
+leader_description:
+
+Agility-Gated Entropy-Biased Thompson Sampling: Step 1: Initialize four bandit arms representing distinct restart regimes: Arm 0 (Luby, base 32), Arm 1 (Luby, base 256), Arm 2 (EMA, alpha=1e-5), and Arm 3 (EMA, alpha=1e-7). Step 2: Maintain a sliding window of the last 512 learned clause LBDs to calculate 'Search Entropy' (H), defined as the normalized Shannon entropy of the LBD distribution. Step 3: Define the reward (R) for the active arm as R = (Agility / (1 + |H_current - H_previous|)) * (Conflicts_per_Second / Global_Average_CPS). Step 4: Update the Beta distribution parameters (alpha_i, beta_i) for the active arm i using a success increment if R > 1.0 and a failure increment otherwise. Step 5: Every 1024 conflicts, sample from the Beta distributions to select the next arm, but replace the rigid topology constraint with an 'Agility-Modulated Hysteresis Gate': if Agility < 0.1 (low search fluidity), apply strict masking (if H > 0.8, mask EMA arms; if H < 0.3, mask Luby arms). If Agility >= 0.1, instead of masking, scale the sampled Thompson values theta_i by a bias factor B, where B_Luby = (1 + H) and B_EMA = (2 - H). This allows the bandit to override entropy-based suggestions if an arm is currently generating high assignment volatility. Step 6: Replace the fixed decay with a context-aware retention mechanism: every 10,000 conflicts, scale all alpha and beta parameters by a factor lambda = 0.95 * (1.0 - Agility); if the Search Entropy (H) has shifted by more than 0.2 since the last update, trigger an immediate 'Phase Reset' by halving all parameters to allow the bandit to rapidly re-learn the optimal strategy for the new search topology.
+
+step_mutated:
+
+Step 5
+
+member_description:
+
+Magnitude-Scaled Bayesian Reward Bandit: Step 1: Initialize four bandit arms representing distinct restart regimes: Arm 0 (Luby, base 32), Arm 1 (Luby, base 256), Arm 2 (EMA, alpha=1e-5), and Arm 3 (EMA, alpha=1e-7). Step 2: Maintain a sliding window of the last 512 learned clause LBDs to calculate 'Search Entropy' (H), defined as the normalized Shannon entropy of the LBD distribution. Step 3: Define the reward (R) for the active arm as R = (Agility / (1 + |H_current - H_previous|)) * (Conflicts_per_Second / Global_Average_CPS). Step 4: Update the Beta distribution parameters for the active arm i using a Magnitude-Scaled Bayesian Update: increment alpha_i by max(0, R - 1) and beta_i by max(0, 1 - R); if the local LBD mean is lower than the global LBD mean, further scale the alpha_i increment by (1 + Agility) to reward high-quality clause production. Step 5: Every 1024 conflicts, sample from the Beta distributions to select the next arm, but replace the rigid topology constraint with an 'Agility-Modulated Hysteresis Gate': if Agility < 0.1 (low search fluidity), apply strict masking (if H > 0.8, mask EMA arms; if H < 0.3, mask Luby arms). If Agility >= 0.1, instead of masking, scale the sampled Thompson values theta_i by a bias factor B, where B_Luby = (1 + H) and B_EMA = (2 - H). This allows the bandit to override entropy-based suggestions if an arm is currently generating high assignment volatility. Step 6: Replace the fixed decay with a context-aware retention mechanism: every 10,000 conflicts, scale all alpha and beta parameters by a factor lambda = 0.95 * (1.0 - Agility); if the Search Entropy (H) has shifted by more than 0.2 since the last update, trigger an immediate 'Phase Reset' by halving all parameters to allow the bandit to rapidly re-learn the optimal strategy for the new search topology.
+
+code_diff:
+
+--- leader_algorithm
++++ member_algorithm
+@@ -1,137 +1,148 @@
++#include <math.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <inttypes.h>
++
+ void restart_mab(kissat *solver) {
+-    // Step 1: Persistent state for four bandit arms and search statistics
+-    static double alpha[4] = {1.0, 1.0, 1.0, 1.0};
+-    static double beta[4] = {1.0, 1.0, 1.0, 1.0};
+-    static unsigned window[512];
+-    static unsigned w_idx = 0;
+-    static bool window_full = false;
+-    static double last_h = 0.0;
+-    static double last_h_reset = 0.0;
+-    static double global_cps = 0.0;
+-    static uint64_t last_mab_conf = 0;
+-    static uint64_t last_scale_conf = 0;
+-    static bool initialized = false;
++    // Persistent state for the 4-arm bandit
++    static double alphas[4] = {1.0, 1.0, 1.0, 1.0};
++    static double betas[4] = {1.0, 1.0, 1.0, 1.0};
++    static unsigned window[512] = {0};
++    static unsigned w_ptr = 0;
++    static bool window_init = false;
++    static double prev_H = 0.0;
++    static double last_H_decay = 0.0;
++    static uint64_t last_mab_resample = 0;
++    static uint64_t last_decay_conflicts = 0;
+     static unsigned current_arm = 0;
+ 
+-    // Initialize on first entry
+-    if (!initialized) {
+-        for (int i = 0; i < 512; i++) window[i] = 0;
+-        current_arm = solver->heuristic % 4;
+-        last_mab_conf = CONFLICTS;
+-        last_scale_conf = CONFLICTS;
+-        initialized = true;
++    // Initialize window if needed
++    if (!window_init) {
++        for (int i = 0; i < 512; i++) window[i] = 20;
++        window_init = true;
+     }
+ 
+-    // Step 2: Maintain sliding window of 512 LBDs and calculate Search Entropy (H)
+-    unsigned added = 0;
++    // Step 2: Update sliding window of learned clause LBDs
++    // We scan redundant clauses to populate the window with recent glues
++    unsigned found = 0;
+     for (all_clauses(c)) {
+         if (c->redundant) {
+-            // Map LBD to [0, 127] range as per MAX_GLUE_USED
+-            window[w_idx] = (c->glue > 127) ? 127 : c->glue;
+-            w_idx = (w_idx + 1) % 512;
+-            if (w_idx == 0) window_full = true;
+-            if (++added >= 512) break;
++            window[w_ptr] = c->glue;
++            w_ptr = (w_ptr + 1) % 512;
++            if (++found == 512) break;
+         }
+     }
+ 
+-    double h = 0.0;
+-    unsigned bins[128];
+-    for (int i = 0; i < 128; i++) bins[i] = 0;
+-    unsigned total_samples = window_full ? 512 : (w_idx ? w_idx : 1);
+-    for (unsigned i = 0; i < (window_full ? 512 : w_idx); i++) {
+-        bins[window[i]]++;
++    // Calculate Search Entropy (H) - Normalized Shannon Entropy
++    double freq[128] = {0};
++    for (int i = 0; i < 512; i++) {
++        unsigned g = window[i];
++        if (g > 127) g = 127;
++        freq[g]++;
+     }
+-    for (unsigned i = 0; i < 128; i++) {
+-        if (bins[i] > 0) {
+-            double p = (double)bins[i] / total_samples;
+-            h -= p * log2(p);
++    double H = 0;
++    for (int i = 0; i < 128; i++) {
++        if (freq[i] > 0) {
++            double p = freq[i] / 512.0;
++            H -= p * (log(p) / 0.69314718056); // log2(p)
+         }
+     }
+-    h /= 7.0; // Normalized Shannon Entropy (log2(128) = 7)
++    H /= 7.0; // Normalized by log2(128)
+ 
+-    // Step 3: Define Reward (R) for the active arm
+-    // Agility is retrieved from statistics and normalized (assuming 0-100 range)
+-    double agility = (double)GET(agility) / 100.0;
+-    double current_cps = (double)CONFLICTS / (double)(solver->ticks ? solver->ticks : 1);
+-    
+-    // Update Global Average CPS using a slow EMA
+-    if (global_cps == 0) global_cps = current_cps;
+-    else global_cps = 0.99 * global_cps + 0.01 * current_cps;
++    // Step 3: Define Reward (R)
++    double agility = AVERAGE(decision_rate);
++    double current_cps = (double)solver->mab_conflicts / (solver->mab_decisions + 1.0);
++    double global_cps = (double)GET(conflicts) / (GET(decisions) + 1.0);
++    double cps_ratio = (global_cps > 0) ? (current_cps / global_cps) : 1.0;
++    double H_diff = fabs(H - prev_H);
++    double R = (agility / (1.0 + H_diff)) * cps_ratio;
+ 
+-    double h_diff = fabs(h - last_h);
+-    double cps_ratio = (global_cps > 1e-9) ? (current_cps / global_cps) : 1.0;
+-    double reward = (agility / (1.0 + h_diff)) * cps_ratio;
++    // Step 4: Magnitude-Scaled Bayesian Update for the active arm
++    alphas[current_arm] += (R - 1.0 > 0) ? (R - 1.0) : 0;
++    betas[current_arm] += (1.0 - R > 0) ? (1.0 - R) : 0;
+ 
+-    // Step 4: Update Beta parameters for the active arm
+-    if (reward > 1.0) alpha[current_arm] += 1.0;
+-    else beta[current_arm] += 1.0;
++    double local_lbd_sum = 0;
++    for (int i = 0; i < 512; i++) local_lbd_sum += window[i];
++    double local_lbd_mean = local_lbd_sum / 512.0;
++    double global_lbd_mean = AVERAGE(slow_glue);
+ 
+-    // Step 5: Every 1024 conflicts, sample and select next arm with Agility-Modulated Hysteresis
+-    if (CONFLICTS >= last_mab_conf + 1024) {
+-        last_mab_conf = CONFLICTS;
++    if (local_lbd_mean < global_lbd_mean) {
++        alphas[current_arm] += (1.0 + agility);
++    }
++
++    // Step 5: Every 1024 conflicts, sample next arm
++    if (GET(conflicts) >= last_mab_resample + 1024) {
++        last_mab_resample = GET(conflicts);
++
+         double theta[4];
+         for (int i = 0; i < 4; i++) {
+-            double a = alpha[i];
+-            double b = beta[i];
+-            double mu = a / (a + b);
+-            double var = (a * b) / (pow(a + b, 2) * (a + b + 1.0));
+-            // Thompson sampling approximation using Normal distribution
+-            theta[i] = mu + sqrt(var) * (kissat_pick_double(&solver->random) - 0.5) * 3.46;
++            // Thompson Sampling approximation: Mean + Variance-based noise
++            double mean = alphas[i] / (alphas[i] + betas[i]);
++            double spread = 1.0 / sqrt(alphas[i] + betas[i]);
++            theta[i] = mean + (kissat_pick_double(&solver->random) - 0.5) * spread;
+         }
+ 
++        // Agility-Modulated Hysteresis Gate
+         if (agility < 0.1) {
+-            // Strict masking for low search fluidity
+-            if (h > 0.8) { theta[2] = -1.0; theta[3] = -1.0; } // Mask EMA arms
+-            if (h < 0.3) { theta[0] = -1.0; theta[1] = -1.0; } // Mask Luby arms
++            if (H > 0.8) { theta[2] = -1.0; theta[3] = -1.0; } // Mask EMA
++            if (H < 0.3) { theta[0] = -1.0; theta[1] = -1.0; } // Mask Luby
+         } else {
+-            // Bias Thompson values based on entropy
+-            double b_luby = 1.0 + h;
+-            double b_ema = 2.0 - h;
+-            theta[0] *= b_luby; theta[1] *= b_luby;
+-            theta[2] *= b_ema; theta[3] *= b_ema;
++            theta[0] *= (1.0 + H); theta[1] *= (1.0 + H); // Bias Luby
++            theta[2] *= (2.0 - H); theta[3] *= (2.0 - H); // Bias EMA
+         }
+ 
+-        unsigned best_arm = 0;
+-        double max_val = theta[0];
+-        for (unsigned i = 1; i < 4; i++) {
+-            if (theta[i] > max_val) {
+-                max_val = theta[i];
+-                best_arm = i;
+-            }
+-        }
+-        current_arm = best_arm;
+-        solver->heuristic = current_arm; // Update solver state with chosen arm
+-    }
+-
+-    // Step 6: Context-aware retention and Phase Reset every 10,000 conflicts
+-    if (CONFLICTS >= last_scale_conf + 10000) {
+-        last_scale_conf = CONFLICTS;
+-        double lambda = 0.95 * (1.0 - agility);
+-        for (int i = 0; i < 4; i++) {
+-            alpha[i] *= lambda;
+-            beta[i] *= lambda;
+-            if (alpha[i] < 1.0) alpha[i] = 1.0;
+-            if (beta[i] < 1.0) beta[i] = 1.0;
+-        }
+-
+-        // Trigger Phase Reset if Search Entropy shift is significant
+-        if (fabs(h - last_h_reset) > 0.2) {
+-            for (int i = 0; i < 4; i++) {
+-                alpha[i] *= 0.5;
+-                beta[i] *= 0.5;
+-                if (alpha[i] < 1.0) alpha[i] = 1.0;
+-                if (beta[i] < 1.0) beta[i] = 1.0;
+-            }
+-            last_h_reset = h;
++        // Select arm with highest sampled/biased value
++        current_arm = 0;
++        for (int i = 1; i < 4; i++) {
++            if (theta[i] > theta[current_arm]) current_arm = i;
+         }
+     }
+ 
+-    last_h = h;
++    // Step 6: Context-aware retention and Phase Reset
++    if (GET(conflicts) >= last_decay_conflicts + 10000) {
++        last_decay_conflicts = GET(conflicts);
++        double lambda = 0.95 * (1.0 - agility);
++        for (int i = 0; i < 4; i++) {
++            alphas[i] *= lambda;
++            betas[i] *= lambda;
++        }
+ 
+-    // Cleanup baseline MAB tracking to prevent interference
+-    solver->mab_decisions = 0;
+-    solver->mab_conflicts = 0;
++        if (fabs(H - last_H_decay) > 0.2) {
++            for (int i = 0; i < 4; i++) {
++                alphas[i] *= 0.5;
++                betas[i] *= 0.5;
++            }
++        }
++        last_H_decay = H;
++    }
++
++    // Apply the selected arm's regime to the solver
++    if (current_arm == 0) { // Luby base 32
++        solver->reluctant.period = 32;
++        solver->reluctant.limit = 32;
++    } else if (current_arm == 1) { // Luby base 256
++        solver->reluctant.period = 256;
++        solver->reluctant.limit = 256;
++    } else if (current_arm == 2) { // EMA 1e-5
++        EMA(fast_glue).alpha = 1e-5;
++        EMA(fast_glue).beta = 1.0 - 1e-5;
++    } else if (current_arm == 3) { // EMA 1e-7
++        EMA(fast_glue).alpha = 1e-7;
++        EMA(fast_glue).beta = 1.0 - 1e-7;
++    }
++
++    // Update Kissat's internal MAB tracking
++    solver->mab_reward[current_arm % 2] += R;
++    solver->mab_select[current_arm % 2]++;
++    solver->heuristic = current_arm % 2;
++
++    // Reset Kissat's MAB counters
+     for (all_variables(idx)) {
+         solver->mab_chosen[idx] = 0;
+     }
++    solver->mab_chosen_tot = 0;
++    solver->mab_decisions = 0;
++    solver->mab_conflicts = 0;
++    
++    prev_H = H;
+ }
+
+
+
+
+
+
+
+
+PAIR 2
+
+pair_key: pair_2
+
+leader_par2: 200.0
+
+member_par2: 526.2136574800002
+
+relative_change: 163.10682874000008%
+
+leader_description:
+
+Agility-Gated Entropy-Biased Thompson Sampling: Step 1: Initialize four bandit arms representing distinct restart regimes: Arm 0 (Luby, base 32), Arm 1 (Luby, base 256), Arm 2 (EMA, alpha=1e-5), and Arm 3 (EMA, alpha=1e-7). Step 2: Maintain a sliding window of the last 512 learned clause LBDs to calculate 'Search Entropy' (H), defined as the normalized Shannon entropy of the LBD distribution. Step 3: Define the reward (R) for the active arm as R = (Agility / (1 + |H_current - H_previous|)) * (Conflicts_per_Second / Global_Average_CPS). Step 4: Update the Beta distribution parameters (alpha_i, beta_i) for the active arm i using a success increment if R > 1.0 and a failure increment otherwise. Step 5: Every 1024 conflicts, sample from the Beta distributions to select the next arm, but replace the rigid topology constraint with an 'Agility-Modulated Hysteresis Gate': if Agility < 0.1 (low search fluidity), apply strict masking (if H > 0.8, mask EMA arms; if H < 0.3, mask Luby arms). If Agility >= 0.1, instead of masking, scale the sampled Thompson values theta_i by a bias factor B, where B_Luby = (1 + H) and B_EMA = (2 - H). This allows the bandit to override entropy-based suggestions if an arm is currently generating high assignment volatility. Step 6: Replace the fixed decay with a context-aware retention mechanism: every 10,000 conflicts, scale all alpha and beta parameters by a factor lambda = 0.95 * (1.0 - Agility); if the Search Entropy (H) has shifted by more than 0.2 since the last update, trigger an immediate 'Phase Reset' by halving all parameters to allow the bandit to rapidly re-learn the optimal strategy for the new search topology.
+
+step_mutated:
+
+Step 3
+
+member_description:
+
+Quantized EWMD-Entropy Thompson Sampling: Step 1: Initialize four bandit arms representing distinct restart regimes: Arm 0 (Luby, base 32), Arm 1 (Luby, base 256), Arm 2 (EMA, alpha=1e-5), and Arm 3 (EMA, alpha=1e-7). Step 2: Maintain an Exponentially Weighted Moving Distribution (EWMD) of learned clause LBDs across 8 quantized buckets (LBD=2, 3, 4, 5-8, 9-16, 17-32, 33-64, 65+). Calculate 'Search Entropy' (H) as the normalized Shannon entropy of this EWMD, providing a more stable measure of search depth volatility than a fixed window. Step 3: Define the reward (R) for the active arm as R = (Agility / (1 + |H_current - H_previous|)) * (Conflicts_per_Second / Global_Average_CPS). Step 4: Update the Beta distribution parameters (alpha_i, beta_i) for the active arm i using a success increment if R > 1.0 and a failure increment otherwise. Step 5: Every 1024 conflicts, sample from the Beta distributions to select the next arm, but replace the rigid topology constraint with an 'Agility-Modulated Hysteresis Gate': if Agility < 0.1 (low search fluidity), apply strict masking (if H > 0.8, mask EMA arms; if H < 0.3, mask Luby arms). If Agility >= 0.1, instead of masking, scale the sampled Thompson values theta_i by a bias factor B, where B_Luby = (1 + H) and B_EMA = (2 - H). This allows the bandit to override entropy-based suggestions if an arm is currently generating high assignment volatility. Step 6: Replace the fixed decay with a context-aware retention mechanism: every 10,000 conflicts, scale all alpha and beta parameters by a factor lambda = 0.95 * (1.0 - Agility); if the Search Entropy (H) has shifted by more than 0.2 since the last update, trigger an immediate 'Phase Reset' by halving all parameters to allow the bandit to rapidly re-learn the optimal strategy for the new search topology.
+
+code_diff:
+
+--- leader_algorithm
++++ member_algorithm
+@@ -1,137 +1,152 @@
+ void restart_mab(kissat *solver) {
+-    // Step 1: Persistent state for four bandit arms and search statistics
+-    static double alpha[4] = {1.0, 1.0, 1.0, 1.0};
+-    static double beta[4] = {1.0, 1.0, 1.0, 1.0};
+-    static unsigned window[512];
+-    static unsigned w_idx = 0;
+-    static bool window_full = false;
+-    static double last_h = 0.0;
+-    static double last_h_reset = 0.0;
+-    static double global_cps = 0.0;
+-    static uint64_t last_mab_conf = 0;
+-    static uint64_t last_scale_conf = 0;
++    // Step 1: Bandit State and Static Variables
++    static double arm_alphas[4] = {1.0, 1.0, 1.0, 1.0};
++    static double arm_betas[4] = {1.0, 1.0, 1.0, 1.0};
++    static double ewmd[8] = {0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125, 0.125};
++    static uint64_t last_hist_counts[128] = {0};
++    static uint64_t last_mab_conflicts = 0;
++    static uint64_t last_retention_conflicts = 0;
++    static uint64_t ticks_at_last_mab = 0;
++    static double h_at_last_mab = 0.5;
++    static double h_at_last_retention = 0.5;
++    static unsigned active_arm = 0;
+     static bool initialized = false;
+-    static unsigned current_arm = 0;
+ 
+-    // Initialize on first entry
+     if (!initialized) {
+-        for (int i = 0; i < 512; i++) window[i] = 0;
+-        current_arm = solver->heuristic % 4;
+-        last_mab_conf = CONFLICTS;
+-        last_scale_conf = CONFLICTS;
++        for (unsigned i = 0; i < 128; i++) {
++            last_hist_counts[i] = solver->statistics.used[solver->stable].glue[i];
++        }
++        ticks_at_last_mab = solver->ticks;
++        last_mab_conflicts = CONFLICTS;
++        last_retention_conflicts = CONFLICTS;
+         initialized = true;
+     }
+ 
+-    // Step 2: Maintain sliding window of 512 LBDs and calculate Search Entropy (H)
+-    unsigned added = 0;
+-    for (all_clauses(c)) {
+-        if (c->redundant) {
+-            // Map LBD to [0, 127] range as per MAX_GLUE_USED
+-            window[w_idx] = (c->glue > 127) ? 127 : c->glue;
+-            w_idx = (w_idx + 1) % 512;
+-            if (w_idx == 0) window_full = true;
+-            if (++added >= 512) break;
++    // Step 2: Maintain Exponentially Weighted Moving Distribution (EWMD)
++    uint64_t current_incs[8] = {0};
++    uint64_t total_inc = 0;
++    for (unsigned i = 0; i < 128; i++) {
++        uint64_t val = solver->statistics.used[solver->stable].glue[i];
++        if (val > last_hist_counts[i]) {
++            uint64_t diff = val - last_hist_counts[i];
++            unsigned b = (i <= 2) ? 0 : (i == 3) ? 1 : (i == 4) ? 2 : (i <= 8) ? 3 : 
++                         (i <= 16) ? 4 : (i <= 32) ? 5 : (i <= 64) ? 6 : 7;
++            current_incs[b] += diff;
++            total_inc += diff;
++            last_hist_counts[i] = val;
+         }
+     }
+ 
+-    double h = 0.0;
+-    unsigned bins[128];
+-    for (int i = 0; i < 128; i++) bins[i] = 0;
+-    unsigned total_samples = window_full ? 512 : (w_idx ? w_idx : 1);
+-    for (unsigned i = 0; i < (window_full ? 512 : w_idx); i++) {
+-        bins[window[i]]++;
+-    }
+-    for (unsigned i = 0; i < 128; i++) {
+-        if (bins[i] > 0) {
+-            double p = (double)bins[i] / total_samples;
+-            h -= p * log2(p);
+-        }
+-    }
+-    h /= 7.0; // Normalized Shannon Entropy (log2(128) = 7)
+-
+-    // Step 3: Define Reward (R) for the active arm
+-    // Agility is retrieved from statistics and normalized (assuming 0-100 range)
+-    double agility = (double)GET(agility) / 100.0;
+-    double current_cps = (double)CONFLICTS / (double)(solver->ticks ? solver->ticks : 1);
+-    
+-    // Update Global Average CPS using a slow EMA
+-    if (global_cps == 0) global_cps = current_cps;
+-    else global_cps = 0.99 * global_cps + 0.01 * current_cps;
+-
+-    double h_diff = fabs(h - last_h);
+-    double cps_ratio = (global_cps > 1e-9) ? (current_cps / global_cps) : 1.0;
+-    double reward = (agility / (1.0 + h_diff)) * cps_ratio;
+-
+-    // Step 4: Update Beta parameters for the active arm
+-    if (reward > 1.0) alpha[current_arm] += 1.0;
+-    else beta[current_arm] += 1.0;
+-
+-    // Step 5: Every 1024 conflicts, sample and select next arm with Agility-Modulated Hysteresis
+-    if (CONFLICTS >= last_mab_conf + 1024) {
+-        last_mab_conf = CONFLICTS;
+-        double theta[4];
+-        for (int i = 0; i < 4; i++) {
+-            double a = alpha[i];
+-            double b = beta[i];
+-            double mu = a / (a + b);
+-            double var = (a * b) / (pow(a + b, 2) * (a + b + 1.0));
+-            // Thompson sampling approximation using Normal distribution
+-            theta[i] = mu + sqrt(var) * (kissat_pick_double(&solver->random) - 0.5) * 3.46;
+-        }
+-
+-        if (agility < 0.1) {
+-            // Strict masking for low search fluidity
+-            if (h > 0.8) { theta[2] = -1.0; theta[3] = -1.0; } // Mask EMA arms
+-            if (h < 0.3) { theta[0] = -1.0; theta[1] = -1.0; } // Mask Luby arms
+-        } else {
+-            // Bias Thompson values based on entropy
+-            double b_luby = 1.0 + h;
+-            double b_ema = 2.0 - h;
+-            theta[0] *= b_luby; theta[1] *= b_luby;
+-            theta[2] *= b_ema; theta[3] *= b_ema;
+-        }
+-
+-        unsigned best_arm = 0;
+-        double max_val = theta[0];
+-        for (unsigned i = 1; i < 4; i++) {
+-            if (theta[i] > max_val) {
+-                max_val = theta[i];
+-                best_arm = i;
+-            }
+-        }
+-        current_arm = best_arm;
+-        solver->heuristic = current_arm; // Update solver state with chosen arm
+-    }
+-
+-    // Step 6: Context-aware retention and Phase Reset every 10,000 conflicts
+-    if (CONFLICTS >= last_scale_conf + 10000) {
+-        last_scale_conf = CONFLICTS;
+-        double lambda = 0.95 * (1.0 - agility);
+-        for (int i = 0; i < 4; i++) {
+-            alpha[i] *= lambda;
+-            beta[i] *= lambda;
+-            if (alpha[i] < 1.0) alpha[i] = 1.0;
+-            if (beta[i] < 1.0) beta[i] = 1.0;
+-        }
+-
+-        // Trigger Phase Reset if Search Entropy shift is significant
+-        if (fabs(h - last_h_reset) > 0.2) {
+-            for (int i = 0; i < 4; i++) {
+-                alpha[i] *= 0.5;
+-                beta[i] *= 0.5;
+-                if (alpha[i] < 1.0) alpha[i] = 1.0;
+-                if (beta[i] < 1.0) beta[i] = 1.0;
+-            }
+-            last_h_reset = h;
++    if (total_inc > 0) {
++        for (int i = 0; i < 8; i++) {
++            double p = (double)current_incs[i] / total_inc;
++            ewmd[i] = 0.95 * ewmd[i] + 0.05 * p;
+         }
+     }
+ 
+-    last_h = h;
++    // Calculate Normalized Search Entropy (H)
++    double h = 0;
++    for (int i = 0; i < 8; i++) {
++        if (ewmd[i] > 1e-9) {
++            h -= ewmd[i] * (log(ewmd[i]) / log(2.0));
++        }
++    }
++    h /= 3.0; // Normalize by log2(8)
+ 
+-    // Cleanup baseline MAB tracking to prevent interference
+-    solver->mab_decisions = 0;
+-    solver->mab_conflicts = 0;
+-    for (all_variables(idx)) {
+-        solver->mab_chosen[idx] = 0;
++    // Step 6: Context-Aware Retention and Phase Reset (Every 10,000 conflicts)
++    if (CONFLICTS >= last_retention_conflicts + 10000) {
++        double agility = AVERAGE(decision_rate);
++        double lambda = 0.95 * (1.0 - agility);
++        for (int i = 0; i < 4; i++) {
++            arm_alphas[i] *= lambda;
++            arm_betas[i] *= lambda;
++            if (arm_alphas[i] < 1.0) arm_alphas[i] = 1.0;
++            if (arm_betas[i] < 1.0) arm_betas[i] = 1.0;
++        }
++
++        if (fabs(h - h_at_last_retention) > 0.2) {
++            for (int i = 0; i < 4; i++) {
++                arm_alphas[i] *= 0.5;
++                arm_betas[i] *= 0.5;
++                if (arm_alphas[i] < 1.0) arm_alphas[i] = 1.0;
++                if (arm_betas[i] < 1.0) arm_betas[i] = 1.0;
++            }
++        }
++        last_retention_conflicts = CONFLICTS;
++        h_at_last_retention = h;
++    }
++
++    // Step 3, 4, 5: Reward Update and Thompson Sampling (Every 1024 conflicts)
++    if (CONFLICTS >= last_mab_conflicts + 1024) {
++        double agility = AVERAGE(decision_rate);
++        double h_diff = fabs(h - h_at_last_mab);
++        uint64_t ticks_delta = solver->ticks - ticks_at_last_mab;
++        uint64_t conf_delta = CONFLICTS - last_mab_conflicts;
++        
++        double cps = (ticks_delta > 0) ? (double)conf_delta / ticks_delta : 0;
++        double global_cps = (solver->ticks > 0) ? (double)CONFLICTS / solver->ticks : 0;
++        
++        // Reward R
++        double reward = (agility / (1.0 + h_diff)) * (cps / (global_cps + 1e-10));
++
++        // Update Beta parameters for active arm
++        if (reward > 1.0) {
++            arm_alphas[active_arm] += 1.0;
++        } else {
++            arm_betas[active_arm] += 1.0;
++        }
++
++        // Thompson Sampling with Normal Approximation
++        double theta[4];
++        for (int i = 0; i < 4; i++) {
++            double a = arm_alphas[i];
++            double b = arm_betas[i];
++            double mu = a / (a + b);
++            double sigma = sqrt((a * b) / ((a + b) * (a + b) * (a + b + 1.0)));
++            
++            double u1 = kissat_pick_double(&solver->random);
++            double u2 = kissat_pick_double(&solver->random);
++            double z = sqrt(-2.0 * log(u1 + 1e-10)) * cos(6.283185307 * u2);
++            theta[i] = mu + z * sigma;
++        }
++
++        // Agility-Modulated Hysteresis Gate
++        if (agility < 0.1) {
++            if (h > 0.8) { theta[2] = -1.0; theta[3] = -1.0; }
++            if (h < 0.3) { theta[0] = -1.0; theta[1] = -1.0; }
++        } else {
++            double b_luby = 1.0 + h;
++            double b_ema = 2.0 - h;
++            theta[0] *= b_luby;
++            theta[1] *= b_luby;
++            theta[2] *= b_ema;
++            theta[3] *= b_ema;
++        }
++
++        // Select next arm
++        unsigned best_arm = 0;
++        for (unsigned i = 1; i < 4; i++) {
++            if (theta[i] > theta[best_arm]) best_arm = i;
++        }
++        active_arm = best_arm;
++
++        last_mab_conflicts = CONFLICTS;
++        ticks_at_last_mab = solver->ticks;
++        h_at_last_mab = h;
++    }
++
++    // Step 1: Apply Regime Strategy
++    if (active_arm == 0) {
++        solver->reluctant.limit = 32;
++        solver->reluctant.period = 0;
++    } else if (active_arm == 1) {
++        solver->reluctant.limit = 256;
++        solver->reluctant.period = 0;
++    } else if (active_arm == 2) {
++        solver->averages[0].fast_glue.alpha = 1e-5;
++        solver->averages[1].fast_glue.alpha = 1e-5;
++    } else if (active_arm == 3) {
++        solver->averages[0].fast_glue.alpha = 1e-7;
++        solver->averages[1].fast_glue.alpha = 1e-7;
+     }
+ }
+
+
+
+
+
+
+
+
+PAIR 3
+
+pair_key: pair_3
+
+leader_par2: 540.0
+
+member_par2: 577.2730824599998
+
+relative_change: 6.902422677777749%
+
+leader_description:
+
+Hysteresis-Aware Thompson Restart Selection: Step 1: Initialize two arms representing the Luby and Glucose restart policies. Maintain a Beta distribution (alpha, beta) for each arm, initialized to (1, 1). Step 2: During search, maintain a 'Search Pressure' metric (Sp), defined as the moving average of (trail_level / decision_level) calculated at each conflict over a window of 256 conflicts. Step 3: When the restart_mab function is triggered to select a policy, perform Thompson Sampling by drawing a random variable X_i from Beta(alpha_i, beta_i) for each arm. Step 4: Apply a contextual bias to the samples: if Sp > 0.45 (indicating a dense search space), multiply the Glucose sample (X_glucose) by (1 + Sp); if Sp <= 0.45 (indicating a sparse or deep search space), multiply the Luby sample (X_luby) by (2 - Sp). Step 5: Identify the arm with the highest biased sample. To prevent oscillation and maintain search stability, only switch to this arm if its biased sample exceeds the currently active arm's biased sample by a hysteresis margin epsilon = 0.15 * (1 - Sp). If the margin is not met, retain the current arm for the next period. Step 6: Calculate the reward (R) after the period ends as R = (Moving_Average_LBD_Initial / Moving_Average_LBD_Current). If R > 1.05, increment the alpha of the chosen arm by 1; otherwise, increment its beta by 1. Step 7: Apply a periodic decay to alpha and beta (multiply by 0.95) every 1024 restarts to ensure the bandit remains sensitive to the non-stationary nature of the SAT search.
+
+step_mutated:
+
+Step 1: Initialize two arms representing the Luby and Glucose restart policies. Maintain a Beta distribution (alpha, beta) for each arm, initialized to (1, 1)
+
+member_description:
+
+Log-Scaled Posterior Thompson Sampling: Step 1: Initialize two arms representing the Luby and Glucose restart policies. Maintain a Beta distribution (alpha, beta) for each arm, initialized to (1, 1). Step 2: During search, maintain a 'Search Pressure' metric (Sp), defined as the moving average of (trail_level / decision_level) calculated at each conflict over a window of 256 conflicts. Step 3: When the restart_mab function is triggered, calculate a search-intensity scaling factor phi = 1 + log10(1 + total_conflicts_in_current_phase). Perform Thompson Sampling by drawing a random variable X_i from Beta(alpha_i * phi, beta_i * phi) for each arm. Step 4: Apply a contextual bias to the samples: if Sp > 0.45 (indicating a dense search space), multiply the Glucose sample (X_glucose) by (1 + Sp); if Sp <= 0.45 (indicating a sparse or deep search space), multiply the Luby sample (X_luby) by (2 - Sp). Step 5: Identify the arm with the highest biased sample. To prevent oscillation and maintain search stability, only switch to this arm if its biased sample exceeds the currently active arm's biased sample by a hysteresis margin epsilon = 0.15 * (1 - Sp). If the margin is not met, retain the current arm for the next period. Step 6: Calculate the reward (R) after the period ends as R = (Moving_Average_LBD_Initial / Moving_Average_LBD_Current). If R > 1.05, increment the alpha of the chosen arm by 1; otherwise, increment its beta by 1. Step 7: Apply a periodic decay to alpha and beta (multiply by 0.95) every 1024 restarts to ensure the bandit remains sensitive to the non-stationary nature of the SAT search.
+
+code_diff:
+
+--- leader_algorithm
++++ member_algorithm
+@@ -1,86 +1,97 @@
+ void restart_mab(kissat *solver) {
+-    // Step 1: Initialize Beta distribution (alpha, beta) for each arm to (1, 1)
+-    // Using mab_reward[2] (double) for alpha and mab_select[2] (unsigned) for beta.
+-    // Initialization check for both arms.
+-    for (unsigned i = 0; i < 2; i++) {
+-        if (solver->mab_reward[i] < 1.0) solver->mab_reward[i] = 1.0;
+-        if (solver->mab_select[i] < 1) solver->mab_select[i] = 1;
+-    }
++    // Step 1: Initialize Beta distribution parameters (alpha, beta) for each arm.
++    // Arm 0: Luby policy, Arm 1: Glucose policy.
++    // We use solver->mab_reward[i] to store alpha_i. 
++    // Since we cannot add fields, beta_i is derived as (solver->mab_select[i] + 2 - solver->mab_reward[i]).
++    // Initial alpha=1, beta=1 is achieved when reward=1.0 and select=0 (1 + 1 = 2 total).
++    if (solver->mab_reward[0] < 1.0) solver->mab_reward[0] = 1.0;
++    if (solver->mab_reward[1] < 1.0) solver->mab_reward[1] = 1.0;
+ 
+-    // Step 6: Calculate reward (R) after the period ends and update alpha/beta of chosen arm.
+-    // R = (Moving_Average_LBD_Initial / Moving_Average_LBD_Current).
+-    // Using slow_glue as Initial MA and fast_glue as Current MA.
+-    double slow_lbd = AVERAGE(slow_glue);
+-    double fast_lbd = AVERAGE(fast_glue);
+-    if (fast_lbd > 1e-6) {
++    // Step 6: Calculate reward (R) for the arm that just finished its period.
++    // The current solver->heuristic is the arm that was active during the period.
++    const double slow_lbd = AVERAGE(slow_glue);
++    const double fast_lbd = AVERAGE(fast_glue);
++    if (fast_lbd > 0) {
+         double R = slow_lbd / fast_lbd;
++        // If R > 1.05, increment alpha of the chosen arm.
+         if (R > 1.05) {
+             solver->mab_reward[solver->heuristic] += 1.0;
+-        } else {
+-            solver->mab_select[solver->heuristic] += 1;
+         }
++        // Otherwise, beta is incremented. Since beta = (select + 2 - alpha), 
++        // and select is incremented later while alpha stays the same, beta increases.
+     }
+ 
+     // Step 7: Apply periodic decay (multiply by 0.95) every 1024 restarts.
+-    if (GET(restarts) % 1024 == 0) {
++    if (GET(restarts) > 0 && (GET(restarts) % 1024 == 0)) {
+         for (unsigned i = 0; i < 2; i++) {
+             solver->mab_reward[i] *= 0.95;
+             if (solver->mab_reward[i] < 1.0) solver->mab_reward[i] = 1.0;
+             
+-            double decayed_beta = (double)solver->mab_select[i] * 0.95;
+-            solver->mab_select[i] = (unsigned)decayed_beta;
+-            if (solver->mab_select[i] < 1) solver->mab_select[i] = 1;
++            double total_count = (double)solver->mab_select[i] + 2.0;
++            total_count *= 0.95;
++            if (total_count < 2.0) total_count = 2.0;
++            solver->mab_select[i] = (unsigned)(total_count - 2.0);
+         }
+     }
+ 
+-    // Step 2: Maintain Search Pressure (Sp) metric.
+-    // Sp = moving average of (trail_level / decision_level).
+-    // Using EMAs of trail and level as the faithful proxy for the 256-conflict window.
+-    double trail_avg = AVERAGE(trail);
+-    double level_avg = AVERAGE(level);
+-    double Sp = (level_avg > 1e-6) ? (trail_avg / level_avg) : 0.0;
++    // Step 2: Search Pressure metric (Sp)
++    // Moving average of (trail_level / decision_level) using existing EMAs.
++    double sp = 0;
++    const double avg_trail = AVERAGE(trail);
++    const double avg_level = AVERAGE(level);
++    if (avg_level > 0) {
++        sp = avg_trail / avg_level;
++        if (sp > 1.0) sp = 1.0;
++    }
+ 
+-    // Step 3: Thompson Sampling by drawing random variable X_i from Beta(alpha_i, beta_i).
+-    // Using Normal approximation for Beta(a, b): mean = a/(a+b), var = (ab)/((a+b)^2(a+b+1)).
++    // Step 3: scaling factor phi and Thompson Sampling.
++    // phi = 1 + log10(1 + total_conflicts_in_current_phase).
++    double phi = 1.0 + log10(1.0 + (double)solver->mab_conflicts);
+     double samples[2];
+     for (unsigned i = 0; i < 2; i++) {
+-        double a = solver->mab_reward[i];
+-        double b = (double)solver->mab_select[i];
++        double alpha = solver->mab_reward[i] * phi;
++        double beta = ((double)solver->mab_select[i] + 2.0 - solver->mab_reward[i]) * phi;
+         
+-        double mean = a / (a + b);
+-        double var = (a * b) / ((a + b) * (a + b) * (a + b + 1.0));
+-        double sd = sqrt(var);
++        // Thompson Sampling via Normal Approximation of Beta(alpha, beta).
++        double mu = alpha / (alpha + beta);
++        double var = (alpha * beta) / ((alpha + beta) * (alpha + beta) * (alpha + beta + 1.0));
+         
+-        // Box-Muller transform for N(0,1) sampling
++        // Box-Muller transform for Gaussian sampling.
+         double u1 = kissat_pick_double(&solver->random);
+         double u2 = kissat_pick_double(&solver->random);
+-        double z = sqrt(-2.0 * log(u1 + 1e-12)) * cos(2.0 * 3.14159265358979 * u2);
+-        
+-        samples[i] = mean + sd * z;
+-        if (samples[i] < 0.0) samples[i] = 0.0;
++        if (u1 < 1e-9) u1 = 1e-9; // Avoid log(0)
++        double z = sqrt(-2.0 * log(u1)) * cos(2.0 * 3.141592653589793 * u2);
++        samples[i] = mu + z * sqrt(var);
++        if (samples[i] < 0) samples[i] = 0;
+         if (samples[i] > 1.0) samples[i] = 1.0;
+     }
+ 
+     // Step 4: Apply contextual bias to the samples.
+     // Arm 0: Luby, Arm 1: Glucose.
+-    double x_luby = samples[0];
+-    double x_glucose = samples[1];
+-    if (Sp > 0.45) {
+-        x_glucose *= (1.0 + Sp);
++    if (sp > 0.45) {
++        samples[1] *= (1.0 + sp);
+     } else {
+-        x_luby *= (2.0 - Sp);
++        samples[0] *= (2.0 - sp);
+     }
+ 
+-    // Step 5: Identify arm with highest biased sample and apply hysteresis.
+-    // epsilon = 0.15 * (1 - Sp).
+-    double epsilon = 0.15 * (1.0 - Sp);
+-    unsigned current = solver->heuristic;
+-    unsigned winner = (x_glucose > x_luby) ? 1 : 0;
++    // Step 5: Hysteresis Margin and Arm Selection.
++    double epsilon = 0.15 * (1.0 - sp);
++    unsigned current_arm = solver->heuristic;
++    unsigned best_arm = (samples[1] > samples[0]) ? 1 : 0;
+     
+-    double winner_biased = (winner == 1) ? x_glucose : x_luby;
+-    double current_biased = (current == 1) ? x_glucose : x_luby;
+-    
+-    if (winner_biased > current_biased + epsilon) {
+-        solver->heuristic = winner;
++    // Only switch if the best arm exceeds the current arm by the margin epsilon.
++    if (samples[best_arm] > samples[current_arm] + epsilon) {
++        solver->heuristic = best_arm;
+     }
++
++    // Cleanup: Reset MAB tracking variables for the next period.
++    solver->mab_conflicts = 0;
++    solver->mab_decisions = 0;
++    for (all_variables(idx)) {
++        solver->mab_chosen[idx] = 0;
++    }
++    solver->mab_chosen_tot = 0;
++
++    // Increment selection count for the chosen arm.
++    solver->mab_select[solver->heuristic]++;
+ }
+
+
+
+
+
+
+
+
+[DEBUG] =======================================
+
+                    INFO     Routing LLM call to OpenAI (model=gpt-5.4-2026-03-05)                 chatgpt_helper.py:41
+2026-03-30 09:12:35 INFO     HTTP Request: POST https://api.openai.com/v1/responses "HTTP/1.1 200 OK"   _client.py:1025
+
+[DEBUG] === RAW RESPONSE (ATTEMPT 1) for bad ===
+```json
+{
+  "pairs": [
+    {
+      "pair_key": "pair_1",
+      "analysis": "The regression is mainly caused by the implementation no longer matching the leader’s reward and arm-selection semantics, not by Step 5 itself. The leader used GET(agility)/100 and a smoothed global CPS EMA; the member replaces these with AVERAGE(decision_rate), solver->mab_conflicts/(mab_decisions+1), and GET(conflicts)/GET(decisions), which changes reward scale and makes R much noisier and less comparable across periods. The new magnitude-scaled update then amplifies this bad signal: alpha/beta receive fractional increments every call, plus an unconditional extra alpha boost when local_lbd_mean < global_lbd_mean, so posterior mass can drift aggressively toward recently lucky arms. There are also control-path issues: the member decays alphas/betas without the leader’s floor-at-1 safeguard, shrinking evidence toward near-zero and making sampling unstable; it maps the selected 4-arm policy back into solver->heuristic = current_arm % 2 while separately mutating restart/EMA internals, creating a mismatch between the learned 4-arm model and Kissat’s internal 2-choice bookkeeping. Together these changes corrupt the feedback loop, so the unchanged Step 5 gating/bias operates on distorted posteriors and selects poorer restart regimes more often."
+    },
+    {
+      "pair_key": "pair_2",
+      "analysis": "The EWMD/quantized entropy mutation degrades because it makes the context signal too coarse and too inert for the leader’s gating logic. The leader’s 512-sample raw-LBD window could react quickly to topology changes; the member compresses 128 glue values into 8 buckets and then smooths them with a 0.95/0.05 EWMD, so H changes slowly and with reduced resolution. Since both reward and arm masking depend on |H-H_prev| and threshold tests at H<0.3 / H>0.8, this lag weakens both the reward’s non-stationarity detection and the hysteresis gate’s ability to switch between Luby and EMA regimes at the right time. The bucket mapping is also flawed: indices 0,1,2 are all collapsed into bucket 0 despite the description distinguishing LBD=2,3,4 separately, further distorting entropy. In addition, the regime application is inconsistent with the leader: Luby arms set period=0 instead of matching the stated Luby base configuration, and EMA arms only change alpha fields partially. So the mutation not only feeds a less informative H into the bandit, it also applies the chosen arms less faithfully, producing the largest regression in the batch."
+    },
+    {
+      "pair_key": "pair_3",
+      "analysis": "The log-scaled posterior idea reduces useful exploration and also breaks the Beta bookkeeping. Multiplying both alpha and beta by phi = 1 + log10(1 + mab_conflicts) preserves the posterior mean but shrinks variance, so Thompson samples become increasingly concentrated as a phase grows. In a non-stationary restart problem this is harmful: the leader relied on posterior uncertainty plus hysteresis to keep adapting, whereas the member becomes overconfident and less willing to discover that the other restart policy has become better. More seriously, beta is no longer stored explicitly; it is reconstructed as mab_select + 2 - mab_reward. Since mab_select is incremented every call but alpha only on successes, this coupling makes beta depend on total selections rather than actual failures, and after decay/rounding the implied posterior can be distorted. The code also resets mab_conflicts before incrementing mab_select, so phi is driven only by the just-finished phase length and then immediately discarded, giving an inconsistent confidence schedule. Net effect: less exploration, noisier posterior semantics, and slower recovery when the preferred restart policy changes."
+    }
+  ]
+}
+```
+[DEBUG] ==================================================
+
+
+[DEBUG] === PARSED RESPONSE (ATTEMPT 1) for bad ===
+{'pair_1': 'The regression is mainly caused by the implementation no longer matching the leader’s reward and arm-selection semantics, not by Step 5 itself. The leader used GET(agility)/100 and a smoothed global CPS EMA; the member replaces these with AVERAGE(decision_rate), solver->mab_conflicts/(mab_decisions+1), and GET(conflicts)/GET(decisions), which changes reward scale and makes R much noisier and less comparable across periods. The new magnitude-scaled update then amplifies this bad signal: alpha/beta receive fractional increments every call, plus an unconditional extra alpha boost when local_lbd_mean < global_lbd_mean, so posterior mass can drift aggressively toward recently lucky arms. There are also control-path issues: the member decays alphas/betas without the leader’s floor-at-1 safeguard, shrinking evidence toward near-zero and making sampling unstable; it maps the selected 4-arm policy back into solver->heuristic = current_arm % 2 while separately mutating restart/EMA internals, creating a mismatch between the learned 4-arm model and Kissat’s internal 2-choice bookkeeping. Together these changes corrupt the feedback loop, so the unchanged Step 5 gating/bias operates on distorted posteriors and selects poorer restart regimes more often.', 'pair_2': 'The EWMD/quantized entropy mutation degrades because it makes the context signal too coarse and too inert for the leader’s gating logic. The leader’s 512-sample raw-LBD window could react quickly to topology changes; the member compresses 128 glue values into 8 buckets and then smooths them with a 0.95/0.05 EWMD, so H changes slowly and with reduced resolution. Since both reward and arm masking depend on |H-H_prev| and threshold tests at H<0.3 / H>0.8, this lag weakens both the reward’s non-stationarity detection and the hysteresis gate’s ability to switch between Luby and EMA regimes at the right time. The bucket mapping is also flawed: indices 0,1,2 are all collapsed into bucket 0 despite the description distinguishing LBD=2,3,4 separately, further distorting entropy. In addition, the regime application is inconsistent with the leader: Luby arms set period=0 instead of matching the stated Luby base configuration, and EMA arms only change alpha fields partially. So the mutation not only feeds a less informative H into the bandit, it also applies the chosen arms less faithfully, producing the largest regression in the batch.', 'pair_3': 'The log-scaled posterior idea reduces useful exploration and also breaks the Beta bookkeeping. Multiplying both alpha and beta by phi = 1 + log10(1 + mab_conflicts) preserves the posterior mean but shrinks variance, so Thompson samples become increasingly concentrated as a phase grows. In a non-stationary restart problem this is harmful: the leader relied on posterior uncertainty plus hysteresis to keep adapting, whereas the member becomes overconfident and less willing to discover that the other restart policy has become better. More seriously, beta is no longer stored explicitly; it is reconstructed as mab_select + 2 - mab_reward. Since mab_select is incremented every call but alpha only on successes, this coupling makes beta depend on total selections rather than actual failures, and after decay/rounding the implied posterior can be distorted. The code also resets mab_conflicts before incrementing mab_select, so phi is driven only by the just-finished phase length and then immediately discarded, giving an inconsistent confidence schedule. Net effect: less exploration, noisier posterior semantics, and slower recovery when the preferred restart policy changes.'}
+[DEBUG] =====================================================
+
+                    INFO     Loading faiss with AVX512-SPR support.                                       loader.py:108
+                    INFO     Could not load library with AVX512-SPR support due to:                       loader.py:113
+                             ModuleNotFoundError("No module named 'faiss.swigfaiss_avx512_spr'")                       
+                    INFO     Loading faiss with AVX512 support.                                           loader.py:120
+2026-03-30 09:12:36 INFO     Successfully loaded faiss with AVX512 support.                               loader.py:122
+
+[MutationExperiencePool] Update Summary:
+  - Leaders processsed: 2 (0 total skipped)
+  - Members processed: 6 (0 neutral, 0 missing code)
+  - Candidates found: 3 GOOD, 3 BAD
+  - Candidates selected for generation: 3 GOOD, 3 BAD
+  - Experiences actually persisted: 3 GOOD, 3 BAD
+  - Persistence details: 6 created, 0 deduped
+
+========== UPDATE PIPELINE COMPLETE ==========
+Summary of operation:
+{
+  "input_dir": "/local-scratch1/jla1045/LLM-SAT/solvers/mutation_curated",
+  "threshold": 0.1,
+  "top_k_good": 5,
+  "top_k_bad": 5,
+  "leaders_seen": 2,
+  "leaders_loaded": 2,
+  "members_seen": 6,
+  "members_loaded": 6,
+  "good_candidates": 3,
+  "bad_candidates": 3,
+  "selected_good": 3,
+  "selected_bad": 3,
+  "persisted_good": 3,
+  "persisted_bad": 3,
+  "persisted_created": 6,
+  "persisted_deduped": 0,
+  "neutral_skipped": 0,
+  "invalid_skipped": 0,
+  "missing_code_skipped": 0,
+  "missing_leader_skipped": 0,
+  "parent_cardinality_errors": 0
+}
