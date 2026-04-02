@@ -69,7 +69,6 @@
   OPTION (forcephase, 0, 0, 1, "force initial phase") \
   OPTION (forward, 1, 0, 1, "forward subsumption in BVE") \
   OPTION (forwardeffort, 100, 0, 1e6, "effort in per mille") \
-  OPTION (heuristic, 0, 0, 1, "scoring heuristic (0=VSIDS,1=CHB)") \
   OPTION (ifthenelse, 1, 0, 1, "extract and eliminate if-then-else gates") \
   OPTION (incremental, 0, 0, 1, "enable incremental solving") \
   OPTION (jumpreasons, 1, 0, 1, "jump binary reasons") \
@@ -77,9 +76,6 @@
   OPTION (lucky, 1, 0, 1, "try some lucky assignments") \
   OPTION (luckyearly, 1, 0, 1, "lucky assignments before preprocessing") \
   OPTION (luckylate, 1, 0, 1, "lucky assignments after preprocessing") \
-  OPTION (mab, 1, 0, 1, "enable MAB") \
-  OPTION (mabcdecimal, 0, 0, 9, "mab const decimal") \
-  OPTION (mabcint, 4, 0, 10, "mab const floor") \
   OPTION (mineffort, 10, 0, INT_MAX, "minimum absolute effort in millions") \
   OPTION (minimize, 1, 0, 1, "learned clause minimization") \
   OPTION (minimizedepth, 1e3, 1, 1e6, "minimization depth") \
@@ -134,7 +130,6 @@
   OPTION (smallclauses, 1e5, 0, INT_MAX, "small clauses limit") \
   OPTION (stable, STABLE_DEFAULT, 0, 2, "enable stable search mode") \
   NQTOPT (statistics, 0, 0, 1, "print complete statistics") \
-  OPTION (stepchb, 4, 1, 9, "CHB step paramater") \
   OPTION (substitute, 1, 0, 1, "equivalent literal substitution") \
   OPTION (substituteeffort, 10, 1, 1e3, "effort in per mille") \
   OPTION (substituterounds, 2, 1, 100, "maximum substitution rounds") \
@@ -172,6 +167,11 @@
   OPTION (walkeffort, 50, 0, 1e6, "effort in per mille") \
   OPTION (walkinitially, 0, 0, 1, "initial local search") \
   OPTION (warmup, 1, 0, 1, "initialize phases by unit propagation") \
+  OPTION( mab, 1, 0, 1, "enable MAB") \
+  OPTION( mabcdecimal, 0, 0, 9, "mab const decimal") \
+  OPTION( mabcint, 4, 0, 10, "mab const floor") \
+  OPTION( heuristic, 0, 0, 1, "scoring heuristic (0=VSIDS,1=CHB)") \
+  OPTION( stepchb, 4, 1, 9, "CHB step paramater") \
 
 // clang-format on
 
