@@ -57,7 +57,13 @@ from llmsat.pipelines.gemini_data_generation import (
     parse_algorithm_response,
     parse_code_response,
 )
-from llmsat.pipelines.evaluation import EvaluationPipeline
+from llmsat.pipelines.evaluation import (
+    EvaluationPipeline,
+    QUICK_EVAL_TIMEOUT_SECONDS,
+    QUICK_EVAL_WALL_TIME,
+    QUICK_EVAL_PAR2_PENALTY,
+    QUICK_EVAL_BENCHMARK_LIST,
+)
 from llmsat.config import DEFAULT_MODEL
 
 logger = get_logger(__name__)
@@ -97,10 +103,19 @@ class ParallelPipeline:
         self.db_pool = ThreadPoolExecutor(max_workers=MAX_DB_CONCURRENT, thread_name_prefix="db")
 
         # Evaluation pipeline (reuse existing build_solver / slurm_run_evaluate)
-        self.eval_pipeline = EvaluationPipeline(
-            generation_tag=generation_tag,
-            quick_eval=quick_eval,
-        )
+        self.eval_pipeline = EvaluationPipeline(generation_tag=generation_tag)
+        if quick_eval:
+            self.eval_pipeline.timeout = QUICK_EVAL_TIMEOUT_SECONDS
+            self.eval_pipeline.wall_time = QUICK_EVAL_WALL_TIME
+            self.eval_pipeline.par2_penalty = QUICK_EVAL_PAR2_PENALTY
+            benchmark_list = QUICK_EVAL_BENCHMARK_LIST
+            if os.path.exists(benchmark_list):
+                with open(benchmark_list) as f:
+                    self.eval_pipeline.cnf_files = [line.strip() for line in f if line.strip()]
+                logger.info(f"Quick-eval mode: {len(self.eval_pipeline.cnf_files)} CNFs, "
+                            f"{QUICK_EVAL_TIMEOUT_SECONDS}s timeout")
+            else:
+                logger.warning(f"Quick-eval benchmark list not found: {benchmark_list}")
 
         # Job tracking
         self.output_dir = get_generation_output_dir(generation_tag)
