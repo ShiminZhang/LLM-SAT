@@ -12,7 +12,7 @@ from llmsat.utils.gemini_helper import (
     wait_for_all_batches,
     get_response_from_gemini,
 )
-from llmsat.utils.paths import get_batch_output_dir, get_generation_output_dir
+from llmsat.utils.paths import get_algorithm_dir, get_batch_output_dir, get_generation_output_dir
 from llmsat.utils.aws import (
     get_ids_from_router_table,
     update_router_table,
@@ -1229,9 +1229,16 @@ def generate_mutants_for_leaders(
         )
 
     # Register leaders under the new output tag only after successful mutation
-    for leader_id in leaders:
+    # and save their AlgorithmResult JSON to the new iteration's leaders/ directory
+    # so that the filesystem memory bank is complete (evaluation may skip leaders
+    # via --skip-evaluated and would otherwise leave empty directories).
+    for leader_id, leader_result in leaders.items():
         update_router_table(CHATGPT_DATA_GENERATION_TABLE, leader_id, output_generation_tag)
-    logger.info(f"Registered {len(leaders)} leaders under {output_generation_tag}")
+        algo_dir = get_algorithm_dir(
+            leader_id, generation_tag=output_generation_tag, role=leader_result.role,
+        )
+        leader_result.save_to_json(algo_dir)
+    logger.info(f"Registered {len(leaders)} leaders under {output_generation_tag} (JSON saved)")
 
     return result
 

@@ -219,6 +219,8 @@ class EvaluationPipeline:
         solving_times: Dict[str, float] = {}
         solver_stats: Dict[str, Dict[str, Union[int, float]]] = {}
         timeouts_or_errors: List[str] = []
+        min_mtime: Optional[float] = None
+        max_mtime: Optional[float] = None
 
         if os.path.isdir(solver_dir):
             for file in os.listdir(solver_dir):
@@ -291,7 +293,7 @@ class EvaluationPipeline:
             timing_entries.append({
                 "alg_id": algorithm_id,
                 "solver_time": max_mtime - min_mtime,
-                "leader_flag": parent_id is None,
+                "leader_flag": algorithm.parent_id is None if algorithm else True,
             })
             with open(timing_log_path, "w") as f:
                 json.dump(timing_entries, f, indent=2)
