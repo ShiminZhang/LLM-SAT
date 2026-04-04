@@ -2924,25 +2924,6 @@ def run_evolution(
                 json.dump(summary, f, indent=2)
             return summary
 
-        # Save carried-forward individuals for auditability
-        # selected_path = os.path.join(output_dir, "selected_from_prev.json")
-        # data = [
-        #     {
-        #         "algorithm_id": ind.algorithm_id,
-        #         "algorithm_json": ind.algorithm_json,
-        #         "code_id": ind.code_id,
-        #         "par2": ind.par2,
-        #         "target_function": ind.target_function,
-        #         "parent_id": ind.parent_id,
-        #         "generation": ind.generation,
-        #     }
-        #     for ind in improvements
-        # ]
-        # with open(selected_path, "w") as f:
-        #     json.dump(data, f, indent=2, ensure_ascii=False)
-        # logger.info(f"Saved {len(improvements)} carried-forward individuals to {selected_path}")
-        # population = population + improvements
-
         summary["prev_output_tags"] = prev_output_tags
         summary["prev_improvements_added"] = len(improvements)
 
