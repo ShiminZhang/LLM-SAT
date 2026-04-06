@@ -510,6 +510,7 @@ def generate_team_data(
     sync: bool = False,
     parallel: bool = False,
     quick_eval: bool = True,
+    nersc: bool = False
 ):
     """
     Generate team-based algorithm data and code using Gemini:
@@ -548,6 +549,7 @@ def generate_team_data(
             m_variants_per_leader=m_variants_per_leader,
             model=model,
             quick_eval=quick_eval,
+            nersc=nersc
         )
 
     if sync:
@@ -1188,6 +1190,7 @@ def generate_mutants_for_leaders(
     sync: bool = False,
     parallel: bool = False,
     quick_eval: bool = True,
+    nersc: bool = False
 ):
     """
     Generate mutant variants + code for existing leaders (no new leader generation).
@@ -1243,6 +1246,7 @@ def generate_mutants_for_leaders(
             m_variants_per_leader=m_variants_per_leader,
             model=model,
             quick_eval=quick_eval,
+            nersc=nersc,
         )
     elif sync:
         result = _generate_mutants_sync(
@@ -1408,6 +1412,8 @@ def main():
                         help="Use quick-eval mode for SLURM evaluation (default: True)")
     parser.add_argument("--no-quick-eval", action="store_false", dest="quick_eval",
                         help="Use full evaluation mode")
+    parser.add_argument("--nersc", action="store_true",
+                        help="Use NERSC machine for evaluation instead of Compute Canada")
 
     args = parser.parse_args()
 
@@ -1427,6 +1433,7 @@ def main():
             sync=args.sync,
             parallel=args.parallel,
             quick_eval=args.quick_eval,
+            nersc=args.nersc
         )
     else:
         generate_team_data(
@@ -1440,6 +1447,7 @@ def main():
             sync=args.sync,
             parallel=args.parallel,
             quick_eval=args.quick_eval,
+            nersc=args.nersc
         )
 
 

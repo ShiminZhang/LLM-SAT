@@ -98,6 +98,7 @@ case "$CLUSTER" in
         exit 1
         ;;
 esac
+NERSC_FLAG=$([ "$CLUSTER" = "nersc" ] && echo "--nersc" || echo "")
 POLL_INTERVAL="${POLL_INTERVAL:-120}"  # seconds between squeue checks
 M_VARIANTS="${M_VARIANTS:-3}"
 _CFG_MODEL=$(grep '^default_model:' path_config.yaml 2>/dev/null | sed 's/^default_model:[[:space:]]*//' | tr -d '"' || true)
@@ -213,7 +214,8 @@ if [ "$INIT" = true ]; then
                 --m_variants "$M_VARIANTS" \
                 --model "$MODEL" \
                 --parallel \
-                $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" || printf '%s' "--no-quick-eval" )
+                $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" || printf '%s' "--no-quick-eval" ) \
+                ${NERSC_FLAG}
         # Steps 0b (build+submit) handled by --parallel
     else
         # Sequential init
@@ -227,7 +229,8 @@ if [ "$INIT" = true ]; then
                 --n_leaders "${N_LEADERS:-5}" \
                 --m_variants "$M_VARIANTS" \
                 --model "$MODEL" \
-                --sync
+                --sync \
+                ${NERSC_FLAG}
 
         echo "[Init Step 2] Building and submitting evaluation..."
         python "$EVAL_SCRIPT" \
@@ -325,7 +328,8 @@ for i in $(seq 1 "$N_ITERATIONS"); do
                 --m_variants "$M_VARIANTS" \
                 --model "$MODEL" \
                 --parallel \
-                $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" || printf '%s' "--no-quick-eval" )
+                $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" || printf '%s' "--no-quick-eval" ) \
+                ${NERSC_FLAG}
         # Step 2 is handled by --parallel (build + submit is part of the streaming pipeline)
     else
         # Sequential mode: generate, then build + submit separately
@@ -339,7 +343,8 @@ for i in $(seq 1 "$N_ITERATIONS"); do
                 --code_prompt_path data/prompts/coder_prompt_testing.txt \
                 --m_variants "$M_VARIANTS" \
                 --model "$MODEL" \
-                --sync
+                --sync \
+                ${NERSC_FLAG}
 
         echo "[Step 2] Building and submitting evaluation..."
         python "$EVAL_SCRIPT" \

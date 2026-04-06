@@ -20,9 +20,10 @@ import asyncio
 import json
 import os
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from llmsat.llmsat import (
     CHATGPT_DATA_GENERATION_TABLE,
@@ -75,6 +76,67 @@ MAX_DB_CONCURRENT = 5     # Max concurrent DB connections
 
 _SENTINEL = object()  # Signals end of queue
 
+NERSC_SLURM_THRESHOLD = 128  # solvers × CNFs before NERSC batch submission
+
+
+class _SlurmTaskAccumulator:
+    """
+    Thread-safe accumulator for SLURM solver evaluation tasks (NERSC only).
+
+    Batches built solver tasks and submits them via slurm_run_evaluate_batch
+    once accumulated task count (solvers × CNFs) reaches slurm_threshold.
+    Remaining tasks are submitted unconditionally by flush_all().
+    """
+
+    def __init__(
+        self,
+        pipeline: Any,
+        cnf_files: List[str],
+        slurm_threshold: int,
+        benchmark_path: str,
+    ) -> None:
+        self.pipeline = pipeline
+        self.cnf_files = cnf_files
+        self.slurm_threshold = slurm_threshold
+        self.benchmark_path = benchmark_path
+        self._solver_tasks: List[Tuple[str, str, str]] = []
+        self._lock = threading.Lock()
+        self._job_ids: List[int] = []
+        self._tasks_per_solver: int = len(cnf_files)
+
+    def add_solver(self, solver_path: str, result_dir: str, code_id: str) -> None:
+        """Add a built solver; submits a SLURM batch when the threshold is reached."""
+        with self._lock:
+            self._solver_tasks.append((solver_path, result_dir, code_id))
+            if self._tasks_per_solver > 0:
+                if len(self._solver_tasks) * self._tasks_per_solver >= self.slurm_threshold:
+                    to_submit = list(self._solver_tasks)
+                    self._solver_tasks = []
+                    self._submit_batch(to_submit)
+
+    def _submit_batch(self, solver_tasks: List[Tuple[str, str, str]]) -> None:
+        ids = self.pipeline.slurm_run_evaluate_batch(
+            solver_tasks=solver_tasks,
+            benchmark_path=self.benchmark_path,
+            cnf_files=self.cnf_files,
+        )
+        self._job_ids.extend(ids)
+        logger.info(
+            f"[Accumulator] Submitted {len(solver_tasks)} solver(s) "
+            f"({len(solver_tasks) * self._tasks_per_solver} tasks) → SLURM IDs: {ids}"
+        )
+
+    def flush_all(self) -> List[int]:
+        """Submit any remaining solvers unconditionally. Returns all SLURM job IDs."""
+        with self._lock:
+            if self._solver_tasks:
+                logger.info(
+                    f"[Accumulator] Flushing {len(self._solver_tasks)} remaining solver(s)"
+                )
+                self._submit_batch(self._solver_tasks)
+                self._solver_tasks = []
+        return list(self._job_ids)
+
 
 class ParallelPipeline:
     """Three-stage streaming pipeline: algo gen -> code gen -> build + submit."""
@@ -84,10 +146,12 @@ class ParallelPipeline:
         generation_tag: str,
         model: str = DEFAULT_MODEL,
         quick_eval: bool = True,
+        nersc: bool = False,
     ):
         self.generation_tag = generation_tag
         self.model = model
         self.quick_eval = quick_eval
+        self.nersc = nersc
 
         # Queues between stages
         self.code_queue: asyncio.Queue = asyncio.Queue()
@@ -103,7 +167,17 @@ class ParallelPipeline:
         self.db_pool = ThreadPoolExecutor(max_workers=MAX_DB_CONCURRENT, thread_name_prefix="db")
 
         # Evaluation pipeline (reuse existing build_solver / slurm_run_evaluate)
-        self.eval_pipeline = EvaluationPipeline(generation_tag=generation_tag)
+        if nersc:
+            from llmsat.pipelines.evaluation_nersc import (
+                EvaluationPipeline,
+                QUICK_EVAL_TIMEOUT_SECONDS,
+                QUICK_EVAL_WALL_TIME,
+                QUICK_EVAL_PAR2_PENALTY,
+                QUICK_EVAL_BENCHMARK_LIST,
+            )
+            self.eval_pipeline = EvaluationPipeline(generation_tag=generation_tag)
+        else:
+            self.eval_pipeline = EvaluationPipeline(generation_tag=generation_tag)
         if quick_eval:
             self.eval_pipeline.timeout = QUICK_EVAL_TIMEOUT_SECONDS
             self.eval_pipeline.wall_time = QUICK_EVAL_WALL_TIME
@@ -116,6 +190,18 @@ class ParallelPipeline:
                             f"{QUICK_EVAL_TIMEOUT_SECONDS}s timeout")
             else:
                 logger.warning(f"Quick-eval benchmark list not found: {benchmark_list}")
+
+        # NERSC accumulator: batch solvers until threshold before SLURM submit
+        if nersc:
+            benchmark_path = getattr(self.eval_pipeline, 'benchmark_path', None) or SAT2025_BENCHMARK_PATH
+            self.accumulator: Optional[_SlurmTaskAccumulator] = _SlurmTaskAccumulator(
+                pipeline=self.eval_pipeline,
+                cnf_files=self.eval_pipeline.cnf_files,
+                slurm_threshold=NERSC_SLURM_THRESHOLD,
+                benchmark_path=benchmark_path,
+            )
+        else:
+            self.accumulator = None
 
         # Job tracking
         self.output_dir = get_generation_output_dir(generation_tag)
@@ -509,27 +595,40 @@ class ParallelPipeline:
                     mkdir=True,
                 )
 
-                # Submit SLURM job array (50 CNFs for quick-eval)
-                benchmark_path = self.eval_pipeline.benchmark_path
+                # Submit SLURM job(s)
+                benchmark_path = getattr(self.eval_pipeline, 'benchmark_path', None) or SAT2025_BENCHMARK_PATH
                 cnf_files = self.eval_pipeline.cnf_files
 
-                job_ids = await loop.run_in_executor(
-                    self.build_pool,
-                    lambda: self.eval_pipeline.slurm_run_evaluate(
-                        solver_path=solver_path,
-                        benchmark_path=benchmark_path,
-                        result_dir=result_dir,
-                        cnf_files=cnf_files,
-                    ),
-                )
-
-                if job_ids:
-                    self._record_job_ids(job_ids, algorithm.id, code_result.id)
+                if self.nersc and self.accumulator is not None:
+                    # NERSC: accumulate solvers and submit in large batches
+                    await loop.run_in_executor(
+                        self.build_pool,
+                        lambda sp=solver_path, rd=result_dir, cid=code_result.id:
+                            self.accumulator.add_solver(sp, rd, cid),
+                    )
                     self.slurm_submitted += 1
                     logger.info(
-                        f"[parallel] SLURM submitted {self.slurm_submitted} "
-                        f"(code {code_result.id[:8]}..., jobs: {job_ids})"
+                        f"[parallel] Accumulated solver {self.slurm_submitted} "
+                        f"(code {code_result.id[:8]}...) for NERSC batch"
                     )
+                else:
+                    job_ids = await loop.run_in_executor(
+                        self.build_pool,
+                        lambda: self.eval_pipeline.slurm_run_evaluate(
+                            solver_path=solver_path,
+                            benchmark_path=benchmark_path,
+                            result_dir=result_dir,
+                            cnf_files=cnf_files,
+                        ),
+                    )
+
+                    if job_ids:
+                        self._record_job_ids(job_ids, algorithm.id, code_result.id)
+                        self.slurm_submitted += 1
+                        logger.info(
+                            f"[parallel] SLURM submitted {self.slurm_submitted} "
+                            f"(code {code_result.id[:8]}..., jobs: {job_ids})"
+                        )
 
             except Exception as e:
                 logger.error(
@@ -707,6 +806,7 @@ def run_streaming_mutants(
     m_variants_per_leader: int = 3,
     model: str = DEFAULT_MODEL,
     quick_eval: bool = True,
+    nersc: bool = False,
 ):
     """
     Streaming parallel mutant generation + code gen + build + SLURM submit.
@@ -739,6 +839,7 @@ def run_streaming_mutants(
         generation_tag=generation_tag,
         model=model,
         quick_eval=quick_eval,
+        nersc=nersc,
     )
 
     asyncio.run(pipeline._run(
@@ -748,6 +849,10 @@ def run_streaming_mutants(
         m_variants_per_leader=m_variants_per_leader,
         existing_members_by_leader=existing_members_by_leader,
     ))
+
+    if nersc and pipeline.accumulator is not None:
+        flushed_ids = pipeline.accumulator.flush_all()
+        logger.info(f"[parallel] NERSC accumulator flushed: {len(flushed_ids)} SLURM job IDs")
 
     logger.info(
         f"[parallel] Streaming pipeline done: "
@@ -767,6 +872,7 @@ def run_streaming_init(
     m_variants_per_leader: int = 3,
     model: str = DEFAULT_MODEL,
     quick_eval: bool = True,
+    nersc: bool = False
 ):
     """
     Streaming parallel init: leader gen + variant gen + code gen + build + SLURM submit.
@@ -790,6 +896,7 @@ def run_streaming_init(
         generation_tag=generation_tag,
         model=model,
         quick_eval=quick_eval,
+        nersc=nersc
     )
 
     asyncio.run(pipeline._run_init(
@@ -799,6 +906,10 @@ def run_streaming_init(
         n_leaders=n_leaders,
         m_variants_per_leader=m_variants_per_leader,
     ))
+
+    if nersc and pipeline.accumulator is not None:
+        flushed_ids = pipeline.accumulator.flush_all()
+        logger.info(f"[parallel] NERSC accumulator flushed: {len(flushed_ids)} SLURM job IDs")
 
     logger.info(
         f"[parallel] Init streaming pipeline done: "
