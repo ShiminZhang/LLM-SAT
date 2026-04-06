@@ -1,5 +1,6 @@
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 import argparse
 import os
 import json
@@ -19,226 +20,297 @@ logger = get_logger(__name__)
 #   other_metrics, role, function_name, parent_ids, parent_descriptions,
 #   normalized_par2_scores, analysis
 
+# --- Connection Pool ---
+_pool = None
+
+def _get_pool():
+    global _pool
+    if _pool is None:
+        _pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=2,
+            maxconn=10,
+            host="llmsat.crac0kykqrxp.us-east-2.rds.amazonaws.com",
+            database="postgres",
+            user="Shimin",
+            password=os.environ["DB_PASS"],
+            port=5432,
+            sslmode="require",
+        )
+    return _pool
+
+def connect_to_db():
+    return _get_pool().getconn()
+
+def release_conn(conn):
+    try:
+        _get_pool().putconn(conn)
+    except Exception:
+        pass  # pool may not be initialized in edge cases
+
 
 def get_code_result_of_status(status: CodeStatus) -> List[CodeResult]:
     logger.info(f"Getting code results of status {status}")
     conn = connect_to_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM code_results WHERE status = %s;", (status,))
-    rows = cur.fetchall()
-    code_results = []
-    for row in rows:
-        if row is None:
-            logger.warning(f"Row is None for status {status}")
-            continue
-        if len(row) != 7:
-            logger.warning(f"Row has {len(row)} columns")
-            logger.warning(f"Row: {row}")
-            continue
-        try:
-            code_result = ToCodeResult(row)
-        except Exception as e:
-            logger.warning(f"Error converting row to CodeResult: {e}")
-            logger.warning(f"Row: {row}")
-            continue
-        code_results.append(code_result)
-    return code_results
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM code_results WHERE status = %s;", (status,))
+        rows = cur.fetchall()
+        code_results = []
+        for row in rows:
+            if row is None:
+                logger.warning(f"Row is None for status {status}")
+                continue
+            if len(row) != 7:
+                logger.warning(f"Row has {len(row)} columns")
+                logger.warning(f"Row: {row}")
+                continue
+            try:
+                code_result = ToCodeResult(row)
+            except Exception as e:
+                logger.warning(f"Error converting row to CodeResult: {e}")
+                logger.warning(f"Row: {row}")
+                continue
+            code_results.append(code_result)
+        return code_results
+    finally:
+        release_conn(conn)
 
 def get_algorithm_result_of_status(status: AlgorithmStatus) -> List[AlgorithmResult]:
     conn = connect_to_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM algorithm_results WHERE status = %s;", (status,))
-    rows = cur.fetchall()
-    return [_row_to_algorithm_result(row) for row in rows]
-
-def connect_to_db():
-    # logger.info("trying to connect to db")
-    conn = psycopg2.connect(
-        host="llmsat.crac0kykqrxp.us-east-2.rds.amazonaws.com",
-        database="postgres",
-        user="Shimin",
-        password=os.environ["DB_PASS"],
-        port=5432,
-        sslmode="require",
-    )
-    # logger.info("connected to db")
-    return conn
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM algorithm_results WHERE status = %s;", (status,))
+        rows = cur.fetchall()
+        return [_row_to_algorithm_result(row) for row in rows]
+    finally:
+        release_conn(conn)
 
 def get_all_tasks():
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM tasks;")
-    return cur.fetchall()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM tasks;")
+        return cur.fetchall()
+    finally:
+        release_conn(conn)
 
 def remove_code_result(code_result_id: str):
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM code_results WHERE id = %s;", (code_result_id,))
-    conn.commit()
-    pass
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM code_results WHERE id = %s;", (code_result_id,))
+        conn.commit()
+    finally:
+        release_conn(conn)
 
 def remove_algorithm_result(algorithm_result_id: str):
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM algorithm_results WHERE id = %s;", (algorithm_result_id,))
-    conn.commit()
-    pass
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM algorithm_results WHERE id = %s;", (algorithm_result_id,))
+        conn.commit()
+    finally:
+        release_conn(conn)
 
 def get_code_result(code_result_id: str) -> Optional[CodeResult]:
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM code_results WHERE id = %s;", (code_result_id,))
-    assert cur.rowcount <= 1, "hash collision"
-    if cur.rowcount == 1:
-        result = ToCodeResult(cur.fetchone())
-        return result
-    else:
-        return None
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM code_results WHERE id = %s;", (code_result_id,))
+        assert cur.rowcount <= 1, "hash collision"
+        if cur.rowcount == 1:
+            result = ToCodeResult(cur.fetchone())
+            return result
+        else:
+            return None
+    finally:
+        release_conn(conn)
 
 def get_algorithms_by_prompt(prompt: str) -> List[AlgorithmResult]:
     conn = connect_to_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM algorithm_results WHERE prompt = %s;", (prompt,))
-    rows = cur.fetchall()
-    return [_row_to_algorithm_result(row) for row in rows]
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM algorithm_results WHERE prompt = %s;", (prompt,))
+        rows = cur.fetchall()
+        return [_row_to_algorithm_result(row) for row in rows]
+    finally:
+        release_conn(conn)
 
 def get_algorithm_result(algorithm_result_id: str) -> Optional[AlgorithmResult]:
     conn = connect_to_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM algorithm_results WHERE id = %s;", (algorithm_result_id,))
-    rows = cur.fetchall()
-    assert len(rows) <= 1, "hash collision"
-    if len(rows) == 1:
-        return _row_to_algorithm_result(rows[0])
-    else:
-        return None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM algorithm_results WHERE id = %s;", (algorithm_result_id,))
+        rows = cur.fetchall()
+        assert len(rows) <= 1, "hash collision"
+        if len(rows) == 1:
+            return _row_to_algorithm_result(rows[0])
+        else:
+            return None
+    finally:
+        release_conn(conn)
 
 def update_code_result(code_result: CodeResult):
     existing_code_result = get_code_result(code_result.id)
     conn = connect_to_db()
-    cur = conn.cursor()
-    build_success_text = None if code_result.build_success is None else str(code_result.build_success)
-    logger.info(f"Updating code result {code_result.id}")
-    code_result.last_updated = datetime.now()
-    if existing_code_result is None: # add the code result
-        cur.execute(
-            "INSERT INTO code_results (id, code, algorithm, status, last_updated, build_success, par2) VALUES (%s, %s, %s, %s, %s, %s, %s);",
-            (code_result.id, code_result.code, code_result.algorithm_id, code_result.status, code_result.last_updated, build_success_text, code_result.par2),
-        )
-    else: # update the code result
-        cur.execute(
-            "UPDATE code_results SET code = %s, algorithm = %s, status = %s, last_updated = %s, build_success = %s, par2 = %s WHERE id = %s;",
-            (code_result.code, code_result.algorithm_id, code_result.status, code_result.last_updated, build_success_text, code_result.par2, code_result.id),
-        )
-    conn.commit()
-    logger.info(f"Updated code result {code_result.id}")
+    try:
+        cur = conn.cursor()
+        build_success_text = None if code_result.build_success is None else str(code_result.build_success)
+        logger.info(f"Updating code result {code_result.id}")
+        code_result.last_updated = datetime.now()
+        if existing_code_result is None: # add the code result
+            cur.execute(
+                "INSERT INTO code_results (id, code, algorithm, status, last_updated, build_success, par2) VALUES (%s, %s, %s, %s, %s, %s, %s);",
+                (code_result.id, code_result.code, code_result.algorithm_id, code_result.status, code_result.last_updated, build_success_text, code_result.par2),
+            )
+        else: # update the code result
+            cur.execute(
+                "UPDATE code_results SET code = %s, algorithm = %s, status = %s, last_updated = %s, build_success = %s, par2 = %s WHERE id = %s;",
+                (code_result.code, code_result.algorithm_id, code_result.status, code_result.last_updated, build_success_text, code_result.par2, code_result.id),
+            )
+        conn.commit()
+        logger.info(f"Updated code result {code_result.id}")
+    finally:
+        release_conn(conn)
 
 def update_algorithm_result(algorithm_result: AlgorithmResult):
     existing_algorithm_result = get_algorithm_result(algorithm_result.id)
     conn = connect_to_db()
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    # Serialize other_metrics (no longer packing target_function/parent_id here)
-    other_metrics_obj = algorithm_result.other_metrics or {}
-    if isinstance(other_metrics_obj, dict):
-        # Clean out legacy keys that now have their own columns
-        other_metrics_obj.pop("target_function", None)
-        other_metrics_obj.pop("parent_id", None)
-    other_metrics_text = _serialize_json_field(other_metrics_obj)
+        # Serialize other_metrics (no longer packing target_function/parent_id here)
+        other_metrics_obj = algorithm_result.other_metrics or {}
+        if isinstance(other_metrics_obj, dict):
+            # Clean out legacy keys that now have their own columns
+            other_metrics_obj.pop("target_function", None)
+            other_metrics_obj.pop("parent_id", None)
+        other_metrics_text = _serialize_json_field(other_metrics_obj)
 
-    # Serialize new list/enum fields
-    role_text = algorithm_result.role.value if isinstance(algorithm_result.role, Role) else str(algorithm_result.role)
-    parent_ids_text = _serialize_json_field(algorithm_result.parent_id)
-    parent_descs_text = _serialize_json_field(algorithm_result.parent_algorithm_description)
-    raw_par2_text = _serialize_json_field(algorithm_result.raw_par2_score)
-    norm_par2_text = _serialize_json_field(algorithm_result.normalized_par2_score)
+        # Serialize new list/enum fields
+        role_text = algorithm_result.role.value if isinstance(algorithm_result.role, Role) else str(algorithm_result.role)
+        parent_ids_text = _serialize_json_field(algorithm_result.parent_id)
+        parent_descs_text = _serialize_json_field(algorithm_result.parent_algorithm_description)
+        raw_par2_text = _serialize_json_field(algorithm_result.raw_par2_score)
+        norm_par2_text = _serialize_json_field(algorithm_result.normalized_par2_score)
 
-    algorithm_result.last_updated = datetime.now()
+        algorithm_result.last_updated = datetime.now()
 
-    if existing_algorithm_result is None:
-        cur.execute(
-            """INSERT INTO algorithm_results
-               (id, algorithm, code_id_list, status, last_updated, prompt, par2,
-                error_rate, other_metrics, role, function_name, parent_ids,
-                parent_descriptions, normalized_par2_scores, analysis)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);""",
-            (
-                algorithm_result.id,
-                algorithm_result.description,
-                _code_id_list_to_text(algorithm_result.code_id_list),
-                algorithm_result.status,
-                algorithm_result.last_updated,
-                algorithm_result.prompt,
-                raw_par2_text,
-                None,  # error_rate (legacy, always None for new records)
-                other_metrics_text,
-                role_text,
-                algorithm_result.function_name,
-                parent_ids_text,
-                parent_descs_text,
-                norm_par2_text,
-                algorithm_result.analysis,
-            ),
-        )
-    else:
-        cur.execute(
-            """UPDATE algorithm_results
-               SET algorithm = %s, code_id_list = %s, status = %s, last_updated = %s,
-                   prompt = %s, par2 = %s, error_rate = %s, other_metrics = %s,
-                   role = %s, function_name = %s, parent_ids = %s,
-                   parent_descriptions = %s, normalized_par2_scores = %s, analysis = %s
-               WHERE id = %s;""",
-            (
-                algorithm_result.description,
-                _code_id_list_to_text(algorithm_result.code_id_list),
-                algorithm_result.status,
-                algorithm_result.last_updated,
-                algorithm_result.prompt,
-                raw_par2_text,
-                None,
-                other_metrics_text,
-                role_text,
-                algorithm_result.function_name,
-                parent_ids_text,
-                parent_descs_text,
-                norm_par2_text,
-                algorithm_result.analysis,
-                algorithm_result.id,
-            ),
-        )
-    conn.commit()
-    print(f"Updated algorithm result {algorithm_result.id}")
+        if existing_algorithm_result is None:
+            cur.execute(
+                """INSERT INTO algorithm_results
+                   (id, algorithm, code_id_list, status, last_updated, prompt, par2,
+                    error_rate, other_metrics, role, function_name, parent_ids,
+                    parent_descriptions, normalized_par2_scores, analysis)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);""",
+                (
+                    algorithm_result.id,
+                    algorithm_result.description,
+                    _code_id_list_to_text(algorithm_result.code_id_list),
+                    algorithm_result.status,
+                    algorithm_result.last_updated,
+                    algorithm_result.prompt,
+                    raw_par2_text,
+                    None,  # error_rate (legacy, always None for new records)
+                    other_metrics_text,
+                    role_text,
+                    algorithm_result.function_name,
+                    parent_ids_text,
+                    parent_descs_text,
+                    norm_par2_text,
+                    algorithm_result.analysis,
+                ),
+            )
+        else:
+            cur.execute(
+                """UPDATE algorithm_results
+                   SET algorithm = %s, code_id_list = %s, status = %s, last_updated = %s,
+                       prompt = %s, par2 = %s, error_rate = %s, other_metrics = %s,
+                       role = %s, function_name = %s, parent_ids = %s,
+                       parent_descriptions = %s, normalized_par2_scores = %s, analysis = %s
+                   WHERE id = %s;""",
+                (
+                    algorithm_result.description,
+                    _code_id_list_to_text(algorithm_result.code_id_list),
+                    algorithm_result.status,
+                    algorithm_result.last_updated,
+                    algorithm_result.prompt,
+                    raw_par2_text,
+                    None,
+                    other_metrics_text,
+                    role_text,
+                    algorithm_result.function_name,
+                    parent_ids_text,
+                    parent_descs_text,
+                    norm_par2_text,
+                    algorithm_result.analysis,
+                    algorithm_result.id,
+                ),
+            )
+        conn.commit()
+        print(f"Updated algorithm result {algorithm_result.id}")
+    finally:
+        release_conn(conn)
+
+def append_code_id(algorithm_id: str, code_id: str):
+    """Atomically append a code_id to an algorithm's code_id_list using row-level locking."""
+    conn = connect_to_db()
+    try:
+        with conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT code_id_list FROM algorithm_results WHERE id = %s FOR UPDATE",
+                (algorithm_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                logger.warning(f"append_code_id: algorithm {algorithm_id} not found")
+                return
+            current = _text_to_code_id_list(row[0])
+            if code_id not in current:
+                current.append(code_id)
+            cur.execute(
+                "UPDATE algorithm_results SET code_id_list = %s WHERE id = %s",
+                (_code_id_list_to_text(current), algorithm_id),
+            )
+    finally:
+        release_conn(conn)
 
 def init_tables():
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute("""CREATE TABLE IF NOT EXISTS algorithm_results (
-        id TEXT PRIMARY KEY,
-        algorithm TEXT,
-        code_id_list TEXT,
-        status TEXT,
-        last_updated TEXT,
-        prompt TEXT,
-        par2 TEXT,
-        error_rate TEXT,
-        other_metrics TEXT,
-        role TEXT,
-        function_name TEXT,
-        parent_ids TEXT,
-        parent_descriptions TEXT,
-        normalized_par2_scores TEXT,
-        analysis TEXT
-    );""")
-    cur.execute("CREATE TABLE IF NOT EXISTS code_results (id TEXT PRIMARY KEY, code TEXT, algorithm TEXT, status TEXT, last_updated TEXT, solver_id TEXT, build_success TEXT, par2 TEXT);")
-    conn.commit()
+    try:
+        cur = conn.cursor()
+        cur.execute("""CREATE TABLE IF NOT EXISTS algorithm_results (
+            id TEXT PRIMARY KEY,
+            algorithm TEXT,
+            code_id_list TEXT,
+            status TEXT,
+            last_updated TEXT,
+            prompt TEXT,
+            par2 TEXT,
+            error_rate TEXT,
+            other_metrics TEXT,
+            role TEXT,
+            function_name TEXT,
+            parent_ids TEXT,
+            parent_descriptions TEXT,
+            normalized_par2_scores TEXT,
+            analysis TEXT
+        );""")
+        cur.execute("CREATE TABLE IF NOT EXISTS code_results (id TEXT PRIMARY KEY, code TEXT, algorithm TEXT, status TEXT, last_updated TEXT, solver_id TEXT, build_success TEXT, par2 TEXT);")
+        conn.commit()
+    finally:
+        release_conn(conn)
 
 def clear_tables():
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM algorithm_results;")
-    cur.execute("DELETE FROM code_results;")
-    conn.commit()
-    pass
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM algorithm_results;")
+        cur.execute("DELETE FROM code_results;")
+        conn.commit()
+    finally:
+        release_conn(conn)
 
 def ToAlgorithmResult(result) -> AlgorithmResult:
     """Convert a DB row (tuple or dict) to AlgorithmResult with backwards compat."""
@@ -271,13 +343,16 @@ def ToCodeResult(result: tuple) -> CodeResult:
 
 def get_all_algorithm_results() -> List[AlgorithmResult]:
     conn = connect_to_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM algorithm_results;")
-    rows = cur.fetchall()
-    algorithm_results = []
-    for row in rows:
-        algorithm_results.append(_row_to_algorithm_result(row))
-    return algorithm_results
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM algorithm_results;")
+        rows = cur.fetchall()
+        algorithm_results = []
+        for row in rows:
+            algorithm_results.append(_row_to_algorithm_result(row))
+        return algorithm_results
+    finally:
+        release_conn(conn)
 
 
 
@@ -287,11 +362,13 @@ def get_all_algorithm_ids():
 
 def delete_tables():
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute("DROP TABLE IF EXISTS algorithm_results;")
-    cur.execute("DROP TABLE IF EXISTS code_results;")
-    conn.commit()
-    pass
+    try:
+        cur = conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS algorithm_results;")
+        cur.execute("DROP TABLE IF EXISTS code_results;")
+        conn.commit()
+    finally:
+        release_conn(conn)
 
 def test_utils():
     code_result = CodeResult(
@@ -512,55 +589,69 @@ def _row_to_algorithm_result(row: Mapping[str, Any]) -> AlgorithmResult:
 def add_router_table(name: str):
     # router tables has: id, type
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute(f"CREATE TABLE IF NOT EXISTS {name} (id TEXT PRIMARY KEY, type TEXT);")
-    conn.commit()
-    pass
+    try:
+        cur = conn.cursor()
+        cur.execute(f"CREATE TABLE IF NOT EXISTS {name} (id TEXT PRIMARY KEY, type TEXT);")
+        conn.commit()
+    finally:
+        release_conn(conn)
 
 def update_router_table(name: str, id: str, type: str):
     conn = connect_to_db()
-    cur = conn.cursor()
-    # if exists, update, if not insert
-    cur.execute(f"SELECT * FROM {name} WHERE id = %s;", (id,))
-    if cur.rowcount > 0:
-        cur.execute(f"UPDATE {name} SET type = %s WHERE id = %s;", (type, id))
-    else:
-        cur.execute(f"INSERT INTO {name} (id, type) VALUES (%s, %s);", (id, type))
-    conn.commit()
-    pass
+    try:
+        cur = conn.cursor()
+        # if exists, update, if not insert
+        cur.execute(f"SELECT * FROM {name} WHERE id = %s;", (id,))
+        if cur.rowcount > 0:
+            cur.execute(f"UPDATE {name} SET type = %s WHERE id = %s;", (type, id))
+        else:
+            cur.execute(f"INSERT INTO {name} (id, type) VALUES (%s, %s);", (id, type))
+        conn.commit()
+    finally:
+        release_conn(conn)
 
 def get_ids_from_router_table(name: str, type: str) -> List[str]:
     conn = connect_to_db()
-    cur = conn.cursor()
-    if type is None:
-        cur.execute(f"SELECT id FROM {name};")
-    else:
-        cur.execute(f"SELECT id FROM {name} WHERE type = %s;", (type,))
-    rows = cur.fetchall()
-    return list(set([row[0] for row in rows]))
+    try:
+        cur = conn.cursor()
+        if type is None:
+            cur.execute(f"SELECT id FROM {name};")
+        else:
+            cur.execute(f"SELECT id FROM {name} WHERE type = %s;", (type,))
+        rows = cur.fetchall()
+        return list(set([row[0] for row in rows]))
+    finally:
+        release_conn(conn)
 
 def clear_router_table(name: str):
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute(f"DELETE FROM {name};")
-    conn.commit()
-    pass
+    try:
+        cur = conn.cursor()
+        cur.execute(f"DELETE FROM {name};")
+        conn.commit()
+    finally:
+        release_conn(conn)
 
 def add_par2_to_code_results_table():
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute("ALTER TABLE code_results ADD COLUMN par2 TEXT;")
-    conn.commit()
-    pass
+    try:
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE code_results ADD COLUMN par2 TEXT;")
+        conn.commit()
+    finally:
+        release_conn(conn)
 
 def backup_db():
     conn = connect_to_db()
-    cur = conn.cursor()
-    cur.execute("CREATE TABLE IF NOT EXISTS algorithm_results_backup (id TEXT PRIMARY KEY, algorithm TEXT, code_id_list TEXT, status TEXT, last_updated TEXT, prompt TEXT, par2 TEXT, error_rate TEXT, other_metrics TEXT);")
-    cur.execute("CREATE TABLE IF NOT EXISTS code_results_backup (id TEXT PRIMARY KEY, code TEXT, algorithm TEXT, status TEXT, last_updated TEXT, solver_id TEXT, build_success TEXT);")
-    cur.execute("INSERT INTO algorithm_results_backup SELECT * FROM algorithm_results;")
-    cur.execute("INSERT INTO code_results_backup SELECT * FROM code_results;")
-    conn.commit()
+    try:
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS algorithm_results_backup (id TEXT PRIMARY KEY, algorithm TEXT, code_id_list TEXT, status TEXT, last_updated TEXT, prompt TEXT, par2 TEXT, error_rate TEXT, other_metrics TEXT);")
+        cur.execute("CREATE TABLE IF NOT EXISTS code_results_backup (id TEXT PRIMARY KEY, code TEXT, algorithm TEXT, status TEXT, last_updated TEXT, solver_id TEXT, build_success TEXT);")
+        cur.execute("INSERT INTO algorithm_results_backup SELECT * FROM algorithm_results;")
+        cur.execute("INSERT INTO code_results_backup SELECT * FROM code_results;")
+        conn.commit()
+    finally:
+        release_conn(conn)
 
 def migrate_algorithm_table():
     """Add new columns to algorithm_results table and backfill existing records.
@@ -568,69 +659,72 @@ def migrate_algorithm_table():
     Safe to run multiple times — uses IF NOT EXISTS / idempotent updates.
     """
     conn = connect_to_db()
-    cur = conn.cursor()
+    try:
+        cur = conn.cursor()
 
-    # Add new columns (idempotent via try/except per column)
-    new_columns = ["role", "function_name", "parent_ids",
-                   "parent_descriptions", "normalized_par2_scores", "analysis"]
-    for col in new_columns:
-        try:
-            cur.execute(f"ALTER TABLE algorithm_results ADD COLUMN {col} TEXT;")
-            conn.commit()
-            logger.info(f"Added column {col}")
-        except Exception:
-            conn.rollback()
-            logger.info(f"Column {col} already exists, skipping")
+        # Add new columns (idempotent via try/except per column)
+        new_columns = ["role", "function_name", "parent_ids",
+                       "parent_descriptions", "normalized_par2_scores", "analysis"]
+        for col in new_columns:
+            try:
+                cur.execute(f"ALTER TABLE algorithm_results ADD COLUMN {col} TEXT;")
+                conn.commit()
+                logger.info(f"Added column {col}")
+            except Exception:
+                conn.rollback()
+                logger.info(f"Column {col} already exists, skipping")
 
-    # Backfill existing records that have NULL in the new columns
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM algorithm_results WHERE role IS NULL;")
-    rows = cur.fetchall()
-    logger.info(f"Migrating {len(rows)} records...")
+        # Backfill existing records that have NULL in the new columns
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM algorithm_results WHERE role IS NULL;")
+        rows = cur.fetchall()
+        logger.info(f"Migrating {len(rows)} records...")
 
-    cur2 = conn.cursor()
-    for row in rows:
-        other_metrics = _to_other_metrics(row.get("other_metrics")) or {}
+        cur2 = conn.cursor()
+        for row in rows:
+            other_metrics = _to_other_metrics(row.get("other_metrics")) or {}
 
-        # Infer function_name
-        function_name = "kissat_restarting"
-        if isinstance(other_metrics, dict) and "target_function" in other_metrics:
-            function_name = other_metrics["target_function"]
+            # Infer function_name
+            function_name = "kissat_restarting"
+            if isinstance(other_metrics, dict) and "target_function" in other_metrics:
+                function_name = other_metrics["target_function"]
 
-        # Infer parent_ids from other_metrics
-        parent_ids = None
-        if isinstance(other_metrics, dict):
-            pid = other_metrics.get("parent_id")
-            pa = other_metrics.get("parent_a")
-            pb = other_metrics.get("parent_b")
-            if pid is not None:
-                parent_ids = json.dumps([pid])
-            elif pa and pb:
-                parent_ids = json.dumps([pa, pb])
+            # Infer parent_ids from other_metrics
+            parent_ids = None
+            if isinstance(other_metrics, dict):
+                pid = other_metrics.get("parent_id")
+                pa = other_metrics.get("parent_a")
+                pb = other_metrics.get("parent_b")
+                if pid is not None:
+                    parent_ids = json.dumps([pid])
+                elif pa and pb:
+                    parent_ids = json.dumps([pa, pb])
 
-        # Infer role
-        role = "leader" if parent_ids is None else "member"
+            # Infer role
+            role = "leader" if parent_ids is None else "member"
 
-        # Convert algorithm JSON string to description format
-        description = row.get("algorithm") or ""
-        try:
-            spec = json.loads(description)
-            if isinstance(spec, dict) and "algorithm" in spec:
-                name = spec.get("name", "")
-                algo_text = spec.get("algorithm", "")
-                description = f"{name}: {algo_text}" if name else algo_text
-        except Exception:
-            pass  # already plain text or unparseable, keep as-is
+            # Convert algorithm JSON string to description format
+            description = row.get("algorithm") or ""
+            try:
+                spec = json.loads(description)
+                if isinstance(spec, dict) and "algorithm" in spec:
+                    name = spec.get("name", "")
+                    algo_text = spec.get("algorithm", "")
+                    description = f"{name}: {algo_text}" if name else algo_text
+            except Exception:
+                pass  # already plain text or unparseable, keep as-is
 
-        cur2.execute(
-            """UPDATE algorithm_results
-               SET role = %s, function_name = %s, parent_ids = %s, algorithm = %s
-               WHERE id = %s;""",
-            (role, function_name, parent_ids, description, row.get("id")),
-        )
+            cur2.execute(
+                """UPDATE algorithm_results
+                   SET role = %s, function_name = %s, parent_ids = %s, algorithm = %s
+                   WHERE id = %s;""",
+                (role, function_name, parent_ids, description, row.get("id")),
+            )
 
-    conn.commit()
-    logger.info(f"Migration complete: {len(rows)} records updated")
+        conn.commit()
+        logger.info(f"Migration complete: {len(rows)} records updated")
+    finally:
+        release_conn(conn)
 
 
 if __name__ == "__main__":

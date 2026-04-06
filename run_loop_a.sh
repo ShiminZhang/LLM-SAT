@@ -98,16 +98,18 @@ case "$CLUSTER" in
         exit 1
         ;;
 esac
+NERSC_FLAG=$([ "$CLUSTER" = "nersc" ] && echo "--nersc" || echo "")
 POLL_INTERVAL="${POLL_INTERVAL:-120}"  # seconds between squeue checks
 M_VARIANTS="${M_VARIANTS:-3}"
 _CFG_MODEL=$(grep '^default_model:' path_config.yaml 2>/dev/null | sed 's/^default_model:[[:space:]]*//' | tr -d '"' || true)
 MODEL="${MODEL:-${_CFG_MODEL:-gemini-3-flash-preview}}"
+PARALLEL="${PARALLEL:-0}"
 QUICK_EVAL="${QUICK_EVAL:-1}"
 VERIFY_PROOFS="${VERIFY_PROOFS:-1}"
 DRAT_TRIM_CMD="${DRAT_TRIM_CMD:-external/drat-trim/drat-trim}"
 PROOF_CHECK_TIMEOUT="${PROOF_CHECK_TIMEOUT:-7200}"
-PROOF_VERIFY_TIME="${PROOF_VERIFY_TIME:-02:00:00}"
-PROOF_VERIFY_MEM="${PROOF_VERIFY_MEM:-8G}"
+PROOF_VERIFY_TIME="${PROOF_VERIFY_TIME:-03:00:00}"
+PROOF_VERIFY_MEM="${PROOF_VERIFY_MEM:-10G}"
 PROOF_VERIFY_MAX_CONCURRENT="${PROOF_VERIFY_MAX_CONCURRENT:-200}"
 
 resolve_drat_trim() {
@@ -181,6 +183,7 @@ echo "  Source tag:   $SOURCE_TAG"
 echo "  Init mode:    $INIT"
 echo "  Variants/leader: $M_VARIANTS"
 echo "  Model:        $MODEL"
+echo "  Parallel:     $PARALLEL"
 echo "  Quick eval:   $QUICK_EVAL"
 echo "  Verify proofs: $VERIFY_PROOFS"
 echo "  drat-trim:    $DRAT_TRIM_CMD"
@@ -198,49 +201,83 @@ if [ "$INIT" = true ]; then
     echo "=== Init: Generating initial population under $INIT_TAG ==="
     echo ""
 
-    # Step 0a: Generate initial leaders + members + code
-    echo "[Init Step 1] Generating leaders, members, and code..."
-    run_datagen_with_retry \
-        python "$DATAGEN_SCRIPT" \
-            --generation_tag "$INIT_TAG" \
-            --designer_prompt_path "${DESIGNER_PROMPT:-data/prompts/leader_prompt_testing.txt}" \
-            --variant_prompt_path data/prompts/variant_prompt.txt \
-            --code_prompt_path data/prompts/coder_prompt_testing.txt \
-            --n_leaders "${N_LEADERS:-5}" \
-            --m_variants "$M_VARIANTS" \
-            --model "$MODEL" \
-            --sync
+    if [ "$PARALLEL" = "1" ]; then
+        # Streaming init: leaders + variants + code + build + submit all in one
+        echo "[Init Step 1] Generating leaders + members + code + build + submit (parallel streaming)..."
+        run_datagen_with_retry \
+            python "$DATAGEN_SCRIPT" \
+                --generation_tag "$INIT_TAG" \
+                --designer_prompt_path "${DESIGNER_PROMPT:-data/prompts/leader_prompt_testing.txt}" \
+                --variant_prompt_path data/prompts/variant_prompt.txt \
+                --code_prompt_path data/prompts/coder_prompt_testing.txt \
+                --n_leaders "${N_LEADERS:-5}" \
+                --m_variants "$M_VARIANTS" \
+                --model "$MODEL" \
+                --parallel \
+                $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" || printf '%s' "--no-quick-eval" ) \
+                ${NERSC_FLAG}
+        # Steps 0b (build+submit) handled by --parallel
+    else
+        # Sequential init
+        echo "[Init Step 1] Generating leaders, members, and code..."
+        run_datagen_with_retry \
+            python "$DATAGEN_SCRIPT" \
+                --generation_tag "$INIT_TAG" \
+                --designer_prompt_path "${DESIGNER_PROMPT:-data/prompts/leader_prompt_testing.txt}" \
+                --variant_prompt_path data/prompts/variant_prompt.txt \
+                --code_prompt_path data/prompts/coder_prompt_testing.txt \
+                --n_leaders "${N_LEADERS:-5}" \
+                --m_variants "$M_VARIANTS" \
+                --model "$MODEL" \
+                --sync \
+                ${NERSC_FLAG}
 
-    # Step 0b: Build & submit SLURM evaluation (no --skip-evaluated)
-    echo "[Init Step 2] Building and submitting evaluation..."
-    python "$EVAL_SCRIPT" \
-        --run_all --generation_tag "$INIT_TAG" \
-        $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval " )--batch-mode
+        echo "[Init Step 2] Building and submitting evaluation..."
+        python "$EVAL_SCRIPT" \
+            --run_all --generation_tag "$INIT_TAG" \
+            $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval " )--batch-mode
+    fi
 
-    # Step 0c: Poll SLURM until all jobs complete
+    # Poll SLURM until all jobs complete
     JOB_IDS_FILE="outputs/${INIT_TAG}/submitted_job_ids.json"
+    JOB_IDS_JSONL="outputs/${INIT_TAG}/submitted_job_ids.jsonl"
     echo "[Init Step 3] Polling SLURM jobs..."
-    if [ ! -f "$JOB_IDS_FILE" ]; then
-        echo "  No job IDs file found at $JOB_IDS_FILE, skipping poll"
+
+    _parse_init_job_ids() {
+        python3 -c "
+import json, subprocess, sys
+ids = []
+try:
+    with open('$JOB_IDS_JSONL') as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                record = json.loads(line)
+                ids.extend(record.get('job_ids', []))
+except FileNotFoundError:
+    pass
+if not ids:
+    try:
+        ids = json.load(open('$JOB_IDS_FILE')).get('job_ids', [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+if not ids:
+    print(0)
+    sys.exit(0)
+result = subprocess.run(
+    ['squeue', '-j', ','.join(str(j) for j in ids), '-h'],
+    capture_output=True, text=True
+)
+lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
+print(len(lines))
+" 2>/dev/null
+    }
+
+    if [ ! -f "$JOB_IDS_FILE" ] && [ ! -f "$JOB_IDS_JSONL" ]; then
+        echo "  No job IDs file found, skipping poll"
     else
         while true; do
-            RUNNING=$(python3 -c "
-import json, subprocess, sys
-try:
-    ids = json.load(open('$JOB_IDS_FILE'))['job_ids']
-    if not ids:
-        print(0)
-        sys.exit(0)
-    result = subprocess.run(
-        ['squeue', '-j', ','.join(str(j) for j in ids), '-h'],
-        capture_output=True, text=True
-    )
-    lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
-    print(len(lines))
-except Exception as e:
-    print(0, file=sys.stderr)
-    print(0)
-" 2>/dev/null)
+            RUNNING=$(_parse_init_job_ids)
 
             if [ "$RUNNING" -eq 0 ] 2>/dev/null; then
                 echo "  All SLURM jobs completed"
@@ -278,50 +315,86 @@ for i in $(seq 1 "$N_ITERATIONS"); do
     echo "=== Iteration $i/$N_ITERATIONS: $SOURCE_TAG -> $ITER_TAG ==="
     echo ""
 
-    # Step 1: Generate mutants for existing leaders
-    echo "[Step 1] Generating mutants..."
-    run_datagen_with_retry \
-        python "$DATAGEN_SCRIPT" \
-            --mutants-only \
-            --source_tag "$SOURCE_TAG" \
-            --output_tag "$ITER_TAG" \
-            --variant_prompt_path data/prompts/variant_prompt.txt \
-            --code_prompt_path data/prompts/coder_prompt_testing.txt \
-            --m_variants "$M_VARIANTS" \
-            --model "$MODEL" \
-            --sync
+    if [ "$PARALLEL" = "1" ]; then
+        # Streaming mode: generate + build + submit in one step
+        echo "[Step 1] Generating mutants + building + submitting (parallel streaming)..."
+        run_datagen_with_retry \
+            python "$DATAGEN_SCRIPT" \
+                --mutants-only \
+                --source_tag "$SOURCE_TAG" \
+                --output_tag "$ITER_TAG" \
+                --variant_prompt_path data/prompts/variant_prompt.txt \
+                --code_prompt_path data/prompts/coder_prompt_testing.txt \
+                --m_variants "$M_VARIANTS" \
+                --model "$MODEL" \
+                --parallel \
+                $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" || printf '%s' "--no-quick-eval" ) \
+                ${NERSC_FLAG}
+        # Step 2 is handled by --parallel (build + submit is part of the streaming pipeline)
+    else
+        # Sequential mode: generate, then build + submit separately
+        echo "[Step 1] Generating mutants..."
+        run_datagen_with_retry \
+            python "$DATAGEN_SCRIPT" \
+                --mutants-only \
+                --source_tag "$SOURCE_TAG" \
+                --output_tag "$ITER_TAG" \
+                --variant_prompt_path data/prompts/variant_prompt.txt \
+                --code_prompt_path data/prompts/coder_prompt_testing.txt \
+                --m_variants "$M_VARIANTS" \
+                --model "$MODEL" \
+                --sync \
+                ${NERSC_FLAG}
 
-    # Step 2: Build & submit SLURM evaluation (skip already-evaluated leaders)
-    echo "[Step 2] Building and submitting evaluation..."
-    python "$EVAL_SCRIPT" \
-        --run_all --generation_tag "$ITER_TAG" \
-        $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval " )--batch-mode --skip-evaluated
+        echo "[Step 2] Building and submitting evaluation..."
+        python "$EVAL_SCRIPT" \
+            --run_all --generation_tag "$ITER_TAG" \
+            $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval " )--batch-mode --skip-evaluated
+    fi
 
     # Step 3: Poll SLURM until all jobs complete
     JOB_IDS_FILE="outputs/${ITER_TAG}/submitted_job_ids.json"
+    JOB_IDS_JSONL="outputs/${ITER_TAG}/submitted_job_ids.jsonl"
     echo "[Step 3] Polling SLURM jobs..."
 
-    if [ ! -f "$JOB_IDS_FILE" ]; then
-        echo "  No job IDs file found at $JOB_IDS_FILE, skipping poll"
+    # Parse job IDs from either JSONL (parallel) or JSON (sequential) format
+    _parse_job_ids() {
+        python3 -c "
+import json, subprocess, sys
+ids = []
+# Try JSONL first (parallel mode)
+try:
+    with open('$JOB_IDS_JSONL') as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                record = json.loads(line)
+                ids.extend(record.get('job_ids', []))
+except FileNotFoundError:
+    pass
+# Fall back to JSON (sequential mode)
+if not ids:
+    try:
+        ids = json.load(open('$JOB_IDS_FILE')).get('job_ids', [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+if not ids:
+    print(0)
+    sys.exit(0)
+result = subprocess.run(
+    ['squeue', '-j', ','.join(str(j) for j in ids), '-h'],
+    capture_output=True, text=True
+)
+lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
+print(len(lines))
+" 2>/dev/null
+    }
+
+    if [ ! -f "$JOB_IDS_FILE" ] && [ ! -f "$JOB_IDS_JSONL" ]; then
+        echo "  No job IDs file found, skipping poll"
     else
         while true; do
-            RUNNING=$(python3 -c "
-import json, subprocess, sys
-try:
-    ids = json.load(open('$JOB_IDS_FILE'))['job_ids']
-    if not ids:
-        print(0)
-        sys.exit(0)
-    result = subprocess.run(
-        ['squeue', '-j', ','.join(str(j) for j in ids), '-h'],
-        capture_output=True, text=True
-    )
-    lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
-    print(len(lines))
-except Exception as e:
-    print(0, file=sys.stderr)
-    print(0)
-" 2>/dev/null)
+            RUNNING=$(_parse_job_ids)
 
             if [ "$RUNNING" -eq 0 ] 2>/dev/null; then
                 echo "  All SLURM jobs completed"

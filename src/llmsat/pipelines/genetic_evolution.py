@@ -15,8 +15,7 @@ Implements population-based evolution of SAT solver heuristics using leaders onl
   6. Selection (PAR2 only): Keep offspring whose PAR2 beats the best parent.
      Top-tier offspring are promoted back into the population for the next iteration.
 
-The pipeline from step 2 onward is a loop until PAR2 stops improving or
-max_iterations is reached.
+The pipeline runs a single pass (no self-iteration).
 
 Usage:
     python src/llmsat/pipelines/genetic_evolution.py \
@@ -27,8 +26,7 @@ Usage:
         --model gpt-4.1 \
         --rubric_min 6.0 \
         --rubric_keep_top_n 10 \
-        --evaluate \
-        --max_iterations 5
+        --evaluate
 """
 
 from __future__ import annotations
@@ -37,7 +35,10 @@ import argparse
 import json
 import os
 import re
+import time
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
 from dataclasses import dataclass, field
 from datetime import datetime
 from itertools import combinations
@@ -216,12 +217,53 @@ class CombinationProposal:
 # Stage 1: Load Population
 # ---------------------------------------------------------------------------
 
+def _load_single_leader(
+    algo_id: str, leaders_only: bool
+) -> Tuple[Optional[Individual], str, float]:
+    """
+    Load and construct one Individual from the DB.
+    Returns (Individual, "", elapsed_s) on success,
+            (None, skip_reason, elapsed_s) on skip.
+    skip_reason is one of: "not_found", "member", "no_code", "no_par2".
+    """
+    _t = time.time()
+    algo_result = get_algorithm_result(algo_id)
+    if algo_result is None:
+        return None, "not_found", time.time() - _t
+    if leaders_only and algo_result.role != Role.LEADER:
+        return None, "member", time.time() - _t
+    code_ids = algo_result.code_id_list or []
+    if not code_ids or (len(code_ids) == 1 and code_ids[0] == NOT_INITIALIZED):
+        return None, "no_code", time.time() - _t
+    best_code = None
+    best_par2 = float("inf")
+    for code_id in code_ids:
+        code_result = get_code_result(code_id)
+        if code_result is None:
+            continue
+        if code_result.par2 is not None and code_result.par2 < best_par2:
+            best_par2 = code_result.par2
+            best_code = code_result
+    if best_code is None or best_par2 == float("inf"):
+        return None, "no_par2", time.time() - _t
+    return Individual(
+        algorithm_id=algo_id,
+        algorithm_json=algo_result.description,
+        code_id=best_code.id,
+        code=best_code.code,
+        par2=best_par2,
+        target_function=algo_result.function_name,
+        parent_id=algo_result.parent_id[0] if algo_result.parent_id else None,
+    ), "", time.time() - _t
+
+
 def load_population(generation_tag: str, leaders_only: bool = True) -> List[Individual]:
     """
     Load the population from the database for a given generation tag.
 
     For each algorithm, picks the best (lowest PAR2) evaluated code.
     Skips algorithms with no evaluated codes.
+    DB calls are parallelised across all algorithm IDs.
 
     Args:
         generation_tag: The generation tag to load algorithms from.
@@ -238,47 +280,32 @@ def load_population(generation_tag: str, leaders_only: bool = True) -> List[Indi
     skipped_no_par2 = 0
     skipped_members = 0
 
-    for algo_id in algorithm_ids:
-        algo_result = get_algorithm_result(algo_id)
-        if algo_result is None:
-            logger.warning(f"Algorithm {algo_id} not found in DB, skipping")
-            continue
-
-        if leaders_only and algo_result.role != Role.LEADER:
-            skipped_members += 1
-            continue
-
-        code_ids = algo_result.code_id_list or []
-        if not code_ids or (len(code_ids) == 1 and code_ids[0] == NOT_INITIALIZED):
-            skipped_no_code += 1
-            continue
-
-        # Find the best evaluated code (lowest PAR2)
-        best_code = None
-        best_par2 = float("inf")
-
-        for code_id in code_ids:
-            code_result = get_code_result(code_id)
-            if code_result is None:
-                continue
-            if code_result.par2 is not None and code_result.par2 < best_par2:
-                best_par2 = code_result.par2
-                best_code = code_result
-
-        if best_code is None or best_par2 == float("inf"):
-            skipped_no_par2 += 1
-            continue
-
-        individual = Individual(
-            algorithm_id=algo_id,
-            algorithm_json=algo_result.description,
-            code_id=best_code.id,
-            code=best_code.code,
-            par2=best_par2,
-            target_function=algo_result.function_name,
-            parent_id=algo_result.parent_id[0] if algo_result.parent_id else None,
+    _t_load = time.time()
+    load_times: List[float] = []
+    n_workers = min(32, max(1, len(algorithm_ids)))
+    with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="load_pop") as pool:
+        futures = {pool.submit(_load_single_leader, aid, leaders_only): aid
+                   for aid in algorithm_ids}
+        for fut, aid in futures.items():
+            ind, reason, elapsed = fut.result()
+            load_times.append(elapsed)
+            if ind is not None:
+                population.append(ind)
+            elif reason == "not_found":
+                logger.warning(f"Algorithm {aid} not found in DB, skipping")
+            elif reason == "member":
+                skipped_members += 1
+            elif reason == "no_code":
+                skipped_no_code += 1
+            elif reason == "no_par2":
+                skipped_no_par2 += 1
+    _wall = time.time() - _t_load
+    if load_times:
+        logger.info(
+            f"[TIMING/load_population] wall={_wall:.2f}s, n={len(load_times)}, "
+            f"avg={sum(load_times)/len(load_times):.2f}s, "
+            f"min={min(load_times):.2f}s, max={max(load_times):.2f}s"
         )
-        population.append(individual)
 
     logger.info(
         f"Loaded {len(population)} individuals "
@@ -1628,28 +1655,36 @@ def promote_offspring_to_leaders(
     all_ids = list(all_ids_set)
     logger.info(f"Found {len(all_ids)} algorithms across tags: {tags_searched}")
 
-    # Load algorithms and find their best PAR2 scores
-    candidates = []
-    for algorithm_id in all_ids:
+    # Load algorithms and find their best PAR2 scores (parallel DB reads)
+    def _load_candidate(algorithm_id: str):
         result = get_algorithm_result(algorithm_id)
         if result is None:
-            continue
-
-        # Find best PAR2 across code variants
+            return None
         best_par2 = None
         for code_id in (result.code_id_list or []):
             code_result = get_code_result(code_id)
             if code_result and code_result.par2 is not None:
                 if best_par2 is None or code_result.par2 < best_par2:
                     best_par2 = code_result.par2
-
         if best_par2 is None:
-            logger.warning(f"Algorithm {algorithm_id[:16]}... has no PAR2 score, skipping")
-            continue
+            return None
+        return (algorithm_id, result, best_par2)
 
-        candidates.append((algorithm_id, result, best_par2))
-
-    logger.info(f"Found {len(candidates)} evaluated candidates")
+    _t_load = time.time()
+    candidates = []
+    n_workers = min(32, max(1, len(all_ids)))
+    with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="promote") as pool:
+        futures = {pool.submit(_load_candidate, aid): aid for aid in all_ids}
+        for fut, aid in futures.items():
+            item = fut.result()
+            if item is not None:
+                candidates.append(item)
+            else:
+                logger.warning(f"Algorithm {aid[:16]}... has no PAR2 score or not found, skipping")
+    logger.info(
+        f"Found {len(candidates)} evaluated candidates "
+        f"(loaded {len(all_ids)} in {time.time() - _t_load:.2f}s)"
+    )
 
     if not candidates:
         logger.error("No evaluated candidates found, nothing to promote")
@@ -2126,6 +2161,25 @@ def save_selected_to_output_tag(
             f"(PAR2={ind.par2:.2f}, parent_id reset to None in DB)"
         )
 
+def _save_timing_log(timing: Dict[str, Any], output_dir: str, filename: str = "timing_log.json") -> None:
+    """Append a timing record to the timing log JSON in output_dir."""
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, filename)
+    records = []
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                records = json.load(f)
+            if not isinstance(records, list):
+                records = [records]
+        except Exception:
+            records = []
+    records.append(timing)
+    with open(path, "w") as f:
+        json.dump(records, f, indent=2)
+    logger.info(f"[TIMING] Saved timing log to {path}")
+
+
 def assert_output_tag_empty(table_name: str, output_tag: str) -> None:
     """
     Ensure output_tag has no existing entries before final write.
@@ -2137,6 +2191,390 @@ def assert_output_tag_empty(table_name: str, output_tag: str) -> None:
     )
 
 # ---------------------------------------------------------------------------
+# Streaming Pipeline Helpers
+# ---------------------------------------------------------------------------
+
+def _log_timing_stats(timing_lists: Dict[str, List[float]], stage: str) -> None:
+    """Log avg/min/max/total for a named stage from the shared timing dict."""
+    times = timing_lists.get(stage)
+    if not times:
+        return
+    logger.info(
+        f"[TIMING/{stage}] n={len(times)}, "
+        f"avg={sum(times)/len(times):.2f}s, "
+        f"min={min(times):.2f}s, max={max(times):.2f}s, "
+        f"total={sum(times):.2f}s"
+    )
+
+
+def _build_minibatch_assignments(
+    population: List[Individual],
+    minibatch_size: int,
+    n_passes: int,
+    shuffle_seed: Optional[int] = None,
+) -> List[List[Individual]]:
+    """
+    Build minibatch assignments for combination proposals.
+
+    Each algorithm appears exactly n_passes times across the extended list.
+    The list is shuffled then divided into minibatches of minibatch_size.
+    Within each minibatch, duplicates are removed (first occurrence kept) so
+    the same Individual never appears twice in one proposal prompt.
+    Batches with fewer than 2 unique individuals are dropped.
+    """
+    if not population:
+        return []
+    rng = random.Random(shuffle_seed)
+    extended = list(population) * n_passes
+    rng.shuffle(extended)
+    batches: List[List[Individual]] = []
+    for i in range(0, len(extended), minibatch_size):
+        raw = extended[i: i + minibatch_size]
+        seen: set = set()
+        deduped: List[Individual] = []
+        for ind in raw:
+            if ind.algorithm_id not in seen:
+                seen.add(ind.algorithm_id)
+                deduped.append(ind)
+        if len(deduped) >= 2:
+            batches.append(deduped)
+    logger.info(
+        f"[Minibatches] {n_passes} passes × {len(population)} algos → "
+        f"{len(extended)} slots → {len(batches)} valid batches"
+    )
+    return batches
+
+
+class _SlurmTaskAccumulator:
+    """
+    Thread-safe accumulator for SLURM solver evaluation tasks.
+
+    Batches built solver tasks and submits them via slurm_run_evaluate_batch
+    once accumulated task count (solvers × CNFs) reaches slurm_threshold.
+    Remaining tasks are submitted unconditionally by flush_all().
+    """
+
+    def __init__(
+        self,
+        pipeline: Any,
+        cnf_files: List[str],
+        slurm_threshold: int,
+        benchmark_path: str,
+        dry_run: bool = False,
+    ) -> None:
+        self.pipeline = pipeline
+        self.cnf_files = cnf_files
+        self.slurm_threshold = slurm_threshold
+        self.benchmark_path = benchmark_path
+        self.dry_run = dry_run
+        self._solver_tasks: List[Tuple[str, str, str]] = []
+        self._lock = threading.Lock()
+        self._job_ids: List[int] = []
+        self._tasks_per_solver: int = len(cnf_files)
+
+    def add_solver(self, solver_path: str, result_dir: str, code_id: str) -> None:
+        """Add a built solver; submits a SLURM batch when the threshold is reached."""
+        with self._lock:
+            self._solver_tasks.append((solver_path, result_dir, code_id))
+            if self._tasks_per_solver > 0:
+                if len(self._solver_tasks) * self._tasks_per_solver >= self.slurm_threshold:
+                    to_submit = list(self._solver_tasks)
+                    self._solver_tasks = []
+                    self._submit_batch(to_submit)
+
+    def _submit_batch(self, solver_tasks: List[Tuple[str, str, str]]) -> None:
+        ids = self.pipeline.slurm_run_evaluate_batch(
+            solver_tasks=solver_tasks,
+            benchmark_path=self.benchmark_path,
+            cnf_files=self.cnf_files,
+            dry_run=self.dry_run,
+        )
+        self._job_ids.extend(ids)
+        logger.info(
+            f"[Accumulator] Submitted {len(solver_tasks)} solver(s) "
+            f"({len(solver_tasks) * self._tasks_per_solver} tasks) → SLURM IDs: {ids}"
+        )
+
+    def flush_all(self) -> List[int]:
+        """Submit any remaining solvers unconditionally. Returns all SLURM job IDs."""
+        with self._lock:
+            if self._solver_tasks:
+                logger.info(
+                    f"[Accumulator] Flushing {len(self._solver_tasks)} remaining solver(s)"
+                )
+                self._submit_batch(self._solver_tasks)
+                self._solver_tasks = []
+        return list(self._job_ids)
+
+
+@dataclass
+class _PipelineState:
+    """Shared mutable state passed to all parallel task functions."""
+    semaphore: Any                          # threading.Semaphore
+    model: str
+    causal_reports: Dict[str, CausalReport]
+    causal_lock: Any                        # threading.Lock
+    crossover_executor: Any                 # ThreadPoolExecutor
+    codegen_executor: Any                   # ThreadPoolExecutor
+    build_executor: Any                     # ThreadPoolExecutor
+    all_crossover_futures: List
+    crossover_list_lock: Any
+    all_codegen_futures: List
+    codegen_list_lock: Any
+    all_build_futures: List
+    build_list_lock: Any
+    stored_pairs: List
+    stored_pairs_lock: Any
+    saved_proposals: List
+    saved_crossovers: List
+    results_lock: Any
+    pop_map: Dict[str, Individual]
+    code_prompt_template: str
+    iter_output_tag: str
+    top_k: int
+    rubric_min: float
+    rubric_keep_top_n: Optional[int]
+    accumulator: _SlurmTaskAccumulator
+    baseline_par2: Optional[float]
+    evaluate: bool
+    timing_lists: Dict[str, List[float]] = field(default_factory=dict)
+    timing_lock: Any = None  # threading.Lock, set in run_evolution
+
+
+def _run_causal_task(ind: Individual, state: _PipelineState) -> CausalReport:
+    prompt = build_causal_prompt(ind, state.baseline_par2)
+    state.semaphore.acquire()
+    _t = time.time()
+    try:
+        response = get_llm_response(
+            prompt=prompt,
+            system_message=CAUSAL_ANALYSIS_SYSTEM_MESSAGE,
+            model=state.model,
+            temperature=0.3,
+        )
+    finally:
+        state.semaphore.release()
+    with state.timing_lock:
+        state.timing_lists.setdefault("causal", []).append(time.time() - _t)
+    report = parse_causal_report(response, ind.algorithm_id)
+    with state.causal_lock:
+        state.causal_reports[ind.algorithm_id] = report
+        try:
+            algo_result = get_algorithm_result(ind.algorithm_id)
+            if algo_result is not None:
+                parts = []
+                if report.strengths:
+                    parts.append("Strengths: " + "; ".join(report.strengths))
+                if report.weaknesses:
+                    parts.append("Weaknesses: " + "; ".join(report.weaknesses))
+                if report.key_mechanisms:
+                    parts.append("Key Mechanisms: " + "; ".join(report.key_mechanisms))
+                if report.improvement_suggestions:
+                    parts.append("Suggestions: " + "; ".join(report.improvement_suggestions))
+                algo_result.analysis = "\n".join(parts)
+                update_algorithm_result(algo_result)
+        except Exception as exc:
+            logger.warning(f"Failed to store causal analysis for {ind.algorithm_id[:16]}: {exc}")
+    logger.info(
+        f"[Causal] {ind.algorithm_id[:16]} done "
+        f"(S={len(report.strengths)}, W={len(report.weaknesses)}, "
+        f"M={len(report.key_mechanisms)})"
+    )
+    return report
+
+
+def _run_proposal_task(
+    batch: List[Individual],
+    state: _PipelineState,
+) -> None:
+    # All causal analyses are complete before proposals are submitted (global barrier).
+    # Gather causal reports for this batch.
+    with state.causal_lock:
+        batch_reports = {
+            ind.algorithm_id: state.causal_reports[ind.algorithm_id]
+            for ind in batch if ind.algorithm_id in state.causal_reports
+        }
+    valid_batch = [ind for ind in batch if ind.algorithm_id in batch_reports]
+    if len(valid_batch) < 2:
+        logger.warning("[Proposal] Batch has <2 valid individuals after causal wait, skipping")
+        return
+
+    # LLM proposal call
+    prompt = build_combination_proposal_prompt(valid_batch, batch_reports, top_k=state.top_k)
+    state.semaphore.acquire()
+    _t = time.time()
+    try:
+        response = get_llm_response(
+            prompt=prompt,
+            system_message=COMBINATION_PROPOSAL_SYSTEM_MESSAGE,
+            model=state.model,
+            temperature=0.5,
+        )
+    finally:
+        state.semaphore.release()
+    with state.timing_lock:
+        state.timing_lists.setdefault("proposal", []).append(time.time() - _t)
+
+    proposals = parse_combination_proposals(response, valid_batch)
+    proposals = [p for p in proposals if p.score >= state.rubric_min]
+    if state.rubric_keep_top_n and len(proposals) > state.rubric_keep_top_n:
+        proposals = sorted(proposals, key=lambda p: p.score, reverse=True)[: state.rubric_keep_top_n]
+
+    with state.results_lock:
+        state.saved_proposals.extend(proposals)
+
+    logger.info(f"[Proposal] Batch ({len(valid_batch)} algos) → {len(proposals)} proposals")
+
+    # 4. Submit crossover for each accepted proposal
+    for proposal in proposals:
+        parent_a = state.pop_map.get(proposal.parent_a_id)
+        parent_b = state.pop_map.get(proposal.parent_b_id)
+        if parent_a is None or parent_b is None:
+            continue
+        with state.causal_lock:
+            causal_a = state.causal_reports.get(proposal.parent_a_id)
+            causal_b = state.causal_reports.get(proposal.parent_b_id)
+        if causal_a is None or causal_b is None:
+            logger.warning(
+                f"[Proposal] Missing causal for parents "
+                f"{proposal.parent_a_id[:8]}×{proposal.parent_b_id[:8]}, skipping"
+            )
+            continue
+        fut = state.crossover_executor.submit(
+            _run_crossover_task, parent_a, parent_b, causal_a, causal_b, state
+        )
+        with state.crossover_list_lock:
+            state.all_crossover_futures.append(fut)
+
+
+def _run_crossover_task(
+    parent_a: Individual,
+    parent_b: Individual,
+    causal_a: CausalReport,
+    causal_b: CausalReport,
+    state: _PipelineState,
+) -> None:
+    state.semaphore.acquire()
+    _t = time.time()
+    try:
+        prompt = build_crossover_prompt(parent_a, parent_b, causal_a, causal_b)
+        response = get_llm_response(
+            prompt=prompt,
+            system_message=CROSSOVER_SYSTEM_MESSAGE,
+            model=state.model,
+            temperature=0.7,
+        )
+    finally:
+        state.semaphore.release()
+    with state.timing_lock:
+        state.timing_lists.setdefault("crossover", []).append(time.time() - _t)
+
+    target_fn = parent_a.target_function or "kissat_restarting"
+    offspring = parse_crossover_response(
+        response, parent_a.algorithm_id, parent_b.algorithm_id, target_function=target_fn
+    )
+    if offspring is None:
+        logger.warning(
+            f"[Crossover] Failed parse for "
+            f"{parent_a.algorithm_id[:8]}×{parent_b.algorithm_id[:8]}"
+        )
+        return
+
+    with state.results_lock:
+        state.saved_crossovers.append(offspring)
+
+    fut = state.codegen_executor.submit(_run_codegen_task, offspring, state)
+    with state.codegen_list_lock:
+        state.all_codegen_futures.append(fut)
+
+
+def _run_codegen_task(offspring: OffspringResult, state: _PipelineState) -> None:
+    try:
+        algo_spec = json.loads(offspring.algorithm_json)
+        algorithm_text = algo_spec.get("algorithm", offspring.algorithm_json)
+    except json.JSONDecodeError:
+        algorithm_text = offspring.algorithm_json
+
+    parent_a = state.pop_map.get(offspring.parent_a_id)
+    parent_b = state.pop_map.get(offspring.parent_b_id)
+    parent_a_code = parent_a.code if parent_a and parent_a.code else None
+    parent_b_code = parent_b.code if parent_b and parent_b.code else None
+
+    prompt = generate_code_prompt(
+        state.code_prompt_template, algorithm_text,
+        parent_a_code=parent_a_code, parent_b_code=parent_b_code,
+    )
+    state.semaphore.acquire()
+    _t = time.time()
+    try:
+        response = get_llm_response(
+            prompt=prompt,
+            system_message="You are an expert in writing C code for Kissat-based SAT Solvers.",
+            model=state.model,
+            temperature=0.5,
+        )
+    finally:
+        state.semaphore.release()
+    with state.timing_lock:
+        state.timing_lists.setdefault("codegen", []).append(time.time() - _t)
+
+    # Parse generated code
+    code = ""
+    start = response.find("<code>")
+    end = response.find("</code>")
+    if start != -1 and end != -1 and end > start:
+        code = response[start + len("<code>"): end].strip()
+    elif "```c" in response:
+        s = response.find("```c") + 4
+        e = response.find("```", s)
+        if e > s:
+            code = response[s:e].strip()
+    if not code:
+        code = response
+
+    logger.info(f"[CodeGen] {offspring.algorithm_id[:16]} → {len(code)} chars")
+
+    # Store offspring in DB
+    population_list = list(state.pop_map.values())
+    stored = store_offspring(
+        [offspring], {offspring.algorithm_id: code},
+        state.iter_output_tag, population=population_list,
+    )
+    with state.stored_pairs_lock:
+        state.stored_pairs.extend(stored)
+
+    if not stored or not state.evaluate:
+        return
+
+    _algo_id, code_id = stored[0]
+    fut = state.build_executor.submit(
+        _run_build_task, code_id, state.accumulator,
+        state.timing_lists, state.timing_lock,
+    )
+    with state.build_list_lock:
+        state.all_build_futures.append(fut)
+
+
+def _run_build_task(
+    code_id: str,
+    accumulator: _SlurmTaskAccumulator,
+    timing_lists: Dict[str, List[float]],
+    timing_lock: Any,
+) -> None:
+    _t = time.time()
+    result = accumulator.pipeline.run_single_solver(code_id, build_only=True)
+    elapsed = time.time() - _t
+    with timing_lock:
+        timing_lists.setdefault("build", []).append(elapsed)
+    if result is not None:
+        solver_path, result_dir, out_code_id = result
+        accumulator.add_solver(solver_path, result_dir, out_code_id)
+        logger.info(f"[Build] {out_code_id[:16]} → SLURM accumulator ({elapsed:.1f}s)")
+    else:
+        logger.warning(f"[Build] FAILED for code_id={code_id[:16]} ({elapsed:.1f}s)")
+
+
+# ---------------------------------------------------------------------------
 # Main Evolution Loop
 # ---------------------------------------------------------------------------
 
@@ -2146,7 +2584,6 @@ def run_evolution(
     output_tag: Optional[str] = None,
     folder: Optional[str] = None,
     top_k: Optional[int] = None,
-    max_pairs: Optional[int] = None,  # kept for CLI compat, no longer used
     model: str = "gpt-4.1",
     baseline_par2: Optional[float] = None,
     evaluate: bool = False,
@@ -2157,8 +2594,6 @@ def run_evolution(
     rubric_keep_top_n: Optional[int] = None,
     par2_threshold: Optional[float] = None,
     par2_keep_top_n: Optional[int] = None,
-    rubric_weights: Optional[Dict[str, float]] = None,  # kept for compat, no longer used
-    max_iterations: int = 5,
     minibatch_size: int = DEFAULT_MINIBATCH_SIZE,
     prev_output_tags: Optional[list] = None,
     sample_size: Optional[int] = None,
@@ -2166,55 +2601,60 @@ def run_evolution(
     shuffle_seed: int = 42,
     shuffle_passes: int = 3,
     nersc: bool = False,
-    submit_only: bool = False,
     collect_results: bool = False,
+    quick_eval: bool = False,
+    n_api_threads: int = 8,
+    n_build_threads: int = 4,
+    cnf_per_solver: int = 400,
 ) -> Dict[str, Any]:
     """
-    Run the full genetic evolution pipeline with an iterative loop.
+    Run the genetic evolution pipeline (single pass, fully streamed).
 
-    Pipeline (per iteration):
+    Pipeline:
       1. Load population (leaders only, from DB or folder)
-      2. Causal analysis — once on initial population, then for newly promoted individuals
-      3. LLM-proposed combinations — single LLM call per minibatch proposes top-k pairs
-         (replaces exhaustive pair enumeration + per-offspring rubric scoring)
-      4. Crossover — generate offspring algorithm for each proposed pair
-      5. Code generation — translate offspring algorithms to C code
-      6. Evaluation — build solver and submit SLURM jobs (optional)
-      7. Selection by PAR2 — keep offspring that improve over best parent
-
-    Minibatching:
-      If the population exceeds minibatch_size, it is split into batches of that size.
-      Each batch gets its own LLM combination-proposal call; proposals are merged and
-      deduplicated, then sorted by score before crossover.
-
-    Loop continues until:
-      - PAR2 cannot be improved further (no new selected offspring), OR
-      - max_iterations is reached
+      2. Parallel causal analysis — all individuals analysed concurrently up to
+         n_api_threads concurrent API calls (shared semaphore)
+      3. Streaming proposal → crossover → codegen → build → SLURM submit
+         - Minibatches are built by extending population × shuffle_passes, shuffling,
+           then dividing; each algorithm appears exactly shuffle_passes times.
+         - Each minibatch fires its proposal LLM call as soon as all its required
+           causal analyses complete (no global barrier).
+         - Each accepted proposal immediately spawns a parallel crossover LLM call.
+         - Each crossover result immediately spawns a parallel code-gen LLM call.
+         - Each generated code is immediately built and added to the SLURM accumulator.
+         - The accumulator submits a SLURM batch once accumulated tasks reach
+           slurm_threshold (128 if --nersc, else cnf_per_solver).
+      4. Final flush of any remaining SLURM tasks.
 
     Args:
         generation_tag: Source population generation tag
         code_prompt_path: Path to the coder prompt template
         output_tag: Tag for offspring generation (default: {generation_tag}_gen1)
-        folder: Path to outputs folder to load population from files instead of DB.
-        top_k: Combinations to request per minibatch from the LLM (default: 5)
-        max_pairs: Deprecated — no longer used; pairs are controlled by top_k.
-        model: OpenAI model for LLM calls
+        folder: Path to outputs folder (loads population from files instead of DB)
+        top_k: Combinations to request per minibatch LLM call (default: 5)
+        model: LLM model name
         baseline_par2: Baseline PAR2 for comparison in causal analysis
-        evaluate: Whether to build and evaluate offspring via SLURM
-        causal_only: Only run causal analysis, skip combination loop
-        skip_causal: Skip causal analysis, load from file
-        rubric_min: Minimum combination score (1-10) to accept a proposed pair (default 6.0)
-        rubric_keep_top_n: Keep at most N proposed combinations (default: all passing)
-        par2_threshold: PAR2 hard gate for selection. If None, uses best parent PAR2.
-        par2_keep_top_n: Keep at most N offspring in PAR2 selection (default: all selected)
-        rubric_weights: Deprecated — no longer used.
-        max_iterations: Maximum number of evolution loop iterations (default: 5)
-        minibatch_size: Max leaders per LLM combination-proposal call (default: 10)
-        sample_size: If set, randomly sample this many CNF files for evaluation instead of all
-        sample_seed: Random seed for reproducible CNF sampling (default: 42)
+        evaluate: Build solvers and submit SLURM evaluation jobs
+        causal_only: Stop after causal analysis
+        skip_causal: Load causal reports from file, skip LLM calls
+        evaluate_only: Skip LLM stages; re-run evaluation on stored offspring
+        rubric_min: Minimum proposal score (1-10) to accept a pair (default 6.0)
+        rubric_keep_top_n: Cap proposals per batch after score filter
+        par2_threshold: PAR2 hard gate for collect_results selection
+        par2_keep_top_n: Keep at most N in PAR2 selection (collect_results mode)
+        minibatch_size: Max individuals per LLM proposal call (default: 10)
+        shuffle_passes: How many times each algorithm appears across all minibatches
+        shuffle_seed: RNG seed for minibatch shuffling
+        nersc: Use NERSC EvaluationPipeline (128 tasks per SLURM node)
+        collect_results: Skip LLM stages; collect PAR2 from completed SLURM jobs
+        quick_eval: Use quick-eval benchmark list and settings
+        n_api_threads: Max concurrent LLM API calls (shared semaphore, default 8)
+        n_build_threads: Max concurrent solver compilations (default 4)
+        cnf_per_solver: SLURM task threshold for non-NERSC runs (default 400;
+                        auto-set to 50 when quick_eval=True if not overridden)
 
     Returns:
-        Summary dict with results from each stage and iteration.
+        Summary dict with stage results.
     """
     if output_tag is None:
         output_tag = f"{generation_tag}_gen1"
@@ -2222,13 +2662,24 @@ def run_evolution(
     output_dir = get_generation_output_dir(output_tag)
     logger.info(f"Evolution pipeline: {generation_tag} -> {output_tag}")
     logger.info(f"Output directory: {output_dir}")
-    logger.info(f"Max iterations: {max_iterations}")
+    logger.info(
+        f"Streaming config: n_api_threads={n_api_threads}, "
+        f"n_build_threads={n_build_threads}, cnf_per_solver={cnf_per_solver}, "
+        f"nersc={nersc}, quick_eval={quick_eval}"
+    )
+
+    _t_run_start = time.time()
+    _timing: Dict[str, Any] = {
+        "output_tag": output_tag,
+        "generation_tag": generation_tag,
+        "timestamp": datetime.now().isoformat(),
+        "script": "genetic_evolution",
+    }
 
     summary: Dict[str, Any] = {
         "generation_tag": generation_tag,
         "output_tag": output_tag,
         "timestamp": datetime.now().isoformat(),
-        "iterations": [],
     }
 
     # ------------------------------------------------------------------
@@ -2237,7 +2688,7 @@ def run_evolution(
     # ------------------------------------------------------------------
     if evaluate_only:
         logger.info(f"evaluate_only mode: fetching stored offspring under '{output_tag}*'")
-        for iteration in range(max_iterations):
+        for iteration in range(100):  # stops at first missing iter tag via break below
             iter_output_tag = f"{output_tag}_iter{iteration + 1}"
             algorithm_ids = get_ids_from_router_table(
                 CHATGPT_DATA_GENERATION_TABLE, iter_output_tag
@@ -2403,11 +2854,14 @@ def run_evolution(
     # ------------------------------------------------------------------
     # Stage 1: Load initial population
     # ------------------------------------------------------------------
+    _t_pop = time.time()
     if folder:
         logger.info(f"Loading population from folder: {folder}")
         population = load_population_from_folder(folder, generation_tag=generation_tag)
     else:
         population = load_population(generation_tag)
+    _timing["load_population_wall_s"] = round(time.time() - _t_pop, 2)
+    logger.info(f"[TIMING] Population load wall: {_timing['load_population_wall_s']}s")
 
     if not population:
         logger.error("No individuals loaded. Check generation tag and database.")
@@ -2470,25 +2924,6 @@ def run_evolution(
                 json.dump(summary, f, indent=2)
             return summary
 
-        # Save carried-forward individuals for auditability
-        # selected_path = os.path.join(output_dir, "selected_from_prev.json")
-        # data = [
-        #     {
-        #         "algorithm_id": ind.algorithm_id,
-        #         "algorithm_json": ind.algorithm_json,
-        #         "code_id": ind.code_id,
-        #         "par2": ind.par2,
-        #         "target_function": ind.target_function,
-        #         "parent_id": ind.parent_id,
-        #         "generation": ind.generation,
-        #     }
-        #     for ind in improvements
-        # ]
-        # with open(selected_path, "w") as f:
-        #     json.dump(data, f, indent=2, ensure_ascii=False)
-        # logger.info(f"Saved {len(improvements)} carried-forward individuals to {selected_path}")
-        # population = population + improvements
-
         summary["prev_output_tags"] = prev_output_tags
         summary["prev_improvements_added"] = len(improvements)
 
@@ -2505,8 +2940,19 @@ def run_evolution(
     )
 
     # ------------------------------------------------------------------
-    # Stage 2: Causal Analysis (once on the initial population)
+    # Stage 2: Causal analysis — parallel via thread pool + semaphore
     # ------------------------------------------------------------------
+    _t0 = time.time()
+
+    iter_output_tag = f"{output_tag}_iter1"
+    effective_top_k = top_k if top_k is not None else 5
+
+    # Semaphore caps total concurrent LLM calls across all stages
+    semaphore = threading.Semaphore(n_api_threads)
+    causal_lock = threading.Lock()
+
+    new_individuals = [ind for ind in population if ind.algorithm_id not in causal_reports]
+
     if skip_causal:
         logger.info("Skipping causal analysis, loading from file")
         if not causal_reports:
@@ -2514,301 +2960,262 @@ def run_evolution(
         if not causal_reports:
             logger.error("No causal reports found. Run without --skip_causal first.")
             return {"error": "No causal reports"}
-        else:
-            logger.info(f"Using {len(causal_reports)} causal reports (pre-loaded or from file)")
-    else:
-        new_individuals = [ind for ind in population if ind.algorithm_id not in causal_reports]
-        if new_individuals:
-            logger.info(
-                f"Generating causal reports for {len(new_individuals)} new individuals "
-                f"({len(population) - len(new_individuals)} already loaded)"
-            )
-            new_reports = generate_causal_reports(new_individuals, model=model, baseline_par2=baseline_par2)
-            # Store causal analysis on each AlgorithmResult in DB
-            for algo_id, report in new_reports.items():
-                try:
-                    algo_result = get_algorithm_result(algo_id)
-                    if algo_result is not None:
-                        analysis_parts = []
-                        if report.strengths:
-                            analysis_parts.append("Strengths: " + "; ".join(report.strengths))
-                        if report.weaknesses:
-                            analysis_parts.append("Weaknesses: " + "; ".join(report.weaknesses))
-                        if report.key_mechanisms:
-                            analysis_parts.append("Key Mechanisms: " + "; ".join(report.key_mechanisms))
-                        if report.improvement_suggestions:
-                            analysis_parts.append("Suggestions: " + "; ".join(report.improvement_suggestions))
-                        algo_result.analysis = "\n".join(analysis_parts)
-                        update_algorithm_result(algo_result)
-                except Exception as e:
-                    logger.warning(f"Failed to store causal analysis for {algo_id[:16]}: {e}")
-            causal_reports.update(new_reports)
-        else:
-            logger.info(f"All {len(population)} individuals already have causal reports, skipping generation")
-        save_causal_reports(causal_reports, output_dir)
+        logger.info(f"Using {len(causal_reports)} causal reports (pre-loaded or from file)")
+        new_individuals = []
 
-    summary["causal_reports_count"] = len(causal_reports)
+    # Build minibatch assignments upfront (need batch count for proposal pool size)
+    batches = _build_minibatch_assignments(population, minibatch_size, shuffle_passes, shuffle_seed)
+
+    # Build executors
+    causal_executor = ThreadPoolExecutor(
+        max_workers=n_api_threads, thread_name_prefix="causal"
+    )
+    proposal_executor = ThreadPoolExecutor(
+        max_workers=max(n_api_threads, len(batches)), thread_name_prefix="proposal"
+    )
+    crossover_executor = ThreadPoolExecutor(
+        max_workers=n_api_threads, thread_name_prefix="crossover"
+    )
+    codegen_executor = ThreadPoolExecutor(
+        max_workers=n_api_threads, thread_name_prefix="codegen"
+    )
+    build_executor = ThreadPoolExecutor(
+        max_workers=n_build_threads, thread_name_prefix="build"
+    )
+
+    # Set up evaluation pipeline and SLURM accumulator
+    accumulator: Optional[_SlurmTaskAccumulator] = None
+    if evaluate:
+        if nersc:
+            from llmsat.pipelines.evaluation_nersc import (
+                EvaluationPipeline,
+                QUICK_EVAL_BENCHMARK_LIST,
+                QUICK_EVAL_TIMEOUT_SECONDS,
+                QUICK_EVAL_WALL_TIME,
+                QUICK_EVAL_PAR2_PENALTY,
+            )
+            from llmsat.pipelines.evaluation import SAT2025_BENCHMARK_PATH
+        else:
+            from llmsat.pipelines.evaluation import (
+                EvaluationPipeline,
+                QUICK_EVAL_BENCHMARK_LIST,
+                QUICK_EVAL_TIMEOUT_SECONDS,
+                QUICK_EVAL_WALL_TIME,
+                QUICK_EVAL_PAR2_PENALTY,
+                SAT2025_BENCHMARK_PATH,
+            )
+
+        eval_pipeline = EvaluationPipeline(generation_tag=iter_output_tag)
+
+        if quick_eval:
+            if not os.path.exists(QUICK_EVAL_BENCHMARK_LIST):
+                logger.error(f"Quick-eval benchmark list not found: {QUICK_EVAL_BENCHMARK_LIST}")
+                logger.warning("Falling back to full evaluation mode")
+            else:
+                eval_pipeline.timeout = QUICK_EVAL_TIMEOUT_SECONDS
+                eval_pipeline.wall_time = QUICK_EVAL_WALL_TIME
+                eval_pipeline.par2_penalty = QUICK_EVAL_PAR2_PENALTY
+                with open(QUICK_EVAL_BENCHMARK_LIST) as f:
+                    eval_pipeline.cnf_files = [line.strip() for line in f if line.strip()]
+                logger.info(
+                    f"Quick-eval mode: {len(eval_pipeline.cnf_files)} CNFs, "
+                    f"{QUICK_EVAL_TIMEOUT_SECONDS}s timeout"
+                )
+
+        if sample_size is not None:
+            import random as _random
+            all_cnf = eval_pipeline.cnf_files or sorted(
+                f for f in os.listdir(SAT2025_BENCHMARK_PATH) if f.endswith(".cnf")
+            )
+            if sample_size < len(all_cnf):
+                rng = _random.Random(sample_seed)
+                eval_pipeline.cnf_files = sorted(rng.sample(all_cnf, sample_size))
+                logger.info(f"Sampled {sample_size} CNF files (seed={sample_seed})")
+
+        cnf_files_for_eval = eval_pipeline.cnf_files or sorted(
+            f for f in os.listdir(SAT2025_BENCHMARK_PATH) if f.endswith(".cnf")
+        )
+        slurm_threshold = 128 if nersc else cnf_per_solver
+        logger.info(
+            f"SLURM accumulator: threshold={slurm_threshold} tasks "
+            f"({len(cnf_files_for_eval)} CNFs/solver)"
+        )
+        accumulator = _SlurmTaskAccumulator(
+            pipeline=eval_pipeline,
+            cnf_files=cnf_files_for_eval,
+            slurm_threshold=slurm_threshold,
+            benchmark_path=SAT2025_BENCHMARK_PATH,
+            dry_run=False,
+        )
+
+    # Build code prompt template
+    code_prompt_template = read_code_prompt_template(code_prompt_path)
+    pop_map = {ind.algorithm_id: ind for ind in population}
+
+    # Build shared pipeline state (used by all task functions)
+    state = _PipelineState(
+        semaphore=semaphore,
+        model=model,
+        causal_reports=causal_reports,
+        causal_lock=causal_lock,
+        crossover_executor=crossover_executor,
+        codegen_executor=codegen_executor,
+        build_executor=build_executor,
+        all_crossover_futures=[],
+        crossover_list_lock=threading.Lock(),
+        all_codegen_futures=[],
+        codegen_list_lock=threading.Lock(),
+        all_build_futures=[],
+        build_list_lock=threading.Lock(),
+        stored_pairs=[],
+        stored_pairs_lock=threading.Lock(),
+        saved_proposals=[],
+        saved_crossovers=[],
+        results_lock=threading.Lock(),
+        pop_map=pop_map,
+        code_prompt_template=code_prompt_template,
+        iter_output_tag=iter_output_tag,
+        top_k=effective_top_k,
+        rubric_min=rubric_min,
+        rubric_keep_top_n=rubric_keep_top_n,
+        accumulator=accumulator,
+        baseline_par2=baseline_par2,
+        evaluate=evaluate,
+        timing_lists={},
+        timing_lock=threading.Lock(),
+    )
+
+    # ------------------------------------------------------------------
+    # Submit causal analysis tasks (parallel, n_api_threads concurrent via semaphore)
+    # ------------------------------------------------------------------
+    causal_futures: Dict[str, Any] = {}
+    _t_causal = time.time()
+    if new_individuals:
+        logger.info(
+            f"Submitting causal analysis for {len(new_individuals)} individuals "
+            f"({len(population) - len(new_individuals)} already cached)"
+        )
+        for ind in new_individuals:
+            causal_futures[ind.algorithm_id] = causal_executor.submit(
+                _run_causal_task, ind, state
+            )
+    else:
+        logger.info(f"All {len(population)} individuals already have causal reports")
+
+    _timing["causal_submitted"] = len(causal_futures)
+
+    # Global barrier: wait for ALL causal analyses before submitting any proposal
+    if causal_futures:
+        futures_wait(list(causal_futures.values()))
+    causal_executor.shutdown(wait=True)
+    _timing["causal_wall_s"] = round(time.time() - _t_causal, 2)
+    save_causal_reports(causal_reports, output_dir)
+    _log_timing_stats(state.timing_lists, "causal")
+    logger.info(f"[TIMING] Causal wall: {_timing['causal_wall_s']}s")
 
     if causal_only:
         logger.info("Causal-only mode: stopping after causal analysis")
         summary["mode"] = "causal_only"
+        summary["causal_reports_count"] = len(causal_reports)
         summary_path = os.path.join(output_dir, "evolution_summary.json")
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2)
+        for ex in (proposal_executor, crossover_executor, codegen_executor, build_executor):
+            ex.shutdown(wait=False)
         return summary
 
     # ------------------------------------------------------------------
-    # Evolution Loop: Combination -> Rubric Filter -> Code Gen -> Eval -> PAR2 Select
+    # Stage 3+: Streaming proposal → crossover → codegen → build → SLURM
+    # All proposals fire simultaneously (causal barrier already passed).
     # ------------------------------------------------------------------
-    # current_population includes original population + top-tier selected offspring
-    current_population = list(population)
-    # top_tier: best offspring accumulated across iterations (with PAR2)
-    top_tier: List[Individual] = []
-    best_par2_so_far = min(ind.par2 for ind in population)
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Streaming pipeline: {len(batches)} minibatches, "
+                f"{len(population)} individuals, {shuffle_passes} passes")
+    logger.info(f"{'='*60}")
 
-    for iteration in range(max_iterations):
-        logger.info(f"\n{'='*60}")
-        logger.info(f"EVOLUTION ITERATION {iteration + 1}/{max_iterations}")
-        logger.info(f"Current population size: {len(current_population)}")
-        logger.info(f"Best PAR2 so far: {best_par2_so_far:.2f}")
-        logger.info(f"{'='*60}")
+    _t_proposal = time.time()
+    proposal_futures = [
+        proposal_executor.submit(_run_proposal_task, batch, state)
+        for batch in batches
+    ]
+    futures_wait(proposal_futures)
+    proposal_executor.shutdown(wait=True)
+    _timing["proposal_wall_s"] = round(time.time() - _t_proposal, 2)
+    _log_timing_stats(state.timing_lists, "proposal")
+    logger.info(
+        f"[TIMING] Proposal wall: {_timing['proposal_wall_s']}s | "
+        f"Crossovers submitted: {len(state.all_crossover_futures)}"
+    )
 
-        iter_output_tag = f"{output_tag}_iter{iteration + 1}"
-        iter_summary: Dict[str, Any] = {
-            "iteration": iteration + 1,
-            "population_size": len(current_population),
-            "best_par2_entering": best_par2_so_far,
-        }
+    _t_crossover = time.time()
+    futures_wait(list(state.all_crossover_futures))
+    crossover_executor.shutdown(wait=True)
+    _timing["crossover_wall_s"] = round(time.time() - _t_crossover, 2)
+    _log_timing_stats(state.timing_lists, "crossover")
+    logger.info(
+        f"[TIMING] Crossover wall: {_timing['crossover_wall_s']}s | "
+        f"Codegens submitted: {len(state.all_codegen_futures)}"
+    )
 
-        # Generate causal reports for any new members of current_population
-        # that don't already have one (e.g. top-tier offspring from prior iterations)
-        missing_causal = [
-            ind for ind in current_population
-            if ind.algorithm_id not in causal_reports
-        ]
-        if missing_causal:
-            logger.info(
-                f"Generating causal reports for {len(missing_causal)} new population members "
-                f"(promoted from previous iteration)"
-            )
-            new_causal = generate_causal_reports(missing_causal, model=model, baseline_par2=baseline_par2)
-            causal_reports.update(new_causal)
-            save_causal_reports(causal_reports, output_dir)
+    _t_codegen = time.time()
+    futures_wait(list(state.all_codegen_futures))
+    codegen_executor.shutdown(wait=True)
+    _timing["codegen_wall_s"] = round(time.time() - _t_codegen, 2)
+    _log_timing_stats(state.timing_lists, "codegen")
+    logger.info(
+        f"[TIMING] Codegen wall: {_timing['codegen_wall_s']}s | "
+        f"Builds submitted: {len(state.all_build_futures)}"
+    )
 
-        # Stage 3: LLM-proposed combinations
-        # The LLM receives all leaders + their causal analyses and proposes the top-k
-        # most promising pairs. For large populations, minibatching is used.
-        effective_top_k = top_k if top_k is not None else 5
-        proposals_with_pairs = propose_combinations_llm(
-            current_population,
-            causal_reports,
-            top_k=effective_top_k,
-            minibatch_size=minibatch_size,
-            combination_score_min=rubric_min,
-            model=model,
-            shuffle_passes=shuffle_passes,
-            shuffle_seed=shuffle_seed
-        )
+    _t_build = time.time()
+    futures_wait(list(state.all_build_futures))
+    build_executor.shutdown(wait=True)
+    _timing["build_wall_s"] = round(time.time() - _t_build, 2)
+    _log_timing_stats(state.timing_lists, "build")
+    logger.info(f"[TIMING] Build wall: {_timing['build_wall_s']}s")
 
-        # Apply keep_top_n cap after score filter
-        if rubric_keep_top_n is not None and len(proposals_with_pairs) > rubric_keep_top_n:
-            proposals_with_pairs = proposals_with_pairs[:rubric_keep_top_n]
-            logger.info(f"Capped proposals to top {rubric_keep_top_n}")
+    _timing["stream_total_s"] = round(
+        _timing["proposal_wall_s"] + _timing["crossover_wall_s"]
+        + _timing["codegen_wall_s"] + _timing["build_wall_s"], 2
+    )
+    logger.info(f"[TIMING] Streaming total: {_timing['stream_total_s']}s")
 
-        proposals = [p for p, _, _ in proposals_with_pairs]
-        pairs = [(pa, pb) for _, pa, pb in proposals_with_pairs]
+    # Save aggregate artifacts
+    save_combination_proposals(state.saved_proposals, output_dir, iteration=1)
+    save_crossover_results(state.saved_crossovers, output_dir, iteration=1)
 
-        save_combination_proposals(proposals, output_dir, iteration=iteration + 1)
-
-        iter_summary["combination_proposals"] = {
-            "proposals_count": len(proposals),
-            "combination_score_min": rubric_min,
-            "avg_score": (
-                sum(p.score for p in proposals) / len(proposals) if proposals else 0.0
-            ),
-        }
-
-        if not pairs:
-            logger.warning("No combination proposals generated, stopping loop")
-            iter_summary["status"] = "no_proposals"
-            summary["iterations"].append(iter_summary)
-            break
-
-        # Stage 4: Crossover — generate offspring algorithm for each proposed pair
-        offspring_list = perform_crossover(pairs, causal_reports, model=model)
-        save_crossover_results(offspring_list, output_dir, iteration=iteration + 1)
-
-        iter_summary["crossover"] = {
-            "pairs_attempted": len(pairs),
-            "offspring_produced": len(offspring_list),
-        }
-
-        if not offspring_list:
-            logger.warning("No offspring from crossover, stopping loop")
-            iter_summary["status"] = "no_offspring"
-            summary["iterations"].append(iter_summary)
-            break
-
-        # Stage 5: Code generation for all offspring (LLM already filtered via proposals)
-        # Pass current_population so parent C code can be included as reference
-        filtered_offspring = offspring_list  # all proposed offspring proceed to code gen
-        offspring_codes = generate_offspring_code(
-            filtered_offspring, code_prompt_path, model=model, population=current_population
-        )
-        save_offspring_codes(offspring_codes, output_dir, iteration=iteration + 1)
-
-        iter_summary["code_generation"] = {
-            "codes_generated": len(offspring_codes),
-        }
-
-        # Stage 5: Store in DB
-        stored_pairs = store_offspring(filtered_offspring, offspring_codes, iter_output_tag, population=current_population)
-        iter_summary["stored"] = len(stored_pairs)
-
-        # Stage 6: Evaluate with simulation
-        if evaluate and stored_pairs:
-            logger.info(f"Evaluating {len(stored_pairs)} offspring (build + SLURM)")
-            successful_pairs, failed_pairs = evaluate_offspring(
-                stored_pairs, generation_tag=iter_output_tag,
-                sample_size=sample_size, sample_seed=sample_seed,
-                nersc=nersc,
-            )
-
-            iter_summary["evaluation"] = {
-                "build_success": len(successful_pairs),
-                "build_failed": len(failed_pairs),
-            }
-
-            if submit_only:
-                logger.info("submit_only=True: SLURM jobs submitted, stopping here. Run --collect_results after jobs finish.")
-                iter_summary["status"] = "submitted"
-                summary["iterations"].append(iter_summary)
-                break
-
-            # Collect PAR2 scores (may be partial if SLURM hasn't finished)
-            par2_scores = collect_par2_scores(successful_pairs, generation_tag=iter_output_tag)
-            logger.info(f"PAR2 scores available for {len(par2_scores)}/{len(successful_pairs)} offspring")
-
-            # Stage 7: PAR2-based selection
-            selected_individuals, all_evaluated = select_by_par2(
-                filtered_offspring,
-                current_population,
-                par2_scores,
-                offspring_codes,
-                par2_threshold=par2_threshold,
-                keep_top_n=par2_keep_top_n,
-                generation=iteration + 1,
-            )
-
-            iter_summary["par2_selection"] = {
-                "evaluated": len(all_evaluated),
-                "selected": len(selected_individuals),
-                "par2_threshold": par2_threshold,
-                "selected_offspring": [
-                    {
-                        "algorithm_id": ind.algorithm_id,
-                        "par2": ind.par2,
-                        "generation": ind.generation,
-                    }
-                    for ind in selected_individuals
-                ],
-            }
-
-            if selected_individuals:
-                # Update top_tier: keep best unique individuals by algorithm_id
-                existing_ids = {ind.algorithm_id for ind in top_tier}
-                for ind in selected_individuals:
-                    if ind.algorithm_id not in existing_ids:
-                        top_tier.append(ind)
-                        existing_ids.add(ind.algorithm_id)
-
-                # Sort top_tier by PAR2 ascending and keep best
-                top_tier.sort(key=lambda x: x.par2)
-
-                new_best = top_tier[0].par2
-                if new_best < best_par2_so_far:
-                    logger.info(
-                        f"PAR2 improved: {best_par2_so_far:.2f} -> {new_best:.2f} "
-                        f"(delta={best_par2_so_far - new_best:.2f})"
-                    )
-                    best_par2_so_far = new_best
-                    iter_summary["par2_improved"] = True
-                    iter_summary["new_best_par2"] = new_best
-                else:
-                    logger.info(f"No PAR2 improvement this iteration (best={best_par2_so_far:.2f})")
-                    iter_summary["par2_improved"] = False
-
-                # Merge top-tier offspring into current_population for next iteration
-                # so that top-tier offspring can be combined with each other
-                current_ids = {ind.algorithm_id for ind in current_population}
-                new_members = [ind for ind in selected_individuals if ind.algorithm_id not in current_ids]
-                current_population.extend(new_members)
-                logger.info(
-                    f"Added {len(new_members)} new individuals to population "
-                    f"(total: {len(current_population)})"
-                )
-
-                # Update causal reports for new members
-                if new_members:
-                    logger.info(f"Generating causal reports for {len(new_members)} new individuals")
-                    new_reports = generate_causal_reports(new_members, model=model, baseline_par2=baseline_par2)
-                    causal_reports.update(new_reports)
-
-                save_top_tier(top_tier, output_dir)
-                iter_summary["status"] = "improved" if iter_summary.get("par2_improved") else "no_improvement"
-
-            else:
-                logger.info("No offspring selected by PAR2 this iteration")
-                iter_summary["status"] = "no_par2_selection"
-                iter_summary["par2_improved"] = False
-
-                if not all_evaluated:
-                    # SLURM may not have finished; do not stop the loop prematurely
-                    logger.warning(
-                        "No PAR2 scores available yet (SLURM may not have completed). "
-                        "Consider re-running after SLURM jobs finish."
-                    )
-                    summary["iterations"].append(iter_summary)
-                    break
-
-        else:
-            if not evaluate:
-                logger.info(
-                    "Evaluation skipped. Run evaluation.py separately:\n"
-                    f"  python src/llmsat/pipelines/evaluation.py "
-                    f"--run_all --generation_tag {iter_output_tag}"
-                )
-            iter_summary["evaluation"] = "skipped"
-            iter_summary["par2_selection"] = "skipped (no evaluation)"
-            iter_summary["status"] = "eval_skipped"
-            summary["iterations"].append(iter_summary)
-            # Without evaluation we can't loop meaningfully
-            break
-
-        summary["iterations"].append(iter_summary)
-
-        # Check stopping condition: no improvement in this iteration
-        if not iter_summary.get("par2_improved", False) and evaluate:
-            if all_evaluated:
-                logger.info(
-                    f"Stopping: PAR2 could not be improved further "
-                    f"(best={best_par2_so_far:.2f})"
-                )
-                break
+    # ------------------------------------------------------------------
+    # Stage 4: Flush remaining SLURM tasks
+    # ------------------------------------------------------------------
+    job_ids: List[int] = []
+    if evaluate and accumulator is not None:
+        job_ids = accumulator.flush_all()
+        logger.info(f"[SLURM] Total job arrays submitted: {len(job_ids)} → IDs: {job_ids}")
 
     # ------------------------------------------------------------------
     # Final summary
     # ------------------------------------------------------------------
-    summary["final_best_par2"] = best_par2_so_far
-    summary["top_tier_count"] = len(top_tier)
-    summary["top_tier"] = [
-        {
-            "algorithm_id": ind.algorithm_id,
-            "par2": ind.par2,
-            "generation": ind.generation,
-        }
-        for ind in top_tier
-    ]
+    summary["causal_reports_count"] = len(causal_reports)
+    summary["proposals"] = len(state.saved_proposals)
+    summary["crossovers"] = len(state.saved_crossovers)
+    summary["stored_pairs"] = len(state.stored_pairs)
+    summary["slurm_job_ids"] = job_ids
+    summary["timing"] = {
+        k: {"n": len(v), "avg_s": round(sum(v)/len(v), 2),
+            "min_s": round(min(v), 2), "max_s": round(max(v), 2),
+            "total_s": round(sum(v), 2)}
+        for k, v in state.timing_lists.items() if v
+    }
+    if not evaluate:
+        logger.info(
+            "Evaluation skipped (--evaluate not set). "
+            f"Run evaluation separately with generation_tag={iter_output_tag}"
+        )
+        summary["evaluation"] = "skipped"
+
+    _timing["total_s"] = round(time.time() - _t_run_start, 2)
+    logger.info(f"[TIMING] run_evolution total: {_timing['total_s']}s")
+    _save_timing_log(_timing, output_dir)
 
     summary_path = os.path.join(output_dir, "evolution_summary.json")
     with open(summary_path, "w") as f:
@@ -2921,26 +3328,50 @@ def main():
             "Skip all LLM stages (causal, crossover, rubric, codegen) and directly "
             "run evaluation on offspring already stored in DB under output_tag. "
             "Requires --output_tag (or derives it as {generation_tag}_gen1). "
-            "Iterates over output_tag_iter1, output_tag_iter2, ... up to --max_iterations."
+            "Iterates over output_tag_iter1, output_tag_iter2, ... until no offspring found."
         ),
     )
     parser.add_argument(
         "--nersc",
         action="store_true",
         default=False,
-        help="Use NERSC Perlmutter evaluation (128 CNFs per node, account m4831, --qos=regular)",
-    )
-    parser.add_argument(
-        "--submit_only",
-        action="store_true",
-        default=False,
-        help="Phase 1: run LLM stages + submit SLURM jobs, then stop. Use --collect_results after jobs finish.",
+        help="Use NERSC Perlmutter evaluation (128 tasks per node, account m4831, --qos=regular)",
     )
     parser.add_argument(
         "--collect_results",
         action="store_true",
         default=False,
-        help="Phase 2: skip LLM stages, collect PAR2 from completed SLURM jobs, run selection.",
+        help="Skip LLM stages; collect PAR2 from completed SLURM jobs and run PAR2 selection.",
+    )
+    parser.add_argument(
+        "--quick_eval",
+        action="store_true",
+        default=False,
+        help=(
+            "Use quick-eval benchmark list (~50 CNFs) and shorter timeout. "
+            "Sets --cnf_per_solver to 50 unless explicitly overridden."
+        ),
+    )
+    parser.add_argument(
+        "--n_api_threads",
+        type=int,
+        default=8,
+        help="Max concurrent LLM API calls across all pipeline stages (default: 8).",
+    )
+    parser.add_argument(
+        "--n_build_threads",
+        type=int,
+        default=4,
+        help="Max concurrent solver compilations (default: 4).",
+    )
+    parser.add_argument(
+        "--cnf_per_solver",
+        type=int,
+        default=None,
+        help=(
+            "SLURM task threshold for non-NERSC batch submission "
+            "(default: 50 if --quick_eval, else 400)."
+        ),
     )
     parser.add_argument(
         "--rubric_min",
@@ -3079,13 +3510,17 @@ def main():
         else:
             parser.error("--generation_tag is required when not using --folder")
 
+    # Derive cnf_per_solver default based on quick_eval
+    cnf_per_solver = args.cnf_per_solver
+    if cnf_per_solver is None:
+        cnf_per_solver = 50 if args.quick_eval else 400
+
     summary = run_evolution(
         generation_tag=args.generation_tag,
         code_prompt_path=args.code_prompt_path,
         output_tag=args.output_tag,
         folder=args.folder,
         top_k=args.top_k,
-        max_pairs=args.max_pairs,
         model=args.model,
         baseline_par2=args.baseline_par2,
         evaluate=args.evaluate,
@@ -3096,7 +3531,6 @@ def main():
         rubric_keep_top_n=args.rubric_keep_top_n,
         par2_threshold=args.par2_threshold,
         par2_keep_top_n=args.par2_keep_top_n,
-        max_iterations=1,  # always 1 per run; SLURM is async so multi-iter must be driven manually
         minibatch_size=args.minibatch_size,
         prev_output_tags=args.prev_output_tags,
         sample_size=args.sample_size,
@@ -3104,8 +3538,11 @@ def main():
         shuffle_passes=args.shuffle_passes,
         shuffle_seed=args.shuffle_seed,
         nersc=args.nersc,
-        submit_only=args.submit_only,
         collect_results=args.collect_results,
+        quick_eval=args.quick_eval,
+        n_api_threads=args.n_api_threads,
+        n_build_threads=args.n_build_threads,
+        cnf_per_solver=cnf_per_solver,
     )
 
     # Print summary

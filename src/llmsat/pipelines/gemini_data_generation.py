@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from llmsat.utils.gemini_helper import (
@@ -11,7 +12,7 @@ from llmsat.utils.gemini_helper import (
     wait_for_all_batches,
     get_response_from_gemini,
 )
-from llmsat.utils.paths import get_batch_output_dir, get_generation_output_dir
+from llmsat.utils.paths import get_algorithm_dir, get_batch_output_dir, get_generation_output_dir
 from llmsat.utils.aws import (
     get_ids_from_router_table,
     update_router_table,
@@ -305,6 +306,25 @@ def parse_code_response(response: Dict[str, Any]) -> str:
     return full_text
 
 
+def _save_timing_log(timing: Dict[str, Any], output_dir: str, filename: str = "timing_log.json") -> None:
+    """Append a timing record to the timing log JSON in output_dir."""
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, filename)
+    records = []
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                records = json.load(f)
+            if not isinstance(records, list):
+                records = [records]
+        except Exception:
+            records = []
+    records.append(timing)
+    with open(path, "w") as f:
+        json.dump(records, f, indent=2)
+    logger.info(f"[TIMING] Saved timing log to {path}")
+
+
 def _generate_team_data_sync(
     designer_prompt_path: str,
     variant_prompt_path: str,
@@ -324,6 +344,13 @@ def _generate_team_data_sync(
         "You are an AI researcher specialising in SAT solver heuristics.",
     )
 
+    _t_total_start = time.time()
+    _timing: Dict[str, Any] = {
+        "generation_tag": generation_tag,
+        "timestamp": datetime.now().isoformat(),
+        "script": "gemini_data_generation",
+    }
+
     # Step 1: Generate Team Leaders
     logger.info(f"[sync] Generating {n_leaders} Team Leaders")
     leader_ids = []
@@ -334,6 +361,7 @@ def _generate_team_data_sync(
         0.5 + (1.0 - 0.5) * i / max(n_leaders - 1, 1) for i in range(n_leaders)
     ]
 
+    _t0 = time.time()
     for i in range(n_leaders):
         logger.info(f"[sync] Leader {i+1}/{n_leaders} (temp={temperatures[i]:.2f})")
         raw_text = get_response_from_gemini(
@@ -364,12 +392,15 @@ def _generate_team_data_sync(
             prompt=designer_prompt,
         ))
 
+    _timing["leader_generation_s"] = round(time.time() - _t0, 2)
+    logger.info(f"[TIMING] Leader generation: {_timing['leader_generation_s']}s")
     logger.info(f"[sync] Generated {len(leader_ids)} Team Leaders")
 
     # Step 2: Generate Team Members
     logger.info(f"[sync] Generating {m_variants_per_leader} Team Members per leader")
     member_ids = []
 
+    _t0 = time.time()
     for leader_id in leader_ids:
         leader_algorithm = leader_descriptions[leader_id]
         num_steps = count_steps(leader_algorithm)
@@ -416,6 +447,8 @@ def _generate_team_data_sync(
                 prompt=variant_prompt_template,
             ))
 
+    _timing["member_generation_s"] = round(time.time() - _t0, 2)
+    logger.info(f"[TIMING] Member generation: {_timing['member_generation_s']}s")
     logger.info(f"[sync] Generated {len(member_ids)} Team Members")
 
     # Step 3: Generate code for all algorithms that don't have code yet
@@ -428,6 +461,7 @@ def _generate_team_data_sync(
 
     logger.info(f"[sync] Generating code for {len(codeless_ids)}/{len(all_algorithm_ids)} algorithms (skipping {len(all_algorithm_ids) - len(codeless_ids)} with existing code)")
 
+    _t0 = time.time()
     for idx, algorithm_id in enumerate(codeless_ids):
         logger.info(f"[sync] Code {idx+1}/{len(codeless_ids)} for {algorithm_id[:16]}...")
         algorithm_result = get_algorithm_result(algorithm_id)
@@ -455,6 +489,13 @@ def _generate_team_data_sync(
         algorithm_result.status = AlgorithmStatus.CodeGenerated
         update_algorithm_result(algorithm_result)
 
+    _timing["code_generation_s"] = round(time.time() - _t0, 2)
+    _timing["total_s"] = round(time.time() - _t_total_start, 2)
+    logger.info(f"[TIMING] Code generation: {_timing['code_generation_s']}s")
+    logger.info(f"[TIMING] Total: {_timing['total_s']}s")
+    output_dir = get_generation_output_dir(generation_tag)
+    _save_timing_log(_timing, output_dir)
+
     logger.info(f"[sync] Code generation complete for {len(codeless_ids)} algorithms")
 
 
@@ -467,6 +508,9 @@ def generate_team_data(
     m_variants_per_leader: int = 3,
     model: str = DEFAULT_MODEL,
     sync: bool = False,
+    parallel: bool = False,
+    quick_eval: bool = True,
+    nersc: bool = False
 ):
     """
     Generate team-based algorithm data and code using Gemini:
@@ -483,10 +527,30 @@ def generate_team_data(
         m_variants_per_leader: Number of Team Member variants per leader
         model: Gemini model to use
         sync: If True, use synchronous API calls instead of batch (faster for small runs)
+        parallel: If True, use streaming parallel pipeline (gen + build + submit)
+        quick_eval: Use quick-eval mode for SLURM evaluation
     """
     if generation_tag is None:
         logger.error("Generation tag is None")
         return
+
+    if parallel:
+        from llmsat.pipelines.parallel_orchestrator import run_streaming_init
+
+        designer_prompt = read_prompt_file(designer_prompt_path)
+        variant_prompt_template = read_prompt_file(variant_prompt_path)
+        code_prompt_template = read_prompt_file(code_prompt_template_path)
+        return run_streaming_init(
+            designer_prompt=designer_prompt,
+            variant_prompt_template=variant_prompt_template,
+            code_prompt_template=code_prompt_template,
+            generation_tag=generation_tag,
+            n_leaders=n_leaders,
+            m_variants_per_leader=m_variants_per_leader,
+            model=model,
+            quick_eval=quick_eval,
+            nersc=nersc
+        )
 
     if sync:
         return _generate_team_data_sync(
@@ -1124,6 +1188,9 @@ def generate_mutants_for_leaders(
     m_variants_per_leader: int = 3,
     model: str = DEFAULT_MODEL,
     sync: bool = False,
+    parallel: bool = False,
+    quick_eval: bool = True,
+    nersc: bool = False
 ):
     """
     Generate mutant variants + code for existing leaders (no new leader generation).
@@ -1168,7 +1235,20 @@ def generate_mutants_for_leaders(
     variant_prompt_template = read_prompt_file(variant_prompt_path)
     code_prompt_template = read_prompt_file(code_prompt_template_path)
 
-    if sync:
+    if parallel:
+        from llmsat.pipelines.parallel_orchestrator import run_streaming_mutants
+
+        result = run_streaming_mutants(
+            leaders=leaders,
+            variant_prompt_template=variant_prompt_template,
+            code_prompt_template=code_prompt_template,
+            generation_tag=output_generation_tag,
+            m_variants_per_leader=m_variants_per_leader,
+            model=model,
+            quick_eval=quick_eval,
+            nersc=nersc,
+        )
+    elif sync:
         result = _generate_mutants_sync(
             leaders=leaders,
             variant_prompt_template=variant_prompt_template,
@@ -1188,9 +1268,16 @@ def generate_mutants_for_leaders(
         )
 
     # Register leaders under the new output tag only after successful mutation
-    for leader_id in leaders:
+    # and save their AlgorithmResult JSON to the new iteration's leaders/ directory
+    # so that the filesystem memory bank is complete (evaluation may skip leaders
+    # via --skip-evaluated and would otherwise leave empty directories).
+    for leader_id, leader_result in leaders.items():
         update_router_table(CHATGPT_DATA_GENERATION_TABLE, leader_id, output_generation_tag)
-    logger.info(f"Registered {len(leaders)} leaders under {output_generation_tag}")
+        algo_dir = get_algorithm_dir(
+            leader_id, generation_tag=output_generation_tag, role=leader_result.role,
+        )
+        leader_result.save_to_json(algo_dir)
+    logger.info(f"Registered {len(leaders)} leaders under {output_generation_tag} (JSON saved)")
 
     return result
 
@@ -1319,6 +1406,14 @@ def main():
                         help="Gemini model to use")
     parser.add_argument("--sync", action="store_true",
                         help="Use synchronous API calls instead of batch")
+    parser.add_argument("--parallel", action="store_true",
+                        help="Streaming parallel pipeline (generate + build + SLURM submit)")
+    parser.add_argument("--quick-eval", action="store_true", default=True,
+                        help="Use quick-eval mode for SLURM evaluation (default: True)")
+    parser.add_argument("--no-quick-eval", action="store_false", dest="quick_eval",
+                        help="Use full evaluation mode")
+    parser.add_argument("--nersc", action="store_true",
+                        help="Use NERSC machine for evaluation instead of Compute Canada")
 
     args = parser.parse_args()
 
@@ -1336,6 +1431,9 @@ def main():
             m_variants_per_leader=args.m_variants,
             model=args.model,
             sync=args.sync,
+            parallel=args.parallel,
+            quick_eval=args.quick_eval,
+            nersc=args.nersc
         )
     else:
         generate_team_data(
@@ -1347,6 +1445,9 @@ def main():
             m_variants_per_leader=args.m_variants,
             model=args.model,
             sync=args.sync,
+            parallel=args.parallel,
+            quick_eval=args.quick_eval,
+            nersc=args.nersc
         )
 
 

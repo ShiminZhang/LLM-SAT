@@ -51,7 +51,7 @@ DEFAULT_REGISTRY_PATH = "solvers/base/function_registry.yaml"
 SLURM_ACCOUNT = "def-vganesh"
 SLURM_TIMEOUT_SECONDS = 5000           # 83 min 20 sec per CNF
 SLURM_WALL_TIME = "01:30:00"           # 90 min (timeout + buffer)
-SLURM_MEMORY = "2G"
+SLURM_MEMORY = "8G"
 SLURM_MAX_CONCURRENT = 1000 
 SLURM_MAX_ARRAY_SIZE = 1000
 PAR2_PENALTY = 10000                   # 2× timeout for unsolved
@@ -219,6 +219,8 @@ class EvaluationPipeline:
         solving_times: Dict[str, float] = {}
         solver_stats: Dict[str, Dict[str, Union[int, float]]] = {}
         timeouts_or_errors: List[str] = []
+        min_mtime: Optional[float] = None
+        max_mtime: Optional[float] = None
 
         if os.path.isdir(solver_dir):
             for file in os.listdir(solver_dir):
@@ -233,6 +235,11 @@ class EvaluationPipeline:
                     instance_stats = self.parse_solver_stats(log_path)
                     if instance_stats:
                         solver_stats[instance_name] = instance_stats
+                    mtime = os.path.getmtime(log_path)
+                    if min_mtime is None or mtime < min_mtime:
+                        min_mtime = mtime
+                    if max_mtime is None or mtime > max_mtime:
+                        max_mtime = mtime
         else:
             logger.warning(f"Solver directory missing: {solver_dir}")
 
@@ -272,6 +279,25 @@ class EvaluationPipeline:
         with open(result_path, "w") as f:
             json.dump(solving_times, f)
         logger.info(f"Wrote solving times to {result_path}")
+
+        # Append wall-clock timing entry to solver_timing_log.json
+        if min_mtime is not None and max_mtime is not None and self.generation_tag:
+            timing_log_path = os.path.join(get_generation_output_dir(self.generation_tag), "solver_timing_log.json")
+            timing_entries = []
+            if os.path.exists(timing_log_path):
+                try:
+                    with open(timing_log_path) as f:
+                        timing_entries = json.load(f)
+                except Exception:
+                    pass
+            timing_entries.append({
+                "alg_id": algorithm_id,
+                "solver_time": max_mtime - min_mtime,
+                "leader_flag": algorithm.parent_id is None if algorithm else True,
+            })
+            with open(timing_log_path, "w") as f:
+                json.dump(timing_entries, f, indent=2)
+            logger.info(f"Appended timing entry for {algorithm_id} to {timing_log_path}")
 
         if solver_stats:
             stats_path = result_path.replace("solving_times_", "solver_stats_")

@@ -19,7 +19,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from llmsat.llmsat import CHATGPT_DATA_GENERATION_TABLE, SAT2025_BENCHMARK_PATH
+from llmsat.llmsat import CHATGPT_DATA_GENERATION_TABLE, SAT2025_BENCHMARK_PATH, Role
 from llmsat.utils.aws import (
     get_algorithm_result,
     get_code_result,
@@ -51,8 +51,34 @@ class ProofCheckRecord:
     message: str = ""
 
 
-def _load_successful_pairs(generation_tag: str) -> List[tuple[str, str, Optional[List[str]]]]:
-    pairs: List[tuple[str, str, Optional[List[str]]]] = []
+def _load_successful_pairs(
+    generation_tag: str,
+) -> List[tuple[str, str, Optional[List[str]], Optional[Role]]]:
+    pairs: List[tuple[str, str, Optional[List[str]], Optional[Role]]] = []
+    best_pairs_path = REPO_ROOT / "outputs" / generation_tag / "best_solver_pairs.json"
+
+    if best_pairs_path.exists():
+        try:
+            with open(best_pairs_path, "r") as f:
+                best_pairs = json.load(f)
+        except Exception:
+            best_pairs = []
+
+        for pair in best_pairs:
+            role_name = str(pair.get("role", "")).lower()
+            role = Role.LEADER if role_name == "leaders" else Role.MEMBER if role_name == "members" else None
+            pairs.append(
+                (
+                    pair["algorithm_id"],
+                    pair["code_id"],
+                    None,
+                    role,
+                )
+            )
+
+        if pairs:
+            return pairs
+
     algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
 
     for algorithm_id in algorithm_ids:
@@ -64,7 +90,7 @@ def _load_successful_pairs(generation_tag: str) -> List[tuple[str, str, Optional
             if code_result is None:
                 continue
             if code_result.build_success is True:
-                pairs.append((algorithm_id, code_id, algo.parent_id))
+                pairs.append((algorithm_id, code_id, algo.parent_id, algo.role))
     return pairs
 
 
@@ -163,12 +189,13 @@ def gather_proof_tasks(
     instance_categories = _load_instance_categories()
     pairs = _load_successful_pairs(generation_tag)
 
-    for algorithm_id, code_id, parent_id in pairs:
+    for algorithm_id, code_id, parent_id, role in pairs:
         result_dir = get_solver_result_dir(
             algorithm_id,
             code_id,
             generation_tag=generation_tag,
             parent_id=parent_id,
+            role=role,
         )
 
         for log_path in sorted(glob.glob(os.path.join(result_dir, "*.solving.log"))):
@@ -180,6 +207,7 @@ def gather_proof_tasks(
                 cnf_file,
                 generation_tag=generation_tag,
                 parent_id=parent_id,
+                role=role,
                 create_dir=False,
             )
             log_content = _read_log_content(log_path)

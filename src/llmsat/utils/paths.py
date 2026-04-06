@@ -69,6 +69,7 @@ def get_solver_proof_dir(
     code_id: str,
     generation_tag: str = None,
     parent_id: str = None,
+    role: Optional[Role] = None,
     create_dir: bool = True,
 ) -> str:
     """Return directory for benchmark proof files of one generated solver."""
@@ -77,6 +78,7 @@ def get_solver_proof_dir(
         code_id,
         generation_tag=generation_tag,
         parent_id=parent_id,
+        role=role,
     )
     path = os.path.join(base_result_dir, "proofs")
     if create_dir and not os.path.exists(path):
@@ -90,6 +92,7 @@ def get_solver_proof_path(
     benchmark_file: str,
     generation_tag: str = None,
     parent_id: str = None,
+    role: Optional[Role] = None,
     create_dir: bool = True,
 ) -> str:
     """Return proof file path for one (solver, benchmark CNF) run."""
@@ -98,6 +101,7 @@ def get_solver_proof_path(
         code_id,
         generation_tag=generation_tag,
         parent_id=parent_id,
+        role=role,
         create_dir=create_dir,
     )
     return os.path.join(proof_dir, f"{benchmark_file}.proof")

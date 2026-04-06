@@ -18,7 +18,7 @@ except (FileNotFoundError, ImportError):
 def _get_gemini_client():
     """
     Initialize the Gemini client using environment variables.
-    Requires GOOGLE_API_KEY.
+    Requires GOOGLE_PROJECT_ID for Vertex AI.
     """
     try:
         from google import genai
@@ -26,12 +26,15 @@ def _get_gemini_client():
         raise RuntimeError(
             "The 'google-genai' package is required. Install with: pip install google-genai"
         ) from exc
-
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY is not set in environment.")
-
-    return genai.Client(api_key=api_key)
+        
+    project_id = os.environ.get("GOOGLE_PROJECT_ID")
+    if not project_id:
+        raise RuntimeError("GOOGLE_PROJECT_ID is not set in environment.")
+        
+    # print("Using google cloud project_id: ", project_id)
+    os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
+        
+    return genai.Client(vertexai=True, project=project_id, location="global")
 
 
 def get_response_from_gemini(
@@ -83,6 +86,7 @@ def get_response_from_gemini(
 
             # Extract text from response
             if hasattr(response, "text"):
+                # print("Response: ", response.text)
                 return response.text
 
             # Fallback: traverse candidates structure
