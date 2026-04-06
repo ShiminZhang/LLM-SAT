@@ -44,12 +44,15 @@ TARGET_TAG="${OUTPUT_TAG}_ge" #assume never repetitive
 TOP_K="${TOP_K:-10}"
 MINIBATCH_SIZE="${MINIBATCH_SIZE:-10}"
 RUBRIC_MIN="${RUBRIC_MIN:-6.0}"
-RUBRIC_KEEP_TOP_N="${RUBRIC_KEEP_TOP_N:-15}"
+RUBRIC_KEEP_TOP_N="${RUBRIC_KEEP_TOP_N:-50}"
 _CFG_MODEL=$(grep '^default_model:' path_config.yaml 2>/dev/null | sed 's/^default_model:[[:space:]]*//' | tr -d '"' || true)
 MODEL="${MODEL:-${_CFG_MODEL:-gemini-3-flash-preview}}"
 SHUFFLE_PASSES="${SHUFFLE_PASSES:-2}"
 PAR2_KEEP_TOP_N="${PAR2_KEEP_TOP_N:-50}"
 POLL_INTERVAL="${POLL_INTERVAL:-120}"
+N_API_THREADS="${N_API_THREADS:-5}"
+N_BUILD_THREADS="${N_BUILD_THREADS:-10}"
+QUICK_EVAL="${QUICK_EVAL:-1}"
 
 case "$CLUSTER" in
     cc)
@@ -80,6 +83,9 @@ echo "  shuffle_passes:   $SHUFFLE_PASSES"
 echo "  model:            $MODEL"
 echo "  par2_keep_top_n:  $PAR2_KEEP_TOP_N"
 echo "  poll_interval:    ${POLL_INTERVAL}s"
+echo "  n_api_threads:    $N_API_THREADS"
+echo "  n_build_threads:  $N_BUILD_THREADS"
+echo "  Quick eval:       $QUICK_EVAL"
 echo "============================================"
 
 # Promote top-N offspring to leaders, then run GE Phase 1 (submit_only)
@@ -88,15 +94,19 @@ python "$GE_SCRIPT" \
     --source_tag "$INPUT_TAG" \
     --target_tag "$TARGET_TAG" \
     --output_tag "$OUTPUT_TAG" \
+    --top_n_promote "$RUBRIC_KEEP_TOP_N" \
     --evaluate \
-    --submit_only \
     --top_k "$TOP_K" \
     --minibatch_size "$MINIBATCH_SIZE" \
     --rubric_min "$RUBRIC_MIN" \
     --rubric_keep_top_n "$RUBRIC_KEEP_TOP_N" \
     --shuffle_passes "$SHUFFLE_PASSES" \
     --model "$MODEL" \
-    $NERSC_FLAG
+    $NERSC_FLAG \
+    ${QUICK_EVAL:+--quick_eval} \
+    --n_api_threads "$N_API_THREADS" \
+    --n_build_threads "$N_BUILD_THREADS"
+
 
 # Poll SLURM until all user jobs finish
 echo ""
