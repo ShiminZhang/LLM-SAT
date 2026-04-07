@@ -4,10 +4,11 @@ Here is the given strategy that you are creating a variant of:
 
 {leader_algorithm}
 
-You will be targeting a specific step within the leader algorithm. Your step will be: 
+You will be targeting a specific step within the leader algorithm. Your step will be:
 
 {target_step_num}
 
+{experience_pool_section}
 Generate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.
 
 ### Required Output JSON

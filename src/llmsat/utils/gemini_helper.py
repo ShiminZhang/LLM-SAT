@@ -1,5 +1,6 @@
 import os
 import time
+import random
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from llmsat.llmsat import setup_logging, get_logger
@@ -45,6 +46,8 @@ def get_response_from_gemini(
     max_retries: int = 5,
     initial_delay: float = 20.0,
     backoff_factor: float = 2.0,
+    max_backoff: float = 100.0,
+    jitter_ratio: float = 0.2,
 ) -> str:
     """
     Single-turn call to Gemini API with exponential-backoff retry.
@@ -62,9 +65,10 @@ def get_response_from_gemini(
         backoff_factor: Multiplier applied to the delay after each retry.
     """
     try:
-        from google.genai.errors import ServerError
+        from google.genai.errors import APIError, ClientError, ServerError
+        known_api_errors = (APIError, ClientError, ServerError)
     except ImportError:
-        ServerError = Exception  # fallback: retry on any exception
+        known_api_errors = (Exception,)
 
     client = _get_gemini_client()
     chosen_model = model or os.environ.get("GEMINI_MODEL", _DEFAULT_MODEL)
@@ -75,6 +79,44 @@ def get_response_from_gemini(
 
     RETRYABLE_CODES = {429, 500, 503}
     delay = initial_delay
+
+    def _extract_status_code(exc: Exception) -> Optional[int]:
+        for attr in ("status_code", "code", "status"):
+            value = getattr(exc, attr, None)
+            if isinstance(value, int):
+                return value
+
+        response = getattr(exc, "response", None)
+        if response is not None:
+            value = getattr(response, "status_code", None)
+            if isinstance(value, int):
+                return value
+        return None
+
+    def _extract_retry_after_seconds(exc: Exception) -> Optional[float]:
+        response = getattr(exc, "response", None)
+        headers = getattr(response, "headers", None)
+        if not headers:
+            return None
+        retry_after = headers.get("retry-after") or headers.get("Retry-After")
+        if retry_after is None:
+            return None
+        try:
+            return max(0.0, float(retry_after))
+        except (TypeError, ValueError):
+            return None
+
+    def _is_retryable(exc: Exception, status_code: Optional[int]) -> bool:
+        if status_code in RETRYABLE_CODES:
+            return True
+        msg = str(exc).lower()
+        return (
+            "resource_exhausted" in msg
+            or "too many requests" in msg
+            or "rate limit" in msg
+            or "temporarily unavailable" in msg
+            or "service unavailable" in msg
+        )
 
     for attempt in range(max_retries + 1):
         try:
@@ -99,19 +141,31 @@ def get_response_from_gemini(
 
             return str(response)
 
-        except ServerError as e:
-            status_code = getattr(e, "status_code", None)
-            if status_code not in RETRYABLE_CODES or attempt == max_retries:
+        except Exception as e:
+            if not isinstance(e, known_api_errors):
+                raise
+
+            status_code = _extract_status_code(e)
+            retryable = _is_retryable(e, status_code)
+            if not retryable or attempt == max_retries:
                 logger.error(
                     f"Gemini API error (code={status_code}, attempt={attempt + 1}): {e}"
                 )
                 raise
+
+            retry_after = _extract_retry_after_seconds(e)
+            if retry_after is not None:
+                sleep_seconds = retry_after
+            else:
+                jitter = 1.0 + random.uniform(-jitter_ratio, jitter_ratio)
+                sleep_seconds = max(0.0, delay * jitter)
+
             logger.warning(
                 f"Gemini API transient error (code={status_code}, attempt={attempt + 1}/{max_retries + 1}). "
-                f"Retrying in {delay:.0f}s... [{e}]"
+                f"Retrying in {sleep_seconds:.1f}s... [{e}]"
             )
-            time.sleep(delay)
-            delay *= backoff_factor
+            time.sleep(sleep_seconds)
+            delay = min(delay * backoff_factor, max_backoff)
 
 
 def build_gemini_batch_request(
