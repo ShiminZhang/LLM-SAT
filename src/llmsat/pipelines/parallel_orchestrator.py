@@ -169,25 +169,31 @@ class ParallelPipeline:
         # Evaluation pipeline (reuse existing build_solver / slurm_run_evaluate)
         if nersc:
             from llmsat.pipelines.evaluation_nersc import (
-                EvaluationPipeline,
-                QUICK_EVAL_TIMEOUT_SECONDS,
-                QUICK_EVAL_WALL_TIME,
-                QUICK_EVAL_PAR2_PENALTY,
-                QUICK_EVAL_BENCHMARK_LIST,
+                EvaluationPipeline as NerscEvaluationPipeline,
+                QUICK_EVAL_TIMEOUT_SECONDS as NERSC_QUICK_EVAL_TIMEOUT_SECONDS,
+                QUICK_EVAL_WALL_TIME as NERSC_QUICK_EVAL_WALL_TIME,
+                QUICK_EVAL_PAR2_PENALTY as NERSC_QUICK_EVAL_PAR2_PENALTY,
+                QUICK_EVAL_BENCHMARK_LIST as NERSC_QUICK_EVAL_BENCHMARK_LIST,
             )
-            self.eval_pipeline = EvaluationPipeline(generation_tag=generation_tag)
+            self.eval_pipeline = NerscEvaluationPipeline(generation_tag=generation_tag)
+            if quick_eval:
+                self.eval_pipeline.timeout = NERSC_QUICK_EVAL_TIMEOUT_SECONDS
+                self.eval_pipeline.wall_time = NERSC_QUICK_EVAL_WALL_TIME
+                self.eval_pipeline.par2_penalty = NERSC_QUICK_EVAL_PAR2_PENALTY
+                benchmark_list = NERSC_QUICK_EVAL_BENCHMARK_LIST
         else:
             self.eval_pipeline = EvaluationPipeline(generation_tag=generation_tag)
+            if quick_eval:
+                self.eval_pipeline.timeout = QUICK_EVAL_TIMEOUT_SECONDS
+                self.eval_pipeline.wall_time = QUICK_EVAL_WALL_TIME
+                self.eval_pipeline.par2_penalty = QUICK_EVAL_PAR2_PENALTY
+                benchmark_list = QUICK_EVAL_BENCHMARK_LIST
         if quick_eval:
-            self.eval_pipeline.timeout = QUICK_EVAL_TIMEOUT_SECONDS
-            self.eval_pipeline.wall_time = QUICK_EVAL_WALL_TIME
-            self.eval_pipeline.par2_penalty = QUICK_EVAL_PAR2_PENALTY
-            benchmark_list = QUICK_EVAL_BENCHMARK_LIST
             if os.path.exists(benchmark_list):
                 with open(benchmark_list) as f:
                     self.eval_pipeline.cnf_files = [line.strip() for line in f if line.strip()]
                 logger.info(f"Quick-eval mode: {len(self.eval_pipeline.cnf_files)} CNFs, "
-                            f"{QUICK_EVAL_TIMEOUT_SECONDS}s timeout")
+                            f"{self.eval_pipeline.timeout}s timeout")
             else:
                 logger.warning(f"Quick-eval benchmark list not found: {benchmark_list}")
 
