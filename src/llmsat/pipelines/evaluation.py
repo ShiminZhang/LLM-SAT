@@ -203,6 +203,21 @@ class EvaluationPipeline:
     def collect_results(self, algorithm_id: str, code_id: str, force_recollect: bool = False) -> Optional[float]:
         """Collect evaluation results from solver logs and compute PAR2 score."""
         algorithm = get_algorithm_result(algorithm_id)
+        # Patch mutation_step from the generation-time map file (not stored in DB).
+        if algorithm is not None and algorithm.mutation_step is None:
+            map_path = os.path.join(
+                get_generation_output_dir(self.generation_tag), "mutation_step_map.jsonl"
+            )
+            if os.path.exists(map_path):
+                try:
+                    with open(map_path) as _f:
+                        for _line in _f:
+                            _entry = json.loads(_line.strip())
+                            if algorithm_id in _entry:
+                                algorithm.mutation_step = _entry[algorithm_id]
+                                break
+                except Exception:
+                    pass
         existing_code_result = get_code_result(code_id)
         algo_role = algorithm.role if algorithm else None
         solver_dir = get_solver_result_dir(algorithm_id, code_id,

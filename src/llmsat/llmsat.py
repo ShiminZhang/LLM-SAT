@@ -79,6 +79,9 @@ class AlgorithmResult:
     # LLM reasoning about why this algorithm is good
     analysis: Optional[str] = None
 
+    # For mutants only: which step of the leader algorithm this mutant was derived from
+    mutation_step: Optional[str] = None
+
     # Metadata
     prompt: str = ""
     other_metrics: Dict[str, Any] = field(default_factory=dict)

@@ -284,7 +284,18 @@ class ParallelPipeline:
                 parent_algorithm_description=[leader_algorithm],
                 analysis=member_reason,
                 prompt=variant_prompt_template,
+                mutation_step=str(target_step),
             )
+
+            # Record mutation step to disk so evaluation can patch it after DB round-trip
+            try:
+                map_path = os.path.join(
+                    get_generation_output_dir(self.generation_tag),
+                    "mutation_step_map.jsonl",
+                )
+                atomic_append(map_path, json.dumps({member_id: str(target_step)}) + "\n")
+            except Exception as e:
+                logger.warning(f"[parallel] Failed to record mutation step for {member_id}: {e}")
 
             # DB writes
             await loop.run_in_executor(

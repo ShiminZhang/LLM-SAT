@@ -107,6 +107,37 @@ def count_steps(algorithm_text: str) -> int:
     return len(matches)
 
 
+def _step_from_response(response_dict: Dict[str, Any], assignments: List[int]) -> Optional[str]:
+    """Return the mutation step string for a batch response, or None on any error.
+
+    Uses the custom_id field (format: "req-0001") embedded in every Gemini batch
+    response to recover the 0-based index into *assignments*, which maps to the
+    target step number. This is robust against skipped/empty lines because the
+    index is taken from the response itself, not from line position.
+    """
+    try:
+        custom_id = response_dict.get("custom_id", "")
+        idx = int(custom_id.split("-")[-1]) - 1  # "req-0001" -> 0
+        return str(assignments[idx])
+    except Exception:
+        return None
+
+
+def _record_mutation_step(algo_id: str, step: str, generation_tag: str) -> None:
+    """Append algo_id -> step to the generation tag's mutation step map file.
+
+    The map is a JSONL file (one {"id": "step"} per line) stored next to other
+    generation outputs.  Reading is done in evaluation.collect_results to patch
+    the DB-fetched AlgorithmResult before save_to_json is called.
+    """
+    try:
+        from llmsat.utils.utils import atomic_append
+        map_path = os.path.join(get_generation_output_dir(generation_tag), "mutation_step_map.jsonl")
+        atomic_append(map_path, json.dumps({algo_id: step}) + "\n")
+    except Exception as e:
+        logger.warning(f"Failed to record mutation step for {algo_id}: {e}")
+
+
 def create_batch_input_file_variant(
     prompts: List[str],
     output_path: str,
@@ -445,7 +476,9 @@ def _generate_team_data_sync(
                 parent_algorithm_description=[leader_descriptions.get(leader_id, "")],
                 analysis=member_reason,
                 prompt=variant_prompt_template,
+                mutation_step=str(target_step),
             ))
+            _record_mutation_step(member_id, str(target_step), generation_tag)
 
     _timing["member_generation_s"] = round(time.time() - _t0, 2)
     logger.info(f"[TIMING] Member generation: {_timing['member_generation_s']}s")
@@ -633,6 +666,7 @@ def generate_team_data(
 
     waiting_batch_names = []
     batch_name_to_leader_id = {}
+    leader_step_assignments: Dict[str, List[int]] = {}
 
     for leader_id in leader_ids:
         leader_result = get_algorithm_result(leader_id)
@@ -657,6 +691,8 @@ def generate_team_data(
             start_step = num_steps - m_variants_per_leader + 1
             for i in range(m_variants_per_leader):
                 step_assignments.append(start_step + i)
+
+        leader_step_assignments[leader_id] = step_assignments
 
         logger.info(
             f"Leader {leader_id[:8]}... has {num_steps} steps, "
@@ -745,6 +781,9 @@ def generate_team_data(
                     parent_algorithm_description=[leader_descriptions.get(leader_id, "")],
                     analysis=member_reason,
                     prompt=variant_prompt_template,
+                    mutation_step=_step_from_response(
+                        member_response, leader_step_assignments.get(leader_id, [])
+                    ),
                 )
                 update_algorithm_result(member_result)
 
@@ -936,7 +975,9 @@ def _generate_mutants_sync(
                 parent_algorithm_description=[leader_algorithm],
                 analysis=member_reason,
                 prompt=variant_prompt_template,
+                mutation_step=str(target_step),
             ))
+            _record_mutation_step(member_id, str(target_step), generation_tag)
 
     logger.info(f"[sync] Generated {len(member_ids)} new mutants")
 
@@ -993,6 +1034,7 @@ def _generate_mutants_batch(
     # Submit variant generation batches
     waiting_batch_names = []
     batch_name_to_leader_id = {}
+    batch_name_to_step_assignments: Dict[str, List[int]] = {}
 
     for leader_id, leader_result in leaders.items():
         leader_algorithm = leader_result.description
@@ -1030,6 +1072,7 @@ def _generate_mutants_batch(
         batch_name = submit_batch_input(member_batch_input_path, model=model)
         waiting_batch_names.append(batch_name)
         batch_name_to_leader_id[batch_name] = leader_id
+        batch_name_to_step_assignments[batch_name] = step_assignments
 
     # Save batch mapping
     batch_id_map = {
@@ -1061,6 +1104,7 @@ def _generate_mutants_batch(
         )
         download_batch_outputs(batch_name, member_output_path)
 
+        step_assignments_for_batch = batch_name_to_step_assignments.get(batch_name, [])
         with open(member_output_path, "r") as f:
             for line in f:
                 line = line.strip()
@@ -1090,6 +1134,7 @@ def _generate_mutants_batch(
                     parent_algorithm_description=[leader_result.description],
                     analysis=member_reason,
                     prompt=variant_prompt_template,
+                    mutation_step=_step_from_response(member_response, step_assignments_for_batch),
                 ))
 
         logger.info(f"Generated members for leader {leader_id}")
