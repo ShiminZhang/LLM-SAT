@@ -282,7 +282,7 @@ def load_population(generation_tag: str, leaders_only: bool = True) -> List[Indi
 
     _t_load = time.time()
     load_times: List[float] = []
-    n_workers = min(32, max(1, len(algorithm_ids)))
+    n_workers = min(10, max(1, len(algorithm_ids)))
     with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="load_pop") as pool:
         futures = {pool.submit(_load_single_leader, aid, leaders_only): aid
                    for aid in algorithm_ids}
@@ -1672,7 +1672,7 @@ def promote_offspring_to_leaders(
 
     _t_load = time.time()
     candidates = []
-    n_workers = min(32, max(1, len(all_ids)))
+    n_workers = min(10, max(1, len(all_ids)))
     with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="promote") as pool:
         futures = {pool.submit(_load_candidate, aid): aid for aid in all_ids}
         for fut, aid in futures.items():
