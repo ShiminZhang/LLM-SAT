@@ -69,6 +69,17 @@ class BaseExperiencePool:
 
         self.runtime = runtime
 
+    @staticmethod
+    def _short_text(text: str, max_len: int = 140) -> str:
+        """Return one-line shortened text for concise logs."""
+
+        if not isinstance(text, str):
+            return ""
+        compact = " ".join(text.split())
+        if len(compact) <= max_len:
+            return compact
+        return compact[: max_len - 3] + "..."
+
     def validate_record(self, record: ExperienceRecord) -> None:
         """Validate record schema for this pool.
 
@@ -235,6 +246,7 @@ class BaseExperiencePool:
         top_k: int,
         outcome: OutcomeQuery = None,
         balanced: bool = False,
+        verbose: bool = True,
     ) -> List[RetrievedExperience]:
         """Retrieve semantically similar experiences from this pool.
 
@@ -255,7 +267,19 @@ class BaseExperiencePool:
         """
 
         if top_k <= 0:
+            if verbose:
+                print(
+                    f"[{self.__class__.__name__}.retrieve] pool='{self.pool_name}' skipped: top_k={top_k}"
+                )
             return []
+
+        if verbose:
+            outcome_str = outcome.value if outcome is not None else "ALL"
+            print(
+                f"[{self.__class__.__name__}.retrieve] pool='{self.pool_name}' "
+                f"start: top_k={top_k}, outcome={outcome_str}, balanced={balanced}, "
+                f"query='{self._short_text(query_text)}'"
+            )
 
         query_vector = self.runtime.embedding.encode([query_text])[0]
 
@@ -266,7 +290,13 @@ class BaseExperiencePool:
             outcomes = list(self.allowed_outcomes)
 
         if len(outcomes) == 1:
-            return self._search_partition(query_vector=query_vector, top_k=top_k, outcome=outcomes[0])
+            result = self._search_partition(query_vector=query_vector, top_k=top_k, outcome=outcomes[0])
+            if verbose:
+                print(
+                    f"[{self.__class__.__name__}.retrieve] pool='{self.pool_name}' done: "
+                    f"returned={len(result)}"
+                )
+            return result
 
         if balanced:
             per_partition = max(1, top_k // len(outcomes))
@@ -278,13 +308,29 @@ class BaseExperiencePool:
 
             partial.sort(key=lambda x: x.score, reverse=True)
             if len(partial) >= top_k:
-                return partial[:top_k]
+                result = partial[:top_k]
+                if verbose:
+                    print(
+                        f"[{self.__class__.__name__}.retrieve] pool='{self.pool_name}' done: "
+                        f"returned={len(result)} (balanced)"
+                    )
+                return result
 
             # Backfill from all partitions if balanced split did not produce enough.
             merged = self._search_all_partitions(query_vector=query_vector, top_k=top_k)
+            if verbose:
+                print(
+                    f"[{self.__class__.__name__}.retrieve] pool='{self.pool_name}' done: "
+                    f"returned={len(merged)} (balanced+backfill)"
+                )
             return merged
 
-        return self._search_all_partitions(query_vector=query_vector, top_k=top_k)
+        merged = self._search_all_partitions(query_vector=query_vector, top_k=top_k)
+        if verbose:
+            print(
+                f"[{self.__class__.__name__}.retrieve] pool='{self.pool_name}' done: returned={len(merged)}"
+            )
+        return merged
 
     def sample(
         self,
@@ -960,6 +1006,9 @@ class AlgorithmExperiencePool(BaseExperiencePool):
         """
 
         root = Path(input_dir)
+        print(
+            f"[AlgorithmExperiencePool.update] start: input_dir='{root}', batch_size={max(1, int(batch_size))}"
+        )
         leaders_dir = root / "leaders"
         members_dir = root / "members"
 
@@ -1109,6 +1158,9 @@ class AlgorithmExperiencePool(BaseExperiencePool):
             baseline_code=baseline_code,
             batch_size=max(1, int(batch_size)),
             debug=debug,
+        )
+        print(
+            f"[AlgorithmExperiencePool.update] analysis stage done: generated={len(analysis_map)}/{len(selected_bad)}"
         )
 
         for cand in selected_bad:
@@ -1394,7 +1446,7 @@ class MutationExperiencePool(BaseExperiencePool):
                             "You are an expert SAT solver engineer. "
                             "Return valid JSON wrapped in ```json ... ``` only."
                         ),
-                        model="gpt-5.4-2026-03-05",
+                        model="gemini-3-flash-preview",
                         temperature=0.7,
                     )
 
@@ -1523,6 +1575,10 @@ class MutationExperiencePool(BaseExperiencePool):
         """
 
         root = Path(input_dir)
+        print(
+            f"[MutationExperiencePool.update] start: input_dir='{root}', "
+            f"top_k_good={max(0, int(top_k_good))}, top_k_bad={max(0, int(top_k_bad))}"
+        )
         leaders_dir = root / "leaders"
         members_dir = root / "members"
 
@@ -1652,7 +1708,12 @@ class MutationExperiencePool(BaseExperiencePool):
 
             member_id = payload.get("id")
             member_desc = payload.get("description")
+            # Backward/forward compatibility:
+            # - older payloads used `step`
+            # - current generation payloads use `mutation_step`
             member_step = payload.get("step")
+            if not self._is_nonempty_str(member_step):
+                member_step = payload.get("mutation_step")
             member_function_name = payload.get("function_name")
             member_code_id = self._extract_singleton_str_from_fields(
                 payload,
@@ -1821,6 +1882,11 @@ class MutationExperiencePool(BaseExperiencePool):
                 print(f" - {cand['pair_key']}: leader_id={cand['leader_algorithm_id']}, member_id={cand['member_algorithm_id']}, step={cand['step']}, rel_change={cand['relative_change']:.4f}")
             print()
 
+        print(
+            f"[MutationExperiencePool.update] generation stage: "
+            f"selected_good={len(selected_good)}, selected_bad={len(selected_bad)}"
+        )
+
         good_analysis_map = self._generate_mutation_batch_analyses(
             candidates=selected_good,
             outcome=OutcomeLabel.GOOD,
@@ -1935,6 +2001,7 @@ class CombinationExperiencePool(BaseExperiencePool):
         top_k: int,
         outcome: OutcomeQuery = None,
         balanced: bool = False,
+        verbose: bool = True,
     ) -> List[RetrievedExperience]:
         """Retrieve from combination pool using one query or potential leaders.
 
@@ -1961,6 +2028,10 @@ class CombinationExperiencePool(BaseExperiencePool):
         """
 
         if top_k <= 0:
+            if verbose:
+                print(
+                    f"[{self.__class__.__name__}.retrieve] pool='{self.pool_name}' skipped: top_k={top_k}"
+                )
             return []
 
         if isinstance(query_text, str):
@@ -1984,7 +2055,16 @@ class CombinationExperiencePool(BaseExperiencePool):
             )
 
         if not query_texts:
+            if verbose:
+                print(f"[{self.__class__.__name__}.retrieve] pool='{self.pool_name}' no valid queries")
             return []
+
+        if verbose:
+            outcome_str = outcome.value if outcome is not None else "ALL"
+            print(
+                f"[{self.__class__.__name__}.retrieve] pool='{self.pool_name}' "
+                f"start: sub_queries={len(query_texts)}, top_k={top_k}, outcome={outcome_str}, balanced={balanced}"
+            )
 
         best_by_record_id: Dict[str, RetrievedExperience] = {}
 
@@ -1994,6 +2074,7 @@ class CombinationExperiencePool(BaseExperiencePool):
                 top_k=top_k,
                 outcome=outcome,
                 balanced=balanced,
+                verbose=False,
             )
 
             for hit in hits:
@@ -2003,7 +2084,13 @@ class CombinationExperiencePool(BaseExperiencePool):
 
         merged = list(best_by_record_id.values())
         merged.sort(key=lambda x: (x.score, x.record_id), reverse=True)
-        return merged[:top_k]
+        result = merged[:top_k]
+        if verbose:
+            print(
+                f"[{self.__class__.__name__}.retrieve] pool='{self.pool_name}' done: "
+                f"unique_candidates={len(merged)}, returned={len(result)}"
+            )
+        return result
 
     def _dict_to_record(self, payload_dict: dict) -> ExperienceRecord:
         """Deserialize dictionary into `CombinationExperienceRecord`.
@@ -2404,6 +2491,11 @@ class CombinationExperiencePool(BaseExperiencePool):
 
         combined_root = Path(combined_dir)
         parent_root = Path(parent_source_dir)
+        print(
+            f"[CombinationExperiencePool.update] start: combined_dir='{combined_root}', "
+            f"parent_source_dir='{parent_root}', top_k_good={max(0, int(top_k_good))}, "
+            f"top_k_bad={max(0, int(top_k_bad))}"
+        )
 
         combined_members_dir = combined_root / "members"
         if not combined_members_dir.exists() or not combined_members_dir.is_dir():
@@ -2620,6 +2712,11 @@ class CombinationExperiencePool(BaseExperiencePool):
         selected_bad = bad_candidates[: max(0, int(top_k_bad))]
         summary["selected_good"] = len(selected_good)
         summary["selected_bad"] = len(selected_bad)
+
+        print(
+            f"[CombinationExperiencePool.update] generation stage: "
+            f"selected_good={len(selected_good)}, selected_bad={len(selected_bad)}"
+        )
 
         if debug:
             print("\n[DEBUG] Selected GOOD triplets:")

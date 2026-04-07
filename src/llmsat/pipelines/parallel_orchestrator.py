@@ -66,7 +66,14 @@ from llmsat.pipelines.evaluation import (
     QUICK_EVAL_PAR2_PENALTY,
     QUICK_EVAL_BENCHMARK_LIST,
 )
-from llmsat.config import DEFAULT_MODEL
+from llmsat.config import DEFAULT_MODEL, EXPERIENCE_POOL_DATA_ROOT
+
+try:
+    from experience_pool import ExperiencePoolManager as _ExperiencePoolManager
+    _EXPERIENCE_POOL_AVAILABLE = True
+except ImportError:
+    _ExperiencePoolManager = None
+    _EXPERIENCE_POOL_AVAILABLE = False
 
 logger = get_logger(__name__)
 
@@ -240,9 +247,103 @@ class ParallelPipeline:
             "You are an AI researcher specialising in SAT solver heuristics.",
         )
 
+        # Experience pool (optional — degrades gracefully if unavailable)
+        self.exp_pool_manager = None
+        if _EXPERIENCE_POOL_AVAILABLE and EXPERIENCE_POOL_DATA_ROOT is not None:
+            try:
+                self.exp_pool_manager = _ExperiencePoolManager(
+                    data_root=EXPERIENCE_POOL_DATA_ROOT
+                )
+                logger.info(
+                    f"[parallel] Experience pool initialized at: {EXPERIENCE_POOL_DATA_ROOT}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"[parallel] Experience pool init failed (pool disabled): {e}"
+                )
+                self.exp_pool_manager = None
+
     # ------------------------------------------------------------------ #
     # Stage 1: Algorithm (variant) generation
     # ------------------------------------------------------------------ #
+
+    def _build_experience_section(self, leader_algorithm: str, target_step: int) -> str:
+        """Query mutation pool and return a formatted section for prompt injection.
+
+        Returns "" when pool is disabled, empty, or any error occurs — so the
+        prompt degrades cleanly to zero-shot.
+        """
+        if self.exp_pool_manager is None:
+            return ""
+
+        step_text = extract_step_text(leader_algorithm, target_step)
+        query = (
+            f"Leader Algorithm Description: {leader_algorithm}\n"
+            f"Mutation Step: {step_text}"
+        )
+
+        try:
+            logger.info(
+                f"[exp_pool] Querying mutation pool for step {target_step} "
+                f"(leader_len={len(leader_algorithm)})"
+            )
+            res = self.exp_pool_manager.search_experience_pool(
+                pool_name="mutation",
+                query_text=query,
+                retrieve_good_k=3,
+                retrieve_bad_k=3,
+                sample_good_k=0,
+                sample_bad_k=0,
+            )
+
+            good_hits = res.good.unique
+            bad_hits = res.bad.unique
+
+            logger.info(
+                f"[exp_pool] Retrieved {len(good_hits)} good, "
+                f"{len(bad_hits)} bad mutation examples (step {target_step})"
+            )
+
+            if not good_hits and not bad_hits:
+                return ""
+
+            lines = [
+                "### Past Mutation Experience",
+                "",
+                "The following examples come from previous iterations of this evolutionary "
+                "search. Use them to guide your mutation: learn from the structure of good "
+                "mutations and avoid the failure modes of bad ones.",
+            ]
+
+            if good_hits:
+                lines += ["", "#### Good Mutations (what worked)", ""]
+                for i, hit in enumerate(good_hits, start=1):
+                    rec = hit.payload  # MutationExperienceRecord
+                    lines += [
+                        f"**Example {i}**",
+                        f"- Mutation step: {rec.step}",
+                        f"- Resulting variant: {rec.member_algorithm_description}",
+                        f"- Why it improved: {rec.analysis}",
+                        "",
+                    ]
+
+            if bad_hits:
+                lines += ["#### Bad Mutations (what to avoid)", ""]
+                for i, hit in enumerate(bad_hits, start=1):
+                    rec = hit.payload  # MutationExperienceRecord
+                    lines += [
+                        f"**Example {i}**",
+                        f"- Mutation step: {rec.step}",
+                        f"- Resulting variant: {rec.member_algorithm_description}",
+                        f"- Why it failed: {rec.analysis}",
+                        "",
+                    ]
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            logger.warning(f"[exp_pool] Experience pool query failed (non-fatal): {e}")
+            return ""
 
     async def _generate_one_variant(
         self,
@@ -255,8 +356,10 @@ class ParallelPipeline:
     ):
         """Generate a single mutant variant and push to code_queue."""
         leader_algorithm = leader_result.description
+        experience_section = self._build_experience_section(leader_algorithm, target_step)
         prompt = variant_prompt_template.replace("{leader_algorithm}", leader_algorithm)
         prompt = prompt.replace("{target_step_num}", str(target_step))
+        prompt = prompt.replace("{experience_pool_section}", experience_section)
 
         loop = asyncio.get_event_loop()
         try:

@@ -331,14 +331,19 @@ print(len(lines))
         --collect_all_results --generation_tag "$INIT_TAG" \
         $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" )
 
-    # Step 0e: Promote best member in each team
+    # Step 0e: Update mutation experience pool
+    echo "[Init Step 5] Updating mutation experience pool for ${INIT_TAG}..."
+    python scripts/update_experience_pool.py --generation_tag "${INIT_TAG}" \
+        || echo "  [exp_pool] WARNING: pool update failed (non-fatal)"
+
+    # Step 0f: Promote best member in each team
     if [ "$VERIFY_PROOFS" = "1" ]; then
-        echo "[Init Step 5] Submitting async UNSAT proof verification..."
+        echo "[Init Step 6] Submitting async UNSAT proof verification..."
         submit_proof_verification_job "$INIT_TAG"
     fi
 
-    # Step 0f: Promote best member in each team
-    echo "[Init Step 6] Promoting leaders..."
+    # Step 0g: Promote best member in each team
+    echo "[Init Step 7] Promoting leaders..."
     python "$EVAL_SCRIPT" \
         --promote-leaders --generation_tag "$INIT_TAG"
 
@@ -459,6 +464,11 @@ print(len(lines))
     python "$EVAL_SCRIPT" \
         --collect_all_results --generation_tag "$ITER_TAG" \
         $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" )
+
+    # Step 4b: Update mutation experience pool
+    echo "[Step 4b] Updating mutation experience pool for ${ITER_TAG}..."
+    python scripts/update_experience_pool.py --generation_tag "${ITER_TAG}" \
+        || echo "  [exp_pool] WARNING: pool update failed (non-fatal)"
 
     # Step 5: Verify UNSAT proofs with drat-trim
     if [ "$VERIFY_PROOFS" = "1" ]; then

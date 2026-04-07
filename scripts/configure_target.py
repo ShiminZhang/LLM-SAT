@@ -200,6 +200,13 @@ def rewrite_coder_prompt(
     return source_file
 
 
+def update_experience_pool_data_root(config_path: Path, func_name: str) -> None:
+    """Write function-specific experience_pool_data_root into path_config.yaml."""
+    cfg = yaml.safe_load(config_path.read_text()) or {}
+    cfg["experience_pool_data_root"] = f"src/experience_pool/data/{func_name}"
+    config_path.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Configure LLM-SAT to target a different C function.",
@@ -270,12 +277,17 @@ def main(argv: list[str] | None = None) -> int:
     # 5. Rewrite coder prompt
     source_file = rewrite_coder_prompt(repo_root, solver_path, func_name, info, info["signature"])
 
-    # 6. Print summary
+    # 6. Update path_config.yaml with function-specific experience pool root
+    config_path = find_path_config()
+    update_experience_pool_data_root(config_path, func_name)
+
+    # 7. Print summary
     print("Updated:")
     for reg in updated_registries:
         print(f"  [OK] {reg}")
     print(f"  [OK] data/prompts/leader_prompt_testing.txt")
     print(f"  [OK] data/prompts/coder_prompt_testing.txt (embedded {source_file})")
+    print(f"  [OK] path_config.yaml (experience_pool_data_root = src/experience_pool/data/{func_name})")
 
     return 0
 
