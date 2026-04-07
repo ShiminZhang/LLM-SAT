@@ -21,6 +21,7 @@ import json
 import os
 import logging
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -58,6 +59,7 @@ from llmsat.pipelines.gemini_data_generation import (
     generate_code_prompt,
     parse_algorithm_response,
     parse_code_response,
+    _save_timing_log,
 )
 from llmsat.pipelines.evaluation import (
     EvaluationPipeline,
@@ -235,10 +237,61 @@ class ParallelPipeline:
         self.builds_failed = 0
         self.slurm_submitted = 0
 
+        # Timing
+        self._timing_lists: Dict[str, List[float]] = {}
+        self._timing_lock = threading.Lock()
+        self._stage_spans: Dict[str, List[float]] = {}  # stage -> [earliest_start, latest_end]
+        self._pipeline_start: Optional[float] = None
+
         self.system_message = os.environ.get(
             "LLMSAT_SYSTEM_MESSAGE",
             "You are an AI researcher specialising in SAT solver heuristics.",
         )
+
+    # ------------------------------------------------------------------ #
+    # Timing helpers
+    # ------------------------------------------------------------------ #
+
+    def _record_item_time(self, stage: str, start: float, end: float):
+        elapsed = end - start
+        with self._timing_lock:
+            self._timing_lists.setdefault(stage, []).append(elapsed)
+            span = self._stage_spans.get(stage)
+            if span is None:
+                self._stage_spans[stage] = [start, end]
+            else:
+                if start < span[0]: span[0] = start
+                if end > span[1]: span[1] = end
+
+    def _build_timing_dict(self, mode: str, eval_wait_s: float = 0.0) -> Dict[str, Any]:
+        pipeline_end = time.time()
+        stages = {}
+        for stage, times in self._timing_lists.items():
+            span = self._stage_spans.get(stage, [0, 0])
+            stages[stage] = {
+                "n": len(times),
+                "avg_s": round(sum(times) / len(times), 2),
+                "min_s": round(min(times), 2),
+                "max_s": round(max(times), 2),
+                "total_s": round(sum(times), 2),
+                "wall_s": round(span[1] - span[0], 2),
+            }
+        pipeline_wall = round(pipeline_end - self._pipeline_start, 2) if self._pipeline_start else 0.0
+        return {
+            "generation_tag": self.generation_tag,
+            "timestamp": datetime.now().isoformat(),
+            "script": "parallel_orchestrator",
+            "mode": mode,
+            "stages": stages,
+            "pipeline_wall_s": pipeline_wall,
+            "eval_wait_s": round(eval_wait_s, 2),
+            "total_s": round(pipeline_wall + eval_wait_s, 2),
+            "counts": {
+                "leaders": self.leaders_generated, "algos": self.algos_generated,
+                "codes": self.codes_generated, "builds_ok": self.builds_succeeded,
+                "builds_failed": self.builds_failed, "slurm_submitted": self.slurm_submitted,
+            },
+        }
 
     # ------------------------------------------------------------------ #
     # Stage 1: Algorithm (variant) generation
@@ -260,6 +313,7 @@ class ParallelPipeline:
 
         loop = asyncio.get_event_loop()
         try:
+            _t0 = time.time()
             async with self.api_semaphore:
                 raw_text = await loop.run_in_executor(
                     self.api_pool,
@@ -269,6 +323,7 @@ class ParallelPipeline:
                         model=self.model,
                     ),
                 )
+            self._record_item_time("algo_gen", _t0, time.time())
 
             member_desc, _, member_reason = parse_algorithm_response({"text": raw_text})
             member_id = get_id(member_desc)
@@ -408,6 +463,7 @@ class ParallelPipeline:
         loop = asyncio.get_event_loop()
 
         try:
+            _t0 = time.time()
             async with self.api_semaphore:
                 raw_text = await loop.run_in_executor(
                     self.api_pool,
@@ -418,6 +474,7 @@ class ParallelPipeline:
                         temperature=t,
                     ),
                 )
+            self._record_item_time("algo_gen", _t0, time.time())
 
             description, target_function, reason = parse_algorithm_response({"text": raw_text})
             leader_id = get_id(description)
@@ -516,6 +573,7 @@ class ParallelPipeline:
                 break
 
             algorithm: AlgorithmResult = item
+            _t0 = time.time()
 
             try:
                 code_prompt = generate_code_prompt(
@@ -533,6 +591,7 @@ class ParallelPipeline:
                             model=self.model,
                         ),
                     )
+                self._record_item_time("code_gen", _t0, time.time())
 
                 code_str = parse_code_response({"text": raw_text})
                 code_id = get_id(code_str)
@@ -598,6 +657,7 @@ class ParallelPipeline:
                 break
 
             algorithm, code_result = item
+            _t0 = time.time()
 
             try:
                 # Build solver (blocking: ./configure && make)
@@ -606,6 +666,8 @@ class ParallelPipeline:
                         self.build_pool,
                         lambda: self.eval_pipeline.build_solver(code_result),
                     )
+
+                self._record_item_time("build", _t0, time.time())
 
                 if solver_path is None:
                     self.builds_failed += 1
@@ -628,6 +690,7 @@ class ParallelPipeline:
                 # Submit SLURM job(s)
                 benchmark_path = getattr(self.eval_pipeline, 'benchmark_path', None) or SAT2025_BENCHMARK_PATH
                 cnf_files = self.eval_pipeline.cnf_files
+                _t_submit = time.time()
 
                 if self.nersc and self.accumulator is not None:
                     # NERSC: accumulate solvers and submit in large batches
@@ -662,6 +725,8 @@ class ParallelPipeline:
                             f"(code {code_result.id[:8]}..., jobs: {job_ids})"
                         )
 
+                self._record_item_time("slurm_submit", _t_submit, time.time())
+
             except Exception as e:
                 logger.error(
                     f"[parallel] Build/submit failed for code {code_result.id[:8]}...: {e}"
@@ -691,6 +756,7 @@ class ParallelPipeline:
         existing_members_by_leader: Dict[str, int],
     ):
         """Run the three-stage streaming pipeline."""
+        self._pipeline_start = time.time()
 
         # Start code gen workers (consume from code_queue, produce to build_queue)
         num_code_workers = min(MAX_API_CONCURRENT, 5)
@@ -730,6 +796,7 @@ class ParallelPipeline:
             f"{self.builds_succeeded} builds OK, {self.builds_failed} builds failed, "
             f"{self.slurm_submitted} SLURM arrays submitted"
         )
+        # Timing is saved by the caller (run_streaming_mutants) after eval wait.
 
     def _write_consolidated_job_ids(self):
         """Write a consolidated submitted_job_ids.json for backward compat with run_loop_a.sh."""
@@ -774,6 +841,7 @@ class ParallelPipeline:
         for leader N overlaps with leader generation for leader N+1, and code
         gen / build / submit overlap with everything via the queues.
         """
+        self._pipeline_start = time.time()
 
         # Start code gen workers (consume from code_queue, produce to build_queue)
         num_code_workers = min(MAX_API_CONCURRENT, 5)
@@ -900,6 +968,9 @@ def run_streaming_mutants(
         f"{pipeline.slurm_submitted} SLURM arrays submitted"
     )
 
+    # Save generation timing (eval_wait added later by caller via save_eval_timing)
+    _save_timing_log(pipeline._build_timing_dict("mutants"), pipeline.output_dir)
+
     return []  # member_ids not tracked individually (consistent with batch mode)
 
 
@@ -957,3 +1028,6 @@ def run_streaming_init(
         f"{pipeline.leaders_generated} leaders, {pipeline.algos_generated} variants, "
         f"{pipeline.slurm_submitted} SLURM arrays submitted"
     )
+
+    # Save generation timing (eval_wait added later by caller via save_eval_timing)
+    _save_timing_log(pipeline._build_timing_dict("init"), pipeline.output_dir)
