@@ -107,6 +107,19 @@ def count_steps(algorithm_text: str) -> int:
     return len(matches)
 
 
+def extract_step_text(algorithm_text: str, step_number: int) -> str:
+    """Extract the text content of a specific step from an algorithm description.
+
+    Given an algorithm description with "Step N: <text>" markers, returns the
+    text for step `step_number`. Falls back to str(step_number) if not found.
+    """
+    pattern = rf"Step\s+{step_number}:\s*(.+?)(?=\s*Step\s+\d+:|$)"
+    match = re.search(pattern, algorithm_text, re.IGNORECASE | re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return str(step_number)
+
+
 def _step_from_response(response_dict: Dict[str, Any], assignments: List[int]) -> Optional[str]:
     """Return the mutation step string for a batch response, or None on any error.
 
@@ -476,9 +489,9 @@ def _generate_team_data_sync(
                 parent_algorithm_description=[leader_descriptions.get(leader_id, "")],
                 analysis=member_reason,
                 prompt=variant_prompt_template,
-                mutation_step=str(target_step),
+                mutation_step=extract_step_text(leader_descriptions.get(leader_id, ""), target_step),
             ))
-            _record_mutation_step(member_id, str(target_step), generation_tag)
+            _record_mutation_step(member_id, extract_step_text(leader_descriptions.get(leader_id, ""), target_step), generation_tag)
 
     _timing["member_generation_s"] = round(time.time() - _t0, 2)
     logger.info(f"[TIMING] Member generation: {_timing['member_generation_s']}s")
@@ -975,9 +988,9 @@ def _generate_mutants_sync(
                 parent_algorithm_description=[leader_algorithm],
                 analysis=member_reason,
                 prompt=variant_prompt_template,
-                mutation_step=str(target_step),
+                mutation_step=extract_step_text(leader_algorithm, target_step),
             ))
-            _record_mutation_step(member_id, str(target_step), generation_tag)
+            _record_mutation_step(member_id, extract_step_text(leader_algorithm, target_step), generation_tag)
 
     logger.info(f"[sync] Generated {len(member_ids)} new mutants")
 
