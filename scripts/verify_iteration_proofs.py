@@ -31,6 +31,10 @@ from llmsat.utils.paths import (
     get_solver_result_dir,
 )
 from llmsat.utils.utils import wrap_command_to_slurm, wrap_command_to_slurm_array
+from llmsat.utils.utils_nersc import (
+    wrap_command_to_slurm as wrap_command_to_slurm_nersc,
+    wrap_command_to_slurm_array as wrap_command_to_slurm_array_nersc,
+)
 
 INSTANCE_CATEGORIES_PATH = REPO_ROOT / "data" / "benchmarks" / "instance_categories.json"
 SAT_CHECKFAIL_MARKERS = (
@@ -485,6 +489,9 @@ def submit_proof_verification_slurm(
     slurm_mem: str,
     slurm_time: str,
     max_concurrent: int,
+    nersc: bool = False,
+    slurm_constraint: Optional[str] = None,
+    slurm_qos: Optional[str] = None,
 ) -> int:
     out_dir = get_generation_output_dir(generation_tag)
     tasks, valid_records, invalid_records, timeout_records = gather_proof_tasks(
@@ -654,7 +661,20 @@ PYTHONPATH=src "{python_bin}" scripts/verify_iteration_proofs.py \\
         f.write(array_script)
     os.chmod(array_script_path, 0o755)
 
-    array_cmd = wrap_command_to_slurm_array(
+    if nersc:
+        slurm_array_wrapper = wrap_command_to_slurm_array_nersc
+        slurm_single_wrapper = wrap_command_to_slurm_nersc
+    else:
+        slurm_array_wrapper = wrap_command_to_slurm_array
+        slurm_single_wrapper = wrap_command_to_slurm
+
+    slurm_kwargs: dict[str, str] = {}
+    if slurm_constraint:
+        slurm_kwargs["constraint"] = slurm_constraint
+    if nersc and slurm_qos:
+        slurm_kwargs["qos"] = slurm_qos
+
+    array_cmd = slurm_array_wrapper(
         script_path=array_script_path,
         array_range=f"0-{len(pending_tasks) - 1}",
         account=slurm_account,
@@ -663,6 +683,7 @@ PYTHONPATH=src "{python_bin}" scripts/verify_iteration_proofs.py \\
         job_name=f"proof_verify_{generation_tag}",
         output_file=array_log,
         max_concurrent=max_concurrent,
+        **slurm_kwargs,
     )
     array_output = os.popen(array_cmd).read().strip()
     if not array_output or "error" in array_output.lower():
@@ -681,7 +702,7 @@ PYTHONPATH=src "{python_bin}" scripts/verify_iteration_proofs.py \\
         f"--invalid-records-path {invalid_records_path} "
         f"--timeout-records-path {timeout_records_path}"
     )
-    collect_sbatch = wrap_command_to_slurm(
+    collect_sbatch = slurm_single_wrapper(
         collect_cmd,
         account=slurm_account,
         mem="1G",
@@ -690,6 +711,7 @@ PYTHONPATH=src "{python_bin}" scripts/verify_iteration_proofs.py \\
         output_file=collect_log,
         dependencies=[array_job_id],
         dependency_type="afterany",
+        **slurm_kwargs,
     )
     collect_output = os.popen(collect_sbatch).read().strip()
     if not collect_output or "error" in collect_output.lower():
@@ -719,6 +741,9 @@ PYTHONPATH=src "{python_bin}" scripts/verify_iteration_proofs.py \\
                 "array_log_root": task_log_root,
                 "collector_log": collect_log,
                 "drat_trim": drat_trim_cmd,
+                "nersc": nersc,
+                "slurm_constraint": slurm_constraint,
+                "slurm_qos": slurm_qos,
             },
             f,
             indent=2,
@@ -840,10 +865,13 @@ def main() -> int:
     parser.add_argument("--valid-records-path", help="Path to serialized valid SAT log records")
     parser.add_argument("--invalid-records-path", help="Path to serialized invalid log records")
     parser.add_argument("--timeout-records-path", help="Path to serialized timeout log records")
-    parser.add_argument("--slurm-account", default="def-vganesh", help="SLURM account for submitted validation jobs")
+    parser.add_argument("--slurm-account", default=None, help="SLURM account for submitted validation jobs (default: def-vganesh, or m4831 with --nersc)")
     parser.add_argument("--slurm-mem", default="8G", help="Memory per validation task")
     parser.add_argument("--slurm-time", default="01:00:00", help="Wall time per validation task")
     parser.add_argument("--slurm-max-concurrent", type=int, default=200, help="Max concurrent proof validation array tasks")
+    parser.add_argument("--nersc", action="store_true", help="Use NERSC SLURM wrapper (supports qos/constraint)")
+    parser.add_argument("--slurm-constraint", default=None, help="SLURM constraint (default: cpu with --nersc)")
+    parser.add_argument("--slurm-qos", default=None, help="SLURM QoS (default: premium with --nersc)")
     args = parser.parse_args()
 
     if args.run_task_json_env:
@@ -897,15 +925,27 @@ def main() -> int:
         return 2
 
     if args.submit_slurm:
+        slurm_account = args.slurm_account or ("m4831" if args.nersc else "def-vganesh")
+        slurm_constraint = args.slurm_constraint
+        slurm_qos = args.slurm_qos
+        if args.nersc:
+            if not slurm_constraint:
+                slurm_constraint = "cpu"
+            if not slurm_qos:
+                slurm_qos = "premium"
+
         return submit_proof_verification_slurm(
             generation_tag=args.generation_tag,
             benchmark_path=args.benchmark_path,
             drat_trim_cmd=drat_path,
             check_timeout_sec=args.check_timeout,
-            slurm_account=args.slurm_account,
+            slurm_account=slurm_account,
             slurm_mem=args.slurm_mem,
             slurm_time=args.slurm_time,
             max_concurrent=args.slurm_max_concurrent,
+            nersc=args.nersc,
+            slurm_constraint=slurm_constraint,
+            slurm_qos=slurm_qos,
         )
 
     checked, failed, skipped, records = verify_generation_proofs(

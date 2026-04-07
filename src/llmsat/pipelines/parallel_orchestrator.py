@@ -54,6 +54,7 @@ from llmsat.utils.paths import (
 )
 from llmsat.pipelines.gemini_data_generation import (
     count_steps,
+    extract_step_text,
     generate_code_prompt,
     parse_algorithm_response,
     parse_code_response,
@@ -104,17 +105,23 @@ class _SlurmTaskAccumulator:
         self._job_ids: List[int] = []
         self._tasks_per_solver: int = len(cnf_files)
 
-    def add_solver(self, solver_path: str, result_dir: str, code_id: str) -> None:
-        """Add a built solver; submits a SLURM batch when the threshold is reached."""
+    def add_solver(self, solver_path: str, result_dir: str, code_id: str) -> List[int]:
+        """Add a built solver; submits a SLURM batch when the threshold is reached.
+
+        Returns:
+            List of newly submitted SLURM job IDs (empty if no submission happened).
+        """
+        submitted_ids: List[int] = []
         with self._lock:
             self._solver_tasks.append((solver_path, result_dir, code_id))
             if self._tasks_per_solver > 0:
                 if len(self._solver_tasks) * self._tasks_per_solver >= self.slurm_threshold:
                     to_submit = list(self._solver_tasks)
                     self._solver_tasks = []
-                    self._submit_batch(to_submit)
+                    submitted_ids = self._submit_batch(to_submit)
+        return submitted_ids
 
-    def _submit_batch(self, solver_tasks: List[Tuple[str, str, str]]) -> None:
+    def _submit_batch(self, solver_tasks: List[Tuple[str, str, str]]) -> List[int]:
         ids = self.pipeline.slurm_run_evaluate_batch(
             solver_tasks=solver_tasks,
             benchmark_path=self.benchmark_path,
@@ -125,6 +132,7 @@ class _SlurmTaskAccumulator:
             f"[Accumulator] Submitted {len(solver_tasks)} solver(s) "
             f"({len(solver_tasks) * self._tasks_per_solver} tasks) → SLURM IDs: {ids}"
         )
+        return ids
 
     def flush_all(self) -> List[int]:
         """Submit any remaining solvers unconditionally. Returns all SLURM job IDs."""
@@ -136,6 +144,11 @@ class _SlurmTaskAccumulator:
                 self._submit_batch(self._solver_tasks)
                 self._solver_tasks = []
         return list(self._job_ids)
+
+    def get_job_ids(self) -> List[int]:
+        """Return a copy of all SLURM IDs submitted through this accumulator."""
+        with self._lock:
+            return list(self._job_ids)
 
 
 class ParallelPipeline:
@@ -272,7 +285,18 @@ class ParallelPipeline:
                 parent_algorithm_description=[leader_algorithm],
                 analysis=member_reason,
                 prompt=variant_prompt_template,
+                mutation_step=extract_step_text(leader_algorithm, target_step),
             )
+
+            # Record mutation step to disk so evaluation can patch it after DB round-trip
+            try:
+                map_path = os.path.join(
+                    get_generation_output_dir(self.generation_tag),
+                    "mutation_step_map.jsonl",
+                )
+                atomic_append(map_path, json.dumps({member_id: extract_step_text(leader_algorithm, target_step)}) + "\n")
+            except Exception as e:
+                logger.warning(f"[parallel] Failed to record mutation step for {member_id}: {e}")
 
             # DB writes
             await loop.run_in_executor(
@@ -607,11 +631,13 @@ class ParallelPipeline:
 
                 if self.nersc and self.accumulator is not None:
                     # NERSC: accumulate solvers and submit in large batches
-                    await loop.run_in_executor(
+                    submitted_ids = await loop.run_in_executor(
                         self.build_pool,
                         lambda sp=solver_path, rd=result_dir, cid=code_result.id:
                             self.accumulator.add_solver(sp, rd, cid),
                     )
+                    if submitted_ids:
+                        self._record_job_ids(submitted_ids, algorithm.id, code_result.id)
                     self.slurm_submitted += 1
                     logger.info(
                         f"[parallel] Accumulated solver {self.slurm_submitted} "
@@ -720,6 +746,13 @@ class ParallelPipeline:
                         all_job_ids.extend(record.get("job_ids", []))
                     except json.JSONDecodeError:
                         continue
+
+        # In NERSC mode, some IDs may only live in the accumulator until final flush.
+        if self.nersc and self.accumulator is not None:
+            all_job_ids.extend(self.accumulator.get_job_ids())
+
+        # Keep stable order while removing duplicates.
+        all_job_ids = list(dict.fromkeys(all_job_ids))
 
         consolidated_path = os.path.join(self.output_dir, "submitted_job_ids.json")
         with open(consolidated_path, "w") as f:
@@ -859,6 +892,7 @@ def run_streaming_mutants(
     if nersc and pipeline.accumulator is not None:
         flushed_ids = pipeline.accumulator.flush_all()
         logger.info(f"[parallel] NERSC accumulator flushed: {len(flushed_ids)} SLURM job IDs")
+        pipeline._write_consolidated_job_ids()
 
     logger.info(
         f"[parallel] Streaming pipeline done: "
@@ -916,6 +950,7 @@ def run_streaming_init(
     if nersc and pipeline.accumulator is not None:
         flushed_ids = pipeline.accumulator.flush_all()
         logger.info(f"[parallel] NERSC accumulator flushed: {len(flushed_ids)} SLURM job IDs")
+        pipeline._write_consolidated_job_ids()
 
     logger.info(
         f"[parallel] Init streaming pipeline done: "

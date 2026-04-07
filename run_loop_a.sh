@@ -111,6 +111,13 @@ PROOF_CHECK_TIMEOUT="${PROOF_CHECK_TIMEOUT:-7200}"
 PROOF_VERIFY_TIME="${PROOF_VERIFY_TIME:-03:00:00}"
 PROOF_VERIFY_MEM="${PROOF_VERIFY_MEM:-10G}"
 PROOF_VERIFY_MAX_CONCURRENT="${PROOF_VERIFY_MAX_CONCURRENT:-200}"
+if [ "$CLUSTER" = "nersc" ]; then
+    PROOF_VERIFY_ACCOUNT="${PROOF_VERIFY_ACCOUNT:-m4831}"
+    PROOF_VERIFY_QOS="${PROOF_VERIFY_QOS:-premium}"
+    PROOF_VERIFY_CONSTRAINT="${PROOF_VERIFY_CONSTRAINT:-cpu}"
+else
+    PROOF_VERIFY_ACCOUNT="${PROOF_VERIFY_ACCOUNT:-def-vganesh}"
+fi
 
 resolve_drat_trim() {
     local cmd="$1"
@@ -158,16 +165,28 @@ ensure_drat_trim_available() {
 
 submit_proof_verification_job() {
     local generation_tag="$1"
+    local slurm_args=(
+        --slurm-account "$PROOF_VERIFY_ACCOUNT"
+        --slurm-mem "$PROOF_VERIFY_MEM"
+        --slurm-time "$PROOF_VERIFY_TIME"
+        --slurm-max-concurrent "$PROOF_VERIFY_MAX_CONCURRENT"
+    )
+
+    if [ "$CLUSTER" = "nersc" ]; then
+        slurm_args+=(
+            --nersc
+            --slurm-qos "$PROOF_VERIFY_QOS"
+            --slurm-constraint "$PROOF_VERIFY_CONSTRAINT"
+        )
+    fi
+
     python scripts/verify_iteration_proofs.py \
         --submit-slurm \
         --generation_tag "$generation_tag" \
         --benchmark_path data/benchmarks/satcomp2025 \
         --drat_trim "$DRAT_TRIM_CMD" \
         --check_timeout "$PROOF_CHECK_TIMEOUT" \
-        --slurm-account def-vganesh \
-        --slurm-mem "$PROOF_VERIFY_MEM" \
-        --slurm-time "$PROOF_VERIFY_TIME" \
-        --slurm-max-concurrent "$PROOF_VERIFY_MAX_CONCURRENT"
+        "${slurm_args[@]}"
 }
 
 if [ "$VERIFY_PROOFS" = "1" ]; then
@@ -187,6 +206,11 @@ echo "  Parallel:     $PARALLEL"
 echo "  Quick eval:   $QUICK_EVAL"
 echo "  Verify proofs: $VERIFY_PROOFS"
 echo "  drat-trim:    $DRAT_TRIM_CMD"
+echo "  Proof acct:   $PROOF_VERIFY_ACCOUNT"
+if [ "$CLUSTER" = "nersc" ]; then
+    echo "  Proof qos:    $PROOF_VERIFY_QOS"
+    echo "  Proof constr: $PROOF_VERIFY_CONSTRAINT"
+fi
 echo "  Poll interval: ${POLL_INTERVAL}s"
 if [ "$INIT" = true ]; then
     echo "  N_LEADERS:    ${N_LEADERS:-5}"
@@ -256,11 +280,14 @@ try:
                 ids.extend(record.get('job_ids', []))
 except FileNotFoundError:
     pass
-if not ids:
-    try:
-        ids = json.load(open('$JOB_IDS_FILE')).get('job_ids', [])
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+# Always merge JSON IDs too: in NERSC parallel mode the final accumulator flush
+# writes IDs only to the consolidated JSON (not JSONL), so JSONL can be non-empty
+# but incomplete.  Using JSONL as a fallback-only source would miss those IDs.
+try:
+    json_ids = json.load(open('$JOB_IDS_FILE')).get('job_ids', [])
+    ids = list(dict.fromkeys(ids + json_ids))
+except (FileNotFoundError, json.JSONDecodeError):
+    pass
 if not ids:
     print(0)
     sys.exit(0)
@@ -268,6 +295,10 @@ result = subprocess.run(
     ['squeue', '-j', ','.join(str(j) for j in ids), '-h'],
     capture_output=True, text=True
 )
+if result.returncode != 0:
+    # Signal transient query failure to caller; do not treat as completion.
+    print(-1)
+    sys.exit(0)
 lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
 print(len(lines))
 " 2>/dev/null
@@ -278,6 +309,12 @@ print(len(lines))
     else
         while true; do
             RUNNING=$(_parse_init_job_ids)
+
+            if [ "$RUNNING" = "-1" ]; then
+                echo "  squeue query failed, retrying in ${POLL_INTERVAL}s..."
+                sleep "$POLL_INTERVAL"
+                continue
+            fi
 
             if [ "$RUNNING" -eq 0 ] 2>/dev/null; then
                 echo "  All SLURM jobs completed"
@@ -362,7 +399,7 @@ for i in $(seq 1 "$N_ITERATIONS"); do
         python3 -c "
 import json, subprocess, sys
 ids = []
-# Try JSONL first (parallel mode)
+# Read JSONL first (parallel mode: threshold-triggered batch IDs)
 try:
     with open('$JOB_IDS_JSONL') as f:
         for line in f:
@@ -372,12 +409,14 @@ try:
                 ids.extend(record.get('job_ids', []))
 except FileNotFoundError:
     pass
-# Fall back to JSON (sequential mode)
-if not ids:
-    try:
-        ids = json.load(open('$JOB_IDS_FILE')).get('job_ids', [])
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+# Always merge JSON IDs too: in NERSC parallel mode the final accumulator flush
+# writes IDs only to the consolidated JSON (not JSONL), so JSONL can be non-empty
+# but incomplete.  Using JSONL as a fallback-only source would miss those IDs.
+try:
+    json_ids = json.load(open('$JOB_IDS_FILE')).get('job_ids', [])
+    ids = list(dict.fromkeys(ids + json_ids))
+except (FileNotFoundError, json.JSONDecodeError):
+    pass
 if not ids:
     print(0)
     sys.exit(0)
@@ -385,6 +424,10 @@ result = subprocess.run(
     ['squeue', '-j', ','.join(str(j) for j in ids), '-h'],
     capture_output=True, text=True
 )
+if result.returncode != 0:
+    # Signal transient query failure to caller; do not treat as completion.
+    print(-1)
+    sys.exit(0)
 lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
 print(len(lines))
 " 2>/dev/null
@@ -395,6 +438,12 @@ print(len(lines))
     else
         while true; do
             RUNNING=$(_parse_job_ids)
+
+            if [ "$RUNNING" = "-1" ]; then
+                echo "  squeue query failed, retrying in ${POLL_INTERVAL}s..."
+                sleep "$POLL_INTERVAL"
+                continue
+            fi
 
             if [ "$RUNNING" -eq 0 ] 2>/dev/null; then
                 echo "  All SLURM jobs completed"
