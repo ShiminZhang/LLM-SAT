@@ -451,7 +451,7 @@ class EvaluationPipeline:
             if attempt == 0:
                 all_logs.append("\n--- ./configure ---")
                 configure_proc = subprocess.run(
-                    ["./configure", "-c"],
+                    ["./configure", "-c", "--reboot"],
                     cwd=solver_path,
                     capture_output=True,
                     text=True,
@@ -560,6 +560,19 @@ class EvaluationPipeline:
         if os.path.exists(new_solver_path):
             shutil.rmtree(new_solver_path)
         shutil.copytree(BASE_SOLVER_PATH, new_solver_path, symlinks=True)
+
+        # Remove stale build system files so ./configure can run cleanly.
+        # The base solver may have a pre-existing build/makefile (with
+        # hardcoded paths to the old location) and a src/makefile symlink
+        # (possibly dangling) that cause configure to fail.
+        # We keep .o files in build/ so make only recompiles changed files
+        # (avoids hitting compile errors in unrelated source files).
+        stale_build_makefile = os.path.join(new_solver_path, "build", "makefile")
+        if os.path.exists(stale_build_makefile):
+            os.remove(stale_build_makefile)
+        stale_makefile = os.path.join(new_solver_path, "src", "makefile")
+        if os.path.islink(stale_makefile) or os.path.exists(stale_makefile):
+            os.remove(stale_makefile)
 
         # Ensure configure script is executable after copy (copytree may not preserve exec bit)
         configure_script = os.path.join(new_solver_path, "configure")
@@ -733,12 +746,15 @@ if [ $EXIT_CODE -eq 124 ]; then
 elif [ -z "$CPU_TIME" ]; then
     echo "ERROR: process killed (OOM or SLURM limit)" >> "$OUTPUT_FILE"
     rm -f "$PROOF_FILE"
-else
+elif [ $EXIT_CODE -eq 10 ] || [ $EXIT_CODE -eq 20 ]; then
     echo "c process-time: $CPU_TIME seconds" >> "$OUTPUT_FILE"
     # Keep proof only for UNSAT (kissat exit code 20).
     if [ $EXIT_CODE -ne 20 ]; then
         rm -f "$PROOF_FILE"
     fi
+else
+    echo "ERROR: solver crashed (exit code $EXIT_CODE)" >> "$OUTPUT_FILE"
+    rm -f "$PROOF_FILE"
 fi
 
 echo "Solver finished with exit code $EXIT_CODE"
@@ -904,12 +920,15 @@ if [ $EXIT_CODE -eq 124 ]; then
 elif [ -z "$CPU_TIME" ]; then
     echo "ERROR: process killed (OOM or SLURM limit)" >> "$OUTPUT_FILE"
     rm -f "$PROOF_FILE"
-else
+elif [ $EXIT_CODE -eq 10 ] || [ $EXIT_CODE -eq 20 ]; then
     echo "c process-time: $CPU_TIME seconds" >> "$OUTPUT_FILE"
     # Keep proof only for UNSAT (kissat exit code 20).
     if [ $EXIT_CODE -ne 20 ]; then
         rm -f "$PROOF_FILE"
     fi
+else
+    echo "ERROR: solver crashed (exit code $EXIT_CODE)" >> "$OUTPUT_FILE"
+    rm -f "$PROOF_FILE"
 fi
 
 echo "Solver finished with exit code $EXIT_CODE"
