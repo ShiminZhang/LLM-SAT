@@ -109,7 +109,6 @@ def wrap_command_to_slurm_array(
         {job_name_parameter} \
         {output_parameter} \
         {error_parameter} \
-        --mem={mem} \
         --time={time} \
         --nodes={nodes} \
         --ntasks={ntasks} \
@@ -162,7 +161,6 @@ def wrap_command_to_slurm(
         {job_name_parameter} \
         {output_parameter} \
         {error_parameter} \
-        --mem={mem} \
         --time={time} \
         --nodes={nodes} \
         --ntasks={ntasks} \
