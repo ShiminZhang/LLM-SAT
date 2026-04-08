@@ -88,7 +88,12 @@ echo "  n_build_threads:  $N_BUILD_THREADS"
 echo "  Quick eval:       $QUICK_EVAL"
 echo "============================================"
 
-# Promote top-N offspring to leaders, then run GE Phase 1 (submit_only)
+# Step 1: Promote top-N offspring to leaders, then run GE Phase 1
+#   - promote_offspring_to_leaders: select top-N from INPUT_TAG by PAR2 → register under TARGET_TAG
+#   - run_evolution: causal analysis → LLM proposals → crossover → codegen → build → SLURM submit
+echo ""
+echo "[Step 1] Promoting offspring from ${INPUT_TAG} → ${TARGET_TAG}, then running GE pipeline..."
+echo "         (causal analysis, combination proposals, crossover, code generation, SLURM submit)"
 python "$GE_SCRIPT" \
     --promote-offspring \
     --source_tag "$INPUT_TAG" \
@@ -106,25 +111,25 @@ python "$GE_SCRIPT" \
     ${QUICK_EVAL:+--quick_eval} \
     --n_api_threads "$N_API_THREADS" \
     --n_build_threads "$N_BUILD_THREADS"
+echo "[Step 1] Done."
 
-
-# Poll SLURM until all user jobs finish
+# Step 2: Poll SLURM until all user jobs finish
 echo ""
-echo "[Polling] Waiting for all SLURM jobs to complete..."
-echo "  (Note: polling all jobs for user $USER)"
+echo "[Step 2] Waiting for all SLURM jobs to complete..."
+echo "         (Note: polling all jobs for user $USER)"
 while true; do
     RUNNING=$(squeue -u "$USER" -h 2>/dev/null | wc -l)
     if [ "$RUNNING" -eq 0 ]; then
-        echo "  All SLURM jobs completed"
+        echo "  [Step 2] All SLURM jobs completed."
         break
     fi
-    echo "  $RUNNING jobs still running/pending, waiting ${POLL_INTERVAL}s..."
+    echo "  [Step 2] $RUNNING jobs still running/pending, waiting ${POLL_INTERVAL}s..."
     sleep "$POLL_INTERVAL"
 done
 
-# Collect GE results (absorbed from run_ge_collect.sh)
+# Step 3: Collect GE results and run PAR2 selection
 echo ""
-echo "[Collecting] Gathering PAR2 results..."
+echo "[Step 3] Collecting PAR2 results and selecting top-${PAR2_KEEP_TOP_N} offspring..."
 python "$GE_SCRIPT" \
     --generation_tag "$TARGET_TAG" \
     --output_tag "$OUTPUT_TAG" \
@@ -132,6 +137,17 @@ python "$GE_SCRIPT" \
     --par2_keep_top_n "$PAR2_KEEP_TOP_N" \
     --model "$MODEL" \
     $NERSC_FLAG
+echo "[Step 3] Done."
+
+# Step 4: Update combination experience pool (non-fatal)
+echo ""
+echo "[Step 4] Updating combination experience pool for ${OUTPUT_TAG}..."
+echo "         combined_dir=solvers/${OUTPUT_TAG}_iter1  parent_source_dir=solvers/${INPUT_TAG}"
+python scripts/update_combination_experience_pool.py \
+    --output_tag "$OUTPUT_TAG" \
+    --input_tag "$INPUT_TAG" \
+    || echo "  [Step 4] WARNING: combination pool update failed (non-fatal)"
+echo "[Step 4] Done."
 
 echo ""
 echo "============================================"

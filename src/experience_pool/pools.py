@@ -2453,7 +2453,7 @@ class CombinationExperiencePool(BaseExperiencePool):
 
         Expected layouts:
         - Combined offspring directory:
-          `<combined_dir>/members/algorithm_<id>/<id>.json`
+          `<combined_dir>/leaders/algorithm_<id>/<id>.json`
         - Parent source directory (same schema as mutation input):
           `<parent_source_dir>/leaders/algorithm_<id>/<id>.json`
           `<parent_source_dir>/members/algorithm_<id>/<id>.json`
@@ -2473,7 +2473,7 @@ class CombinationExperiencePool(BaseExperiencePool):
                 - Select top-K from each side and generate one LLM analysis per triplet.
 
         Args:
-            combined_dir: Directory containing combined algorithms under `members/`.
+            combined_dir: Directory containing combined algorithms under `leaders/`.
             parent_source_dir: Directory containing historical parent algorithms
                 under `leaders/` and `members/`.
                         threshold: Backward-compatible argument kept for API stability.
@@ -2497,9 +2497,9 @@ class CombinationExperiencePool(BaseExperiencePool):
             f"top_k_bad={max(0, int(top_k_bad))}"
         )
 
-        combined_members_dir = combined_root / "members"
+        combined_members_dir = combined_root / "leaders"
         if not combined_members_dir.exists() or not combined_members_dir.is_dir():
-            raise ValueError(f"Missing combined members directory: {combined_members_dir}")
+            raise ValueError(f"Missing combined leaders directory: {combined_members_dir}")
 
         summary: Dict[str, Any] = {
             "combined_dir": str(combined_root),

@@ -76,9 +76,152 @@ from llmsat.pipelines.chatgpt_data_generation import (
     generate_code_prompt,
 )
 import glob, random
+from pathlib import Path
 
 setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Experience Pool helpers (combination pool search)
+# ---------------------------------------------------------------------------
+
+def _load_exp_pool_manager() -> Optional[Any]:
+    """Try to load an ExperiencePoolManager from path_config.yaml.
+
+    Returns the manager on success, or None on any failure (missing config,
+    missing data_root key, import error, etc.).  Never raises.
+    """
+    try:
+        cwd = Path.cwd()
+        config_path = None
+        for d in [cwd] + list(cwd.parents):
+            candidate = d / "path_config.yaml"
+            if candidate.exists():
+                config_path = candidate
+                break
+        if config_path is None:
+            logger.info("[exp_pool] path_config.yaml not found — combination pool disabled")
+            return None
+        logger.info(f"[exp_pool] Found path_config at: {config_path}")
+
+        import yaml
+        cfg = yaml.safe_load(config_path.read_text()) or {}
+        data_root = cfg.get("experience_pool_data_root")
+        if not data_root:
+            logger.info(
+                "[exp_pool] experience_pool_data_root not set in path_config.yaml — "
+                "combination pool disabled"
+            )
+            return None
+        logger.info(f"[exp_pool] experience_pool_data_root = {data_root!r}")
+
+        import sys as _sys
+        _src_path = str(Path(__file__).resolve().parents[2])
+        if _src_path not in _sys.path:
+            _sys.path.insert(0, _src_path)
+        from experience_pool import ExperiencePoolManager
+        logger.info("[exp_pool] Initializing ExperiencePoolManager...")
+        manager = ExperiencePoolManager(data_root=data_root)
+        logger.info("[exp_pool] Combination experience pool ready.")
+        return manager
+    except Exception as e:
+        logger.warning(f"[exp_pool] Failed to load experience pool manager (non-fatal): {e}")
+        return None
+
+
+def _get_combination_experiences(batch: List["Individual"], manager: Any) -> Optional[str]:
+    """Search the combination experience pool for past pairings relevant to this batch.
+
+    Passes each individual's description as a list to the pool, which internally
+    builds all N-choose-2 pairs and retrieves semantically similar past combinations.
+
+    Returns a formatted string block for prompt injection, or None if the pool
+    returns no results or raises.
+    """
+    try:
+        descriptions = []
+        for ind in batch:
+            try:
+                spec = json.loads(ind.algorithm_json)
+                desc = f"{spec.get('name', '')}: {spec.get('algorithm', ind.algorithm_json)}"
+            except (json.JSONDecodeError, TypeError):
+                desc = ind.algorithm_json
+            descriptions.append(desc)
+
+        logger.info(
+            f"[exp_pool] Searching combination pool for {len(descriptions)} algorithms "
+            f"({len(descriptions) * (len(descriptions) - 1) // 2} candidate pairs)..."
+        )
+        res = manager.search_experience_pool(
+            pool_name="combination",
+            query_text=descriptions,
+            retrieve_good_k=3,
+            retrieve_bad_k=3,
+            sample_good_k=0,
+            sample_bad_k=0,
+        )
+
+        good_hits = res.good.unique if (res.good and not res.good.error) else []
+        bad_hits = res.bad.unique if (res.bad and not res.bad.error) else []
+
+        if res.good and res.good.error:
+            logger.warning(f"[exp_pool] GOOD search error: {res.good.error}")
+        if res.bad and res.bad.error:
+            logger.warning(f"[exp_pool] BAD search error: {res.bad.error}")
+
+        logger.info(
+            f"[exp_pool] Retrieved {len(good_hits)} GOOD and {len(bad_hits)} BAD "
+            "past combination examples."
+        )
+
+        if not good_hits and not bad_hits:
+            logger.info("[exp_pool] Pool is empty or no relevant examples found — skipping injection.")
+            return None
+
+        lines = [
+            "### Past Combination Experience Memory",
+            "Use these recorded outcomes to guide your pair selection.",
+            "Prefer pairings similar to GOOD examples; avoid pairings similar to BAD examples.",
+            "",
+        ]
+
+        if good_hits:
+            lines.append(
+                "#### SUCCESSFUL Combinations (GOOD — similar pairings are worth exploring):"
+            )
+            for i, hit in enumerate(good_hits, 1):
+                rec = hit.payload
+                score_str = f"{hit.score:.2f}" if hit.score is not None else "N/A"
+                lines += [
+                    f"--- Example {i} (similarity: {score_str}) ---",
+                    f"Parent Algorithm 1: {rec.parent_alg1_description}",
+                    f"Parent Algorithm 2: {rec.parent_alg2_description}",
+                    f"Resulting Algorithm: {rec.new_algorithm_description}",
+                    f"Analysis: {rec.analysis}",
+                    "",
+                ]
+
+        if bad_hits:
+            lines.append(
+                "#### UNSUCCESSFUL Combinations (BAD — avoid similar pairings):"
+            )
+            for i, hit in enumerate(bad_hits, 1):
+                rec = hit.payload
+                score_str = f"{hit.score:.2f}" if hit.score is not None else "N/A"
+                lines += [
+                    f"--- Example {i} (similarity: {score_str}) ---",
+                    f"Parent Algorithm 1: {rec.parent_alg1_description}",
+                    f"Parent Algorithm 2: {rec.parent_alg2_description}",
+                    f"Resulting Algorithm: {rec.new_algorithm_description}",
+                    f"Analysis: {rec.analysis}",
+                    "",
+                ]
+
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning(f"[exp_pool] Combination pool search failed (non-fatal): {e}")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -787,6 +930,7 @@ def build_combination_proposal_prompt(
     batch: List[Individual],
     causal_reports: Dict[str, CausalReport],
     top_k: int = 5,
+    combination_experiences: Optional[str] = None,
 ) -> str:
     """Build a prompt asking the LLM to propose top-k combinations from a batch of leaders."""
     leaders_text = ""
@@ -808,6 +952,10 @@ Causal Analysis:
 - Improvement Suggestions: {json.dumps(report.improvement_suggestions, indent=2)}
 """
 
+    experience_section = ""
+    if combination_experiences:
+        experience_section = f"\n{combination_experiences}\n---\n"
+
     return f"""You are selecting the most promising pairs of SAT solver algorithms to combine via genetic crossover.
 
 Below are {len(batch)} solver algorithms with their causal performance analyses.
@@ -822,7 +970,7 @@ For each proposed pair, assess:
 ### Algorithms:
 {leaders_text}
 ---
-
+{experience_section}
 Propose the top {top_k} combinations. Score each 1-10 (10 = highest potential).
 Rank by score descending (best combination first).
 
@@ -2339,6 +2487,7 @@ class _PipelineState:
     evaluate: bool
     timing_lists: Dict[str, List[float]] = field(default_factory=dict)
     timing_lock: Any = None  # threading.Lock, set in run_evolution
+    exp_pool_manager: Optional[Any] = None  # ExperiencePoolManager if available
 
 
 def _run_causal_task(ind: Individual, state: _PipelineState) -> CausalReport:
@@ -2399,8 +2548,21 @@ def _run_proposal_task(
         logger.warning("[Proposal] Batch has <2 valid individuals after causal wait, skipping")
         return
 
+    # Search combination experience pool for past examples relevant to this batch
+    experiences = None
+    if state.exp_pool_manager is not None:
+        try:
+            experiences = _get_combination_experiences(valid_batch, state.exp_pool_manager)
+            if experiences:
+                logger.info("[exp_pool] Injecting combination experiences into proposal prompt")
+        except Exception as _e:
+            logger.warning(f"[exp_pool] Combination pool search failed (non-fatal): {_e}")
+
     # LLM proposal call
-    prompt = build_combination_proposal_prompt(valid_batch, batch_reports, top_k=state.top_k)
+    prompt = build_combination_proposal_prompt(
+        valid_batch, batch_reports, top_k=state.top_k,
+        combination_experiences=experiences,
+    )
     state.semaphore.acquire()
     _t = time.time()
     try:
@@ -2804,6 +2966,24 @@ def run_evolution(
             f"{len(stored_pairs)} (algorithm_id, code_id) pairs"
         )
 
+        # Mirror Loop A: call EvaluationPipeline.collect_results() for each pair to
+        # compute raw_par2_score [easy, hard, sat, unsat, all], normalized_par2_score,
+        # and save AlgorithmResult JSON to solvers/{iter_output_tag}/...
+        logger.info(
+            f"Running EvaluationPipeline.collect_results for {len(stored_pairs)} pairs "
+            f"under {iter_output_tag}"
+        )
+        if nersc:
+            from llmsat.pipelines.evaluation_nersc import EvaluationPipeline as _EP
+        else:
+            from llmsat.pipelines.evaluation import EvaluationPipeline as _EP
+        _collect_pipeline = _EP(generation_tag=iter_output_tag)
+        for _algo_id, _code_id in stored_pairs:
+            try:
+                _collect_pipeline.collect_results(_algo_id, _code_id)
+            except Exception as _e:
+                logger.warning(f"collect_results failed for {_algo_id[:16]}...: {_e}")
+
         par2_scores = collect_par2_scores(
             stored_pairs,
             generation_tag=iter_output_tag,
@@ -3052,6 +3232,15 @@ def run_evolution(
     code_prompt_template = read_code_prompt_template(code_prompt_path)
     pop_map = {ind.algorithm_id: ind for ind in population}
 
+    # Load combination experience pool manager (non-fatal if unavailable)
+    exp_pool_manager = _load_exp_pool_manager()
+    if exp_pool_manager is None:
+        logger.info(
+            "[exp_pool] Combination experience pool not available "
+            "(path_config missing or experience_pool_data_root unset) — "
+            "proposals will run without memory context"
+        )
+
     # Build shared pipeline state (used by all task functions)
     state = _PipelineState(
         semaphore=semaphore,
@@ -3083,6 +3272,7 @@ def run_evolution(
         evaluate=evaluate,
         timing_lists={},
         timing_lock=threading.Lock(),
+        exp_pool_manager=exp_pool_manager,
     )
 
     # ------------------------------------------------------------------

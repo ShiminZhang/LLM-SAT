@@ -45,7 +45,7 @@ class EvaluationPipelineNERSC(_EvaluationPipelineBase):
 
     Each SLURM array task = 1 full node running SLURM_JOBS_PER_NODE=128 solver
     jobs in parallel (one per physical core). Uses NERSC account m4831 with
-    --qos=premium and --constraint=cpu via utils_nersc.
+    --qos=regular and --constraint=cpu via utils_nersc.
     """
 
     def slurm_run_evaluate(
@@ -180,6 +180,7 @@ echo "Node $SLURM_ARRAY_TASK_ID done"
             max_concurrent=SLURM_MAX_CONCURRENT,
             ntasks=SLURM_JOBS_PER_NODE,
             cpus_per_task=1,
+            qos="regular",
         )
         from llmsat.pipelines.evaluation import logger
         logger.info(f"Wrote {len(cnf_files)} CNF files to {cnf_list_path}")
@@ -327,6 +328,7 @@ echo "Node $SLURM_ARRAY_TASK_ID done"
                 max_concurrent=SLURM_MAX_CONCURRENT,
                 ntasks=SLURM_JOBS_PER_NODE,
                 cpus_per_task=1,
+                qos="regular",
             )
             logger.info(f"SLURM command for chunk {chunk_num}: {slurm_cmd}")
 

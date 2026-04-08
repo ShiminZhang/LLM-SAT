@@ -932,7 +932,7 @@ def main() -> int:
             if not slurm_constraint:
                 slurm_constraint = "cpu"
             if not slurm_qos:
-                slurm_qos = "premium"
+                slurm_qos = "regular"
 
         return submit_proof_verification_slurm(
             generation_tag=args.generation_tag,

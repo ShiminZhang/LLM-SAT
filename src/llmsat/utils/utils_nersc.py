@@ -83,7 +83,7 @@ def wrap_command_to_slurm_array(
     error_file: str = None,
     max_concurrent: int = None,
     constraint: str = "cpu",
-    qos: str = "premium",
+    qos: str = "regular",
 ) -> str:
     """
     Create an sbatch command for a job array (NERSC Perlmutter).
@@ -94,7 +94,7 @@ def wrap_command_to_slurm_array(
         account: NERSC account (default: m4831)
         max_concurrent: Maximum number of concurrent array tasks (optional)
         constraint: Node architecture constraint (default: "cpu" for NERSC Perlmutter)
-        qos: SLURM QOS (default: "premium" for NERSC Perlmutter)
+        qos: SLURM QOS (default: "regular" for NERSC Perlmutter)
     """
     job_name_parameter = f"--job-name={job_name}" if job_name else ""
     output_parameter = f"--output={output_file}" if output_file else ""
@@ -133,7 +133,7 @@ def wrap_command_to_slurm(
     dependencies: list[str] = None,
     dependency_type: str = "afterok",
     constraint: str = "cpu",
-    qos: str = "premium",
+    qos: str = "regular",
 ) -> str:
     """
     Create an sbatch command for a single job (NERSC Perlmutter).
@@ -142,7 +142,7 @@ def wrap_command_to_slurm(
         command: The command to run
         account: NERSC account (default: m4831)
         constraint: Node architecture constraint (default: "cpu" for NERSC Perlmutter)
-        qos: SLURM QOS (default: "premium" for NERSC Perlmutter)
+        qos: SLURM QOS (default: "regular" for NERSC Perlmutter)
     """
     dependencies_parameter = ""
     if dependencies is not None and len(dependencies) > 0:
