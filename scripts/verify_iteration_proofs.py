@@ -41,6 +41,12 @@ SAT_CHECKFAIL_MARKERS = (
     "kissat: fatal error:",
     "unsatisfied clause:",
 )
+SIGNAL_MARKERS = (
+    "raising signal ",
+    "raise signal ",
+    "raised signal ",
+    "caught signal ",
+)
 
 
 @dataclass
@@ -169,6 +175,11 @@ def _has_sat_checkfail(log_content: str) -> bool:
     return any(marker in lowered for marker in SAT_CHECKFAIL_MARKERS)
 
 
+def _has_signal_raise(log_content: str) -> bool:
+    lowered = log_content.lower()
+    return any(marker in lowered for marker in SIGNAL_MARKERS)
+
+
 @dataclass
 class ProofTask:
     algorithm_id: str
@@ -217,17 +228,18 @@ def gather_proof_tasks(
             log_content = _read_log_content(log_path)
             expected_sat = _is_expected_sat_instance(cnf_file, instance_categories)
             sat_check_failed = _has_sat_checkfail(log_content)
+            signal_raised = _has_signal_raise(log_content)
 
-            if _is_timeout_log(log_path):
-                timeout_records.append(
+            if signal_raised:
+                invalid_records.append(
                     ProofCheckRecord(
                         algorithm_id=algorithm_id,
                         code_id=code_id,
                         cnf_file=cnf_file,
                         cnf_path=cnf_path,
                         proof_path=proof_path,
-                        status="timeout",
-                        message="Timeout in solving log",
+                        status="invalid",
+                        message="Signal raised in solving log",
                     )
                 )
                 continue
@@ -268,6 +280,20 @@ def gather_proof_tasks(
                         cnf_file=cnf_file,
                         cnf_path=cnf_path,
                         proof_path=proof_path,
+                    )
+                )
+                continue
+
+            if _is_timeout_log(log_path):
+                timeout_records.append(
+                    ProofCheckRecord(
+                        algorithm_id=algorithm_id,
+                        code_id=code_id,
+                        cnf_file=cnf_file,
+                        cnf_path=cnf_path,
+                        proof_path=proof_path,
+                        status="timeout",
+                        message="Timeout in solving log",
                     )
                 )
                 continue
