@@ -451,7 +451,7 @@ class EvaluationPipeline:
             if attempt == 0:
                 all_logs.append("\n--- ./configure ---")
                 configure_proc = subprocess.run(
-                    ["./configure", "-c", "--reboot"],
+                    ["./configure", "-c"],  # add "--reboot" for kissat_rebooting_direct
                     cwd=solver_path,
                     capture_output=True,
                     text=True,
