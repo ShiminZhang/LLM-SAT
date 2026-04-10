@@ -304,6 +304,7 @@ print(len(lines))
 " 2>/dev/null
     }
 
+    EVAL_POLL_START=$SECONDS
     if [ ! -f "$JOB_IDS_FILE" ] && [ ! -f "$JOB_IDS_JSONL" ]; then
         echo "  No job IDs file found, skipping poll"
     else
@@ -324,6 +325,18 @@ print(len(lines))
             sleep "$POLL_INTERVAL"
         done
     fi
+    EVAL_WAIT=$(( SECONDS - EVAL_POLL_START ))
+    echo "  Eval wait: ${EVAL_WAIT}s"
+    python3 -c "
+import json, os
+p = 'outputs/${INIT_TAG}/timing_log.json'
+if os.path.exists(p):
+    d = json.load(open(p))
+    rec = d[-1] if isinstance(d, list) else d
+    rec['eval_wait_s'] = $EVAL_WAIT
+    rec['total_s'] = round(rec.get('pipeline_wall_s', 0) + $EVAL_WAIT, 2)
+    json.dump(d, open(p, 'w'), indent=2)
+"
 
     # Step 0d: Collect PAR2 results
     echo "[Init Step 4] Collecting results..."
@@ -438,6 +451,7 @@ print(len(lines))
 " 2>/dev/null
     }
 
+    EVAL_POLL_START=$SECONDS
     if [ ! -f "$JOB_IDS_FILE" ] && [ ! -f "$JOB_IDS_JSONL" ]; then
         echo "  No job IDs file found, skipping poll"
     else
@@ -458,6 +472,18 @@ print(len(lines))
             sleep "$POLL_INTERVAL"
         done
     fi
+    EVAL_WAIT=$(( SECONDS - EVAL_POLL_START ))
+    echo "  Eval wait: ${EVAL_WAIT}s"
+    python3 -c "
+import json, os
+p = 'outputs/${ITER_TAG}/timing_log.json'
+if os.path.exists(p):
+    d = json.load(open(p))
+    rec = d[-1] if isinstance(d, list) else d
+    rec['eval_wait_s'] = $EVAL_WAIT
+    rec['total_s'] = round(rec.get('pipeline_wall_s', 0) + $EVAL_WAIT, 2)
+    json.dump(d, open(p, 'w'), indent=2)
+"
 
     # Step 4: Collect PAR2 results
     echo "[Step 4] Collecting results..."
