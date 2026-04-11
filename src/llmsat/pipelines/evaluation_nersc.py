@@ -149,12 +149,15 @@ while IFS= read -r CNF_FILE; do
         if [ $EXIT_CODE -eq 124 ]; then
             echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
             rm -f "$PROOF_FILE"
-        else
+        elif [ $EXIT_CODE -eq 10 ] || [ $EXIT_CODE -eq 20 ]; then
             echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
             # Keep proof only for UNSAT (kissat exit code 20).
             if [ $EXIT_CODE -ne 20 ]; then
                 rm -f "$PROOF_FILE"
             fi
+        else
+            echo "ERROR: solver crashed (exit code $EXIT_CODE)" >> "$OUTPUT_FILE"
+            rm -f "$PROOF_FILE"
         fi
     ) &
 done < <(sed -n "${{START_LINE}},${{END_LINE}}p" "$CNF_LIST")
@@ -297,12 +300,15 @@ while IFS=$'\\t' read -r SOLVER_PATH RESULT_DIR CNF_FILE; do
         if [ $EXIT_CODE -eq 124 ]; then
             echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
             rm -f "$PROOF_FILE"
-        else
+        elif [ $EXIT_CODE -eq 10 ] || [ $EXIT_CODE -eq 20 ]; then
             echo "c process-time: $ELAPSED seconds" >> "$OUTPUT_FILE"
             # Keep proof only for UNSAT (kissat exit code 20).
             if [ $EXIT_CODE -ne 20 ]; then
                 rm -f "$PROOF_FILE"
             fi
+        else
+            echo "ERROR: solver crashed (exit code $EXIT_CODE)" >> "$OUTPUT_FILE"
+            rm -f "$PROOF_FILE"
         fi
     ) &
 done < <(sed -n "${{START_LINE}},${{END_LINE}}p" "$TASK_LIST")
