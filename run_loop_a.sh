@@ -86,6 +86,7 @@ DATAGEN_SCRIPT="src/llmsat/pipelines/gemini_data_generation.py"
 case "$CLUSTER" in
     cc)
         EVAL_SCRIPT="src/llmsat/pipelines/evaluation.py"
+        module load cuda/12.2 faiss/1.8.0 2>/dev/null || true
         ;;
     nb)
         EVAL_SCRIPT="src/llmsat/pipelines/evaluation_nb.py"
