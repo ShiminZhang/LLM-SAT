@@ -86,8 +86,10 @@ def _load_successful_pairs(
                 )
             )
 
-        if pairs:
-            return pairs
+        # Respect the explicit pair selection file even when it is empty. This
+        # allows callers to say "verify no solvers for this tag" without
+        # falling back to every successful build in the generation.
+        return pairs
 
     algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
 
