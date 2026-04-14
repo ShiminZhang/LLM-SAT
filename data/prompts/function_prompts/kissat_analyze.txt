@@ -1,0 +1,464 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling analyze.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+int kissat_analyze (kissat *solver, clause *conflict);
+```
+
+**Purpose:** Perform conflict analysis: determine the learned clause via first-UIP resolution, minimize/shrink it, bump variable activities, learn the clause, and backtrack. This is the core CDCL conflict analysis routine.
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `solver` | `kissat *` | Solver instance |
+| `conflict` | `clause *` | The conflicting clause |
+
+**Return value:**
+- `0` — analysis complete, search continues
+- `20` — UNSAT (inconsistent at level 0)
+
+**Caller context:** Called from the main search loop in `search.c` when propagation finds a conflict:
+```c
+clause *conflict = kissat_search_propagate(solver);
+if (conflict)
+  res = kissat_analyze(solver, conflict);
+```
+
+---
+
+## 2. ASSIGNED STRUCT (per-variable assignment info)
+
+```c
+struct assigned {
+  unsigned level : 28;      // Decision level of assignment
+  bool analyzed : 1;        // Marked during conflict analysis
+  bool poisoned : 1;        // Used by minimization
+  bool removable : 1;       // Used by minimization
+  bool shrinkable : 1;      // Used by shrinking
+  unsigned trail : 30;      // Position on trail
+  bool binary : 1;          // Reason is binary clause
+  bool redundant : 1;       // Reason is redundant
+  unsigned reason;           // Reason clause ref (or DECISION_REASON/UNIT_REASON)
+};
+
+#define DECISION_REASON  UINT_MAX
+#define UNIT_REASON      (DECISION_REASON - 1)
+#define INVALID_LEVEL    UINT_MAX
+```
+
+Access: `solver->assigned[idx]` or `ASSIGNED(lit)`, `LEVEL(lit)`, `REASON(lit)`.
+
+---
+
+## 3. CLAUSE STRUCT
+
+```c
+struct clause {
+  unsigned glue : 19;
+  bool garbage : 1;
+  bool quotient : 1;
+  bool reason : 1;
+  bool redundant : 1;
+  bool shrunken : 1;
+  bool subsume : 1;
+  bool swept : 1;
+  bool vivify : 1;
+  unsigned used : 5;
+  unsigned searched;
+  unsigned size;
+  unsigned lits[3];         // Flexible array
+};
+```
+
+### Clause iteration
+```c
+for (all_literals_in_clause(lit, c)) { ... }
+```
+
+---
+
+## 4. FRAME STRUCT (per-level decision info)
+
+```c
+struct frame {
+  bool promote;
+  unsigned decision;    // Decision literal at this level
+  unsigned trail;       // Trail size at this level
+  unsigned used;        // Used count (for clause sorting)
+};
+
+FRAME(level)            // Access frame at decision level
+```
+
+---
+
+## 5. HELPER FUNCTIONS IN analyze.c (defined above your function, available to call)
+
+```c
+static bool one_literal_on_conflict_level (kissat *solver, clause *conflict,
+                                            unsigned *conflict_level_ptr);
+// Determines if the conflict clause has only one literal at the conflict level.
+// Sets *conflict_level_ptr to the highest level in the clause.
+// Returns true if the conflict can be reused as a driving clause (1 literal at max level).
+// Returns false otherwise. May set solver->inconsistent if conflict at level 0.
+
+static void analyze_reason_side_literals (kissat *solver);
+// Optionally bumps reason side literals (controlled by bumpreasons option).
+// Uses solver->clause (the deduced clause) and pushes additional analyzed variables.
+
+static void sort_deduced_clause (kissat *solver);
+// Sorts solver->clause by decision level (highest first).
+// Uses solver->levels and solver->frames for level-based sorting.
+
+static void reset_analysis_but_not_analyzed_literals (kissat *solver);
+// Resets removable marks, levels, and clears solver->clause.
+// Does NOT reset analyzed marks (that's done separately).
+
+static void update_trail_average (kissat *solver);
+// Updates the trail fill EMA (skipped during probing).
+
+static void update_decision_rate_average (kissat *solver);
+// Updates the decision rate EMA (skipped during probing).
+
+static void analyze_failed_literal (kissat *solver, clause *conflict);
+// Special analysis for conflicts at decision level 1 (failed literal probing).
+// Learns unit clauses and backtracks to level 0.
+
+void kissat_reset_only_analyzed_literals (kissat *solver);
+// Clears analyzed marks on all variables in solver->analyzed stack.
+// Public (also called externally).
+```
+
+---
+
+## 6. EXTERNAL API FUNCTIONS (from included headers)
+
+```c
+clause *kissat_deduce_first_uip_clause (kissat *solver, clause *conflict);
+// Performs first-UIP resolution. Builds the learned clause in solver->clause.
+// Returns non-NULL if a new conflict is found during deduction (restart analysis).
+// Returns NULL when the learned clause is finalized.
+
+void kissat_minimize_clause (kissat *solver);
+// Minimizes the learned clause in solver->clause using self-subsuming resolution.
+
+void kissat_shrink_clause (kissat *solver);
+// Shrinks the learned clause further (recursive/binary shrinking).
+
+void kissat_learn_clause (kissat *solver);
+// Learns the finalized clause: adds to clause database, assigns the UIP literal,
+// backtracks, updates glue/tier statistics.
+
+void kissat_bump (kissat *solver);
+// Bumps VSIDS activity scores for all analyzed variables.
+
+void kissat_backtrack_after_conflict (kissat *solver, unsigned level);
+// Backtracks to the given level, updating phases.
+
+void kissat_backtrack_without_updating_phases (kissat *solver, unsigned level);
+// Backtracks without saving phases (used for failed literal analysis).
+
+void kissat_assign_binary (kissat *solver, bool redundant, unsigned lit, unsigned other);
+// Assigns lit with a binary clause reason.
+
+void kissat_assign_reference (kissat *solver, unsigned lit, reference ref, clause *c);
+// Assigns lit with a large clause reason.
+
+void kissat_learned_unit (kissat *solver, unsigned lit);
+// Assigns a learned unit clause.
+
+void kissat_update_learned (kissat *solver, unsigned glue, unsigned size);
+// Updates learned clause statistics (glue distribution, averages).
+```
+
+---
+
+## 7. SOLVER STATE ACCESS
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->level` | `unsigned` | Current decision level |
+| `solver->assigned` | `assigned *` | Per-variable assignment info |
+| `solver->values` | `value *` | Truth values indexed by literal |
+| `solver->inconsistent` | `bool` | Set to true when UNSAT detected |
+| `solver->probing` | `bool` | True during probing (skip some updates) |
+| `solver->stable` | `bool` | Current search mode |
+| `solver->vars` | `unsigned` | Number of variables |
+| `solver->active` | `unsigned` | Active variable count |
+| `solver->unassigned` | `unsigned` | Unassigned variable count |
+| `solver->unflushed` | `unsigned` | Unflushed trail entries |
+| `solver->iterating` | `bool` | Set true after learning units |
+
+### Key solver stacks
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->clause` | `unsigneds` | Deduced learned clause literals |
+| `solver->analyzed` | `unsigneds` | Stack of analyzed variable indices |
+| `solver->levels` | `unsigneds` | Stack of marked decision levels |
+| `solver->removable` | `unsigneds` | Stack of removable variable indices |
+| `solver->shadow` | `unsigneds` | Scratch stack for clause sorting |
+| `solver->frames` | `frames` | Decision frame stack |
+| `solver->trail` | `unsigned_array` | Assignment trail |
+| `solver->arena` | `arena` | Clause storage |
+
+### Phase arrays
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->phases.conflict[idx]` | `value` | Conflict-derived phase for variable |
+| `solver->phases.saved[idx]` | `value` | Saved decision phase |
+
+---
+
+## 8. CONVENIENCE MACROS
+
+```c
+VARS                   // solver->vars
+LITS                   // 2 * solver->vars
+CONFLICTS              // solver->statistics.conflicts
+DECISIONS              // solver->statistics.decisions
+VALUE(lit)             // Truth value of literal
+IDX(lit)               // Variable index from literal
+LIT(idx)               // Positive literal from variable index
+NOT(lit)               // Negate literal
+NEGATED(lit)           // True if negative polarity
+ACTIVE(idx)            // True if variable is active
+ASSIGNED(lit)          // assigned* for literal
+LEVEL(lit)             // Decision level of literal
+FRAME(level)           // Frame at decision level
+GET_OPTION(name)       // Get option value
+INC(name)              // Increment statistic
+AVERAGE(name)          // Get EMA value (e.g., AVERAGE(decision_rate))
+UPDATE_AVERAGE(name, value)  // Update EMA
+START(name)            // Start profiling section
+STOP(name)             // Stop profiling section
+```
+
+### Stack macros
+```c
+SIZE_STACK(s)          EMPTY_STACK(s)       CLEAR_STACK(s)
+PUSH_STACK(s, e)       POP_STACK(s)         PEEK_STACK(s, n)
+BEGIN_STACK(s)          END_STACK(s)
+for (all_stack(TYPE, elem, s)) { ... }
+SIZE_ARRAY(a)          BEGIN_ARRAY(a)       END_ARRAY(a)
+```
+
+### Proof / checker macros
+```c
+CHECK_AND_ADD_EMPTY()            // Checker: add empty clause
+ADD_EMPTY_TO_PROOF()             // Proof: add empty clause
+```
+
+### Logging
+```c
+LOG(fmt, ...)                    // Debug log
+LOGCLS(clause, fmt, ...)         // Log with clause
+LOGLIT(lit)                      // Format literal
+LOGVAR(idx)                      // Format variable
+LOGREF(ref, fmt, ...)            // Log with reference
+LOGBINARY(a, b, fmt, ...)        // Log binary clause
+LOGTMP(fmt, ...)                 // Log temporary clause
+```
+
+---
+
+## 9. AVAILABLE OPTIONS
+
+| Option | Description |
+|--------|-------------|
+| `minimize` | Enable learned clause minimization (0-1) |
+| `shrink` | Learned clause shrinking mode (0-3) |
+| `bumpreasons` | Bump reason side literals (0-1) |
+| `bumpreasonslimit` | Relative reason literals limit |
+| `bumpreasonsrate` | Decision rate limit for bumping |
+| `chrono` | Allow chronological backtracking (0-1) |
+| `otfs` | On-the-fly strengthening (0-1) |
+
+---
+
+## 10. CRITICAL RULES
+
+### Return Value
+- Return `0` to continue search
+- Return `20` for UNSAT
+
+### Conflict Phase Recording
+The current implementation records conflict polarities:
+```c
+for (all_literals_in_clause(lit, conflict))
+  solver->phases.conflict[IDX(lit)] = lit % 2 ? -1 : 1;
+```
+
+### Analysis Loop Pattern
+The standard analysis loop handles multiple cases:
+1. **Inconsistent at level 0** → return 20
+2. **One literal at conflict level** → reuse conflict as driving clause
+3. **Conflict at level 1** → failed literal analysis
+4. **General case** → first-UIP deduction → minimize → shrink → bump → learn
+5. **Deduction finds new conflict** → restart analysis loop
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT skip `kissat_reset_only_analyzed_literals`** -- will corrupt analyzed marks
+4. **DO NOT skip `reset_analysis_but_not_analyzed_literals`** -- will leak levels/removable state
+5. **`<math.h>` is NOT included** in analyze.c
+6. **`<inttypes.h>` IS available** (for PRIu64 formatting)
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+int FUNCTION_NAME_PLACEHOLDER(kissat *solver, clause *conflict) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is analyze.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one.
+
+```c
+#include "analyze.h"
+#include "backtrack.h"
+#include "bump.h"
+#include "deduce.h"
+#include "inline.h"
+#include "learn.h"
+#include "minimize.h"
+#include "rank.h"
+#include "shrink.h"
+#include "sort.h"
+
+#include <inttypes.h>
+
+static bool
+one_literal_on_conflict_level (kissat *solver, clause *conflict,
+                               unsigned *conflict_level_ptr) {
+  /* Checks if conflict has 1 literal at highest level.
+     Returns true if conflict reused as driving clause.
+     Sets solver->inconsistent if conflict at level 0. */
+  assert (conflict);
+  assert (conflict->size > 1);
+  unsigned conflict_level = INVALID_LEVEL;
+  unsigned literals_on_conflict_level = 0;
+  unsigned forced_lit = INVALID_LIT;
+  assigned *all_assigned = solver->assigned;
+  unsigned *lits = conflict->lits;
+  const unsigned conflict_size = conflict->size;
+  const unsigned *const end_of_lits = lits + conflict_size;
+  for (const unsigned *p = lits; p != end_of_lits; p++) {
+    const unsigned lit = *p;
+    assert (VALUE (lit) < 0);
+    const unsigned idx = IDX (lit);
+    const unsigned level = all_assigned[idx].level;
+    if (conflict_level == level) {
+      if (++literals_on_conflict_level > 1 && level == solver->level) break;
+    } else if (conflict_level == INVALID_LEVEL || conflict_level < level) {
+      forced_lit = lit;
+      conflict_level = level;
+      literals_on_conflict_level = 1;
+    }
+  }
+  *conflict_level_ptr = conflict_level;
+  if (!conflict_level) {
+    solver->inconsistent = true;
+    CHECK_AND_ADD_EMPTY ();
+    ADD_EMPTY_TO_PROOF ();
+    return false;
+  }
+  if (conflict_level < solver->level)
+    kissat_backtrack_after_conflict (solver, conflict_level);
+  /* ... watch reordering for large clauses ... */
+  if (literals_on_conflict_level > 1) return false;
+  kissat_backtrack_after_conflict (solver, solver->level - 1);
+  if (conflict_size == 2) {
+    const unsigned other = lits[0] ^ lits[1] ^ forced_lit;
+    kissat_assign_binary (solver, conflict->redundant, forced_lit, other);
+  } else {
+    const reference ref = kissat_reference_clause (solver, conflict);
+    kissat_assign_reference (solver, forced_lit, ref, conflict);
+  }
+  return true;
+}
+
+/* ... analyze_reason_side_literals, sort_deduced_clause,
+       reset_levels, kissat_reset_only_analyzed_literals,
+       reset_removable, reset_analysis_but_not_analyzed_literals,
+       update_trail_average, update_decision_rate_average,
+       analyze_failed_literal defined above ... */
+
+int kissat_analyze (kissat *solver, clause *conflict) {
+  for (all_literals_in_clause (lit, conflict))
+    solver->phases.conflict[IDX(lit)] = lit % 2 ? -1 : 1;
+  if (solver->inconsistent) {
+    assert (!solver->level);
+    return 20;
+  }
+  START (analyze);
+  if (!solver->probing) {
+    update_trail_average (solver);
+    update_decision_rate_average (solver);
+#ifndef QUIET
+    UPDATE_AVERAGE (level, solver->level);
+#endif
+  }
+  int res;
+  do {
+    LOGCLS (conflict, "analyzing conflict %" PRIu64, CONFLICTS);
+    unsigned conflict_level;
+    if (one_literal_on_conflict_level (solver, conflict, &conflict_level))
+      res = 1;
+    else if (!conflict_level)
+      res = -1;
+    else if (conflict_level == 1) {
+      analyze_failed_literal (solver, conflict);
+      res = 1;
+    } else if ((conflict = kissat_deduce_first_uip_clause (solver, conflict))) {
+      reset_analysis_but_not_analyzed_literals (solver);
+      res = 0;
+    } else {
+      if (GET_OPTION (minimize)) {
+        sort_deduced_clause (solver);
+        kissat_minimize_clause (solver);
+        if (GET_OPTION (shrink))
+          kissat_shrink_clause (solver);
+      }
+      analyze_reason_side_literals (solver);
+      kissat_learn_clause (solver);
+      reset_analysis_but_not_analyzed_literals (solver);
+      res = 1;
+    }
+    if (!EMPTY_STACK (solver->analyzed)) {
+      if (!solver->probing)
+        kissat_bump (solver);
+      kissat_reset_only_analyzed_literals (solver);
+    }
+  } while (!res);
+  STOP (analyze);
+  return res > 0 ? 0 : 20;
+}
+```

@@ -1,0 +1,322 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling walk.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+static void walking_phase (kissat *solver, bool first_time, bool use_previous_phase);
+```
+
+**Purpose:** Execute one round of local search (SLS / WalkSAT-style). This is the core walking entry point that orchestrates: enter dense mode → initialize walker → run local search → save results → clean up → resume sparse mode.
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `solver` | `kissat *` | Solver instance |
+| `first_time` | `bool` | True if this is the first walk (affects minimum saving behavior) |
+| `use_previous_phase` | `bool` | True to initialize walk from previously saved phases |
+
+**Caller context:** Called from `walk()` (static in walk.c), which is called from `kissat_walk()` (public). The walk is bracketed by `STOP_SEARCH_AND_START_SIMPLIFIER` / `STOP_SIMPLIFIER_AND_RESUME_SEARCH` in the caller.
+
+---
+
+## 2. WALKER STRUCT
+
+```c
+struct walker {
+  kissat *solver;
+
+  unsigned best;           // Best trail position
+  unsigned clauses;        // Number of clauses tracked
+  unsigned current;        // Current unsatisfied count
+  unsigned exponents;      // Number of score table exponents
+  unsigned initial;        // Initial unsatisfied count
+  unsigned minimum;        // Minimum unsatisfied count seen
+  unsigned offset;         // Variable offset
+
+  int weighted;            // Weighted scoring mode
+
+  generator random;        // RNG state for walk
+
+  counter *counters;       // Per-clause satisfaction counters
+  litpairs *binaries;      // Binary clause storage
+  value *saved;            // Saved values pointer (restored on release)
+  tagged *refs;            // Clause reference tags
+  double *table;           // Score exponent table
+
+  doubles scores;          // Score stack
+  unsigneds unsat;         // Stack of unsatisfied clause indices
+  unsigneds trail;         // Walk trail (flipped literals)
+
+  double size;             // Average clause size
+  double epsilon;          // Noise parameter
+
+  uint64_t limit;          // Step limit for local search
+  uint64_t flipped;        // Number of flips performed
+};
+```
+
+---
+
+## 3. AVAILABLE SUB-FUNCTIONS (defined above your function in walk.c)
+
+### Dense mode transitions
+```c
+kissat_enter_dense_mode(solver, &irredundant, &redundant);
+// Switches solver from sparse (watched) to dense (occurrence list) mode.
+// Saves binary clauses into irredundant/redundant stacks.
+
+kissat_resume_sparse_mode(solver, false, &irredundant, &redundant);
+// Restores sparse watched mode from saved binary clauses.
+```
+
+### Walker lifecycle
+```c
+init_walker(solver, &walker, &irredundant, use_previous_phase);
+// Initializes walker struct: allocates counters, refs, scores table,
+// sets up initial variable assignment, counts unsatisfied clauses.
+// Parameters: solver, walker pointer, binary clauses, use_previous_phase flag.
+
+init_walker_limit(solver, &walker);
+// Sets the step limit for local search based on walkeffort option.
+// Initializes walker->limit, walker->flipped, reporting state.
+
+local_search_round(&walker);
+// Runs the main local search loop: repeatedly flips variables to reduce
+// unsatisfied clause count until limit reached or all clauses satisfied.
+// Updates walker->minimum, walker->flipped, walker->current.
+
+save_final_minimum(&walker, first_time);
+// Saves the best assignment found during the walk back to solver phases.
+// If no improvement and not first_time, keeps existing saved phases.
+
+release_walker(&walker);
+// Frees all walker-allocated memory, restores solver->values.
+```
+
+---
+
+## 4. STACK MACROS
+
+```c
+INIT_STACK(stack)          // Initialize an empty stack
+RELEASE_STACK(stack)       // Free stack memory
+PUSH_STACK(stack, elem)    // Push element
+SIZE_STACK(stack)          // Number of elements
+EMPTY_STACK(stack)         // Is stack empty?
+```
+
+### Stack types used
+```c
+litpairs irredundant;      // Stack of litpair (binary clause literal pairs)
+litwatches redundant;      // Stack of litwatch (redundant binary watches)
+```
+
+---
+
+## 5. SOLVER STATE ACCESS
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->vars` | `unsigned` | Number of variables |
+| `solver->values` | `value *` | Current truth values (replaced during walk) |
+| `solver->stable` | `bool` | Current mode |
+| `solver->level` | `unsigned` | Current decision level |
+| `solver->phases.saved` | `value *` | Saved phase array |
+| `solver->phases.best` | `value *` | Best phase array |
+| `solver->phases.target` | `value *` | Target phase array |
+| `solver->last_irredundant` | `reference` | Last irredundant clause reference |
+| `solver->arena` | `arena` | Clause storage arena |
+
+### Convenience Macros
+```c
+VARS                       // solver->vars
+LITS                       // 2 * solver->vars
+CLAUSES                    // Total clauses
+IRREDUNDANT_CLAUSES        // solver->statistics.clauses_irredundant
+CONFLICTS                  // solver->statistics.conflicts
+GET_OPTION(name)           // Get option value
+GET(name)                  // Get statistic value
+INC(name)                  // Increment statistic
+```
+
+---
+
+## 6. STATISTICS
+
+Relevant walk statistics:
+```c
+INC(walks)                 // Increment walk count
+// walker internally tracks: walk_steps, walk_improved
+```
+
+---
+
+## 7. AVAILABLE LIBRARIES
+
+walk.c includes:
+- `<string.h>` — memcpy, memset, etc.
+- **`<math.h>` is NOT included** in walk.c
+
+---
+
+## 8. CRITICAL RULES
+
+### Lifecycle Ordering
+The dense mode / walker lifecycle MUST follow this order:
+1. `INC(walks)` — count the walk
+2. Initialize stacks: `INIT_STACK(irredundant)`, `INIT_STACK(redundant)`
+3. `kissat_enter_dense_mode(solver, &irredundant, &redundant)` — enter dense mode
+4. `init_walker(solver, &walker, &irredundant, use_previous_phase)` — init walker
+5. `init_walker_limit(solver, &walker)` — set step limit
+6. `local_search_round(&walker)` — run search
+7. `save_final_minimum(&walker, first_time)` — save results
+8. `release_walker(&walker)` — free walker memory
+9. `kissat_resume_sparse_mode(solver, false, &irredundant, &redundant)` — restore sparse mode
+10. `RELEASE_STACK(irredundant)`, `RELEASE_STACK(redundant)` — free stacks
+
+**WARNING:** Skipping steps or reordering will corrupt solver state or leak memory. Dense mode MUST be entered before walker init and resumed after walker release.
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT skip `kissat_enter_dense_mode` / `kissat_resume_sparse_mode`** -- walker requires dense mode
+4. **DO NOT skip `release_walker`** -- will leak memory and corrupt solver->values
+5. **`<string.h>` IS available**
+6. **`<math.h>` is NOT included** in walk.c
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+static void FUNCTION_NAME_PLACEHOLDER(kissat *solver, bool first_time, bool use_previous_phase) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is the relevant section of walk.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one.
+
+```c
+#include "allocate.h"
+#include "decide.h"
+#include "dense.h"
+#include "inline.h"
+#include "phases.h"
+#include "print.h"
+#include "report.h"
+#include "rephase.h"
+#include "terminate.h"
+#include "walk.h"
+
+#include <string.h>
+
+typedef struct tagged tagged;
+typedef struct counter counter;
+typedef struct walker walker;
+
+#define LD_MAX_WALK_REF 31
+#define MAX_WALK_REF ((1u << LD_MAX_WALK_REF) - 1)
+
+struct tagged {
+  unsigned ref:LD_MAX_WALK_REF;
+  bool binary:1;
+};
+
+/* ... counter struct, utility functions ... */
+
+struct walker {
+  kissat *solver;
+  unsigned best;
+  unsigned clauses;
+  unsigned current;
+  unsigned exponents;
+  unsigned initial;
+  unsigned minimum;
+  unsigned offset;
+  int weighted;
+  generator random;
+  counter *counters;
+  litpairs *binaries;
+  value *saved;
+  tagged *refs;
+  double *table;
+  doubles scores;
+  unsigneds unsat;
+  unsigneds trail;
+  double size;
+  double epsilon;
+  uint64_t limit;
+  uint64_t flipped;
+#ifndef QUIET
+  uint64_t start;
+  struct {
+    uint64_t flipped;
+    unsigned minimum;
+  } report;
+#endif
+};
+
+/* ... init_walker, init_walker_limit, local_search_round,
+       save_final_minimum, release_walker defined above ... */
+
+static void
+walking_phase (kissat *solver, bool first_time, bool use_previous_phase)
+{
+  INC (walks);
+  litpairs irredundant;
+  litwatches redundant;
+  INIT_STACK (irredundant);
+  INIT_STACK (redundant);
+  kissat_enter_dense_mode (solver, &irredundant, &redundant);
+  walker walker;
+  init_walker (solver, &walker, &irredundant, use_previous_phase);
+  init_walker_limit (solver, &walker);
+  local_search_round (&walker);
+  save_final_minimum (&walker, first_time);
+#ifdef CHECK_WALK
+  unsigned expected = walker.minimum;
+#endif
+  release_walker (&walker);
+  kissat_resume_sparse_mode (solver, false, &irredundant, &redundant);
+  RELEASE_STACK (irredundant);
+  RELEASE_STACK (redundant);
+#if CHECK_WALK
+  check_walk (solver, expected);
+#endif
+}
+
+/* Caller: */
+static void walk (kissat *solver, bool first_time, bool use_previous_phase) {
+  assert (!solver->level);
+  assert (!solver->inconsistent);
+  assert (kissat_propagated (solver));
+  /* ... size checks ... */
+  STOP_SEARCH_AND_START_SIMPLIFIER (walking);
+  walking_phase (solver, first_time, use_previous_phase);
+  STOP_SIMPLIFIER_AND_RESUME_SEARCH (walking);
+}
+```

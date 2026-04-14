@@ -1,0 +1,261 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling rephase.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+static char rephase_conflict (kissat *solver);
+```
+
+**Purpose:** Reset decision phases using conflict-derived phase information. One of several rephasing strategies selected by `reset_phases` or `reset_phases_mab`.
+
+**Return value:** Must return `'C'` (the rephase type character for conflict rephasing).
+
+**Caller context:** Called from `reset_phases()` and `reset_phases_mab()` via a function pointer array. After this function returns, the caller copies `solver->phases.saved` to `solver->phases.target` and updates conflict limits.
+
+---
+
+## 2. PHASE ARRAYS
+
+```c
+struct phases {
+  value *best;       // Best assignment phases (size VARS)
+  value *saved;      // Saved/current decision phases (size VARS) — OUTPUT
+  value *target;     // Target phases (size VARS)
+  value *conflict;   // Conflict-derived phases (size VARS) — INPUT
+};
+// value is typedef signed char (-1, 0, or 1)
+// 0 means uninitialized/unset
+```
+
+Access: `solver->phases.saved`, `solver->phases.conflict`, etc.
+
+### Phase iteration macro
+```c
+for (all_phases(saved, p))     // value *p iterates solver->phases.saved[0..VARS-1]
+for (all_phases(conflict, p))  // value *p iterates solver->phases.conflict[0..VARS-1]
+for (all_phases(best, p))      // value *p iterates solver->phases.best[0..VARS-1]
+for (all_phases(target, p))    // value *p iterates solver->phases.target[0..VARS-1]
+```
+
+---
+
+## 3. SOLVER STATE ACCESS
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->vars` | `unsigned` | Number of variables |
+| `solver->stable` | `bool` | Current mode |
+| `solver->values` | `value *` | Current truth values indexed by literal |
+| `solver->active` | `unsigned` | Number of active variables |
+| `solver->scores` | `heap` | VSIDS score heap |
+| `solver->scinc` | `double` | VSIDS score increment |
+| `solver->random` | `generator` | RNG state |
+
+### Convenience Macros
+```c
+VARS                   // solver->vars
+LITS                   // 2 * solver->vars
+CONFLICTS              // solver->statistics.conflicts (uint64_t)
+DECISIONS              // solver->statistics.decisions (uint64_t)
+INITIAL_PHASE          // (GET_OPTION(phase) ? 1 : -1)
+GET_OPTION(name)       // Returns int option value
+INC(name)              // Increment statistic by 1
+GET(name)              // Get statistic value
+```
+
+---
+
+## 4. STATISTICS
+
+Your function MUST increment the rephased_conflict counter:
+```c
+INC(rephased_conflict);
+```
+
+Other available counters: `rephased_best`, `rephased_original`, `rephased_inverted`, `rephased_walking`, `rephased_flipped`.
+
+---
+
+## 5. VARIABLE / LITERAL MACROS
+
+```c
+IDX(lit)               // Extract variable index from literal
+LIT(idx)               // Create positive literal from variable index
+NOT(lit)               // Negate literal
+NEGATED(lit)           // True if literal is negative polarity
+VALUE(lit)             // Current truth value (-1, 0, 1)
+ACTIVE(idx)            // True if variable is active
+for (all_variables(idx)) { ... }  // Iterate variable indices
+```
+
+---
+
+## 6. HEAP FUNCTIONS (variable activity scores)
+
+```c
+kissat_get_heap_score(&solver->scores, idx)  // double: VSIDS score
+kissat_heap_contains(&solver->scores, idx)   // bool
+```
+
+---
+
+## 7. AVAILABLE FUNCTIONS AND LIBRARIES
+
+### Math (`<math.h>` IS included in rephase.c)
+```c
+sqrt(x)   log(x)   log2(x)   pow(x, y)   fabs(x)   exp(x)
+```
+
+### Memory (`<string.h>` IS included in rephase.c)
+```c
+memcpy(dest, src, n)   memset(dest, val, n)
+```
+
+### Memory allocation
+```c
+kissat_calloc(solver, n, size)
+kissat_malloc(solver, bytes)
+kissat_free(solver, ptr, bytes)
+```
+
+### Random
+```c
+kissat_pick_random(&solver->random, low, high)  // unsigned in [low, high)
+kissat_pick_double(&solver->random)             // double in [0, 1)
+```
+
+### Logging
+```c
+LOG(fmt, ...)                          // Debug log (compiled out in release)
+```
+
+---
+
+## 8. CRITICAL RULES
+
+### Return Value
+Must return `'C'`.
+
+### Statistics
+Must call `INC(rephased_conflict)` before returning.
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT modify `solver->phases.target`** -- the caller handles that after you return
+4. **`<math.h>` IS available**
+5. **`<string.h>` IS available**
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+static char FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is the relevant section of rephase.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one. The other rephase functions are shown for reference.
+
+```c
+#include "autarky.h"
+#include "backtrack.h"
+#include "decide.h"
+#include "internal.h"
+#include "logging.h"
+#include "print.h"
+#include "rephase.h"
+#include "report.h"
+#include "terminate.h"
+#include "walk.h"
+
+#include <inttypes.h>
+#include <string.h>
+#include <math.h>
+
+/* ... kissat_reset_best_assigned, kissat_reset_target_assigned ... */
+
+static char rephase_best (kissat *solver) {
+  const value *const best = solver->phases.best;
+  const value *const end_of_best = best + VARS;
+  value const *b;
+  value *const saved = solver->phases.saved;
+  value *s;
+  value tmp;
+  for (s = saved, b = best; b != end_of_best; s++, b++)
+    if ((tmp = *b)) *s = tmp;
+  INC (rephased_best);
+  return 'B';
+}
+
+static char rephase_conflict (kissat *solver) {
+  const value *const conflict = solver->phases.conflict;
+  const value *const end_of_conflict = conflict + VARS;
+  value const *b;
+  value *const saved = solver->phases.saved;
+  value *s;
+  value tmp;
+  for (s = saved, b = conflict; b != end_of_conflict; s++, b++)
+    if ((tmp = *b)) *s = tmp;
+  INC (rephased_conflict);
+  return 'C';
+}
+
+static char rephase_flipped (kissat *solver) {
+  assert (GET_OPTION (rephaseflipped));
+  for (all_phases (saved, p)) *p *= -1;
+  INC (rephased_flipped);
+  return 'F';
+}
+
+static char rephase_original (kissat *solver) {
+  assert (GET_OPTION (rephaseoriginal));
+  const value initial_phase = INITIAL_PHASE;
+  for (all_phases (saved, p)) *p = initial_phase;
+  INC (rephased_original);
+  return 'O';
+}
+
+static char rephase_inverted (kissat *solver) {
+  assert (GET_OPTION (rephaseinverted));
+  const value inverted_initial_phase = -INITIAL_PHASE;
+  for (all_phases (saved, p)) *p = inverted_initial_phase;
+  INC (rephased_inverted);
+  return 'I';
+}
+
+static char rephase_walking (kissat *solver) {
+  assert (GET_OPTION (rephasewalking));
+  assert (kissat_walking (solver));
+  STOP (rephase);
+  kissat_walk (solver);
+  START (rephase);
+  INC (rephased_walking);
+  return 'W';
+}
+```

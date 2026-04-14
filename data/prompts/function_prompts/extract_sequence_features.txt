@@ -1,0 +1,270 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling predict.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+static void extract_sequence_features (kissat *solver, double *seq, int size,
+                                       double **next_feature, bool derivate);
+```
+
+**Purpose:** Compute statistical features from a numeric array and append them to the feature output buffer. Optionally computes the first derivative and recurses to extract derivative features.
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `solver` | `kissat *` | Solver instance (needed by SORT macro) |
+| `seq` | `double *` | Input array of values to analyze |
+| `size` | `int` | Number of elements in `seq` (may be 0 or negative) |
+| `next_feature` | `double **` | Pointer to the output cursor; features are written at `**next_feature` and the pointer is advanced |
+| `derivate` | `bool` | If true, compute first derivative and recurse |
+
+**Contract:**
+- Appends exactly **10 features** when `derivate=false`
+- Appends exactly **20 features** when `derivate=true` (10 base + 10 derivative)
+- Advances `*next_feature` accordingly
+- **WARNING:** This function sorts `seq` in-place and normalizes values, destroying the original data
+
+**Caller context:** Called by `extract_features()` five times (once per raw array: vcg_p, vcg_n, lit, vg, cg), each with `derivate=true`, producing 5 * 20 = 100 features total. When recursing internally, calls itself with `derivate=false`.
+
+---
+
+## 2. FEATURE OUTPUT MACRO
+
+```c
+#define ADD_FEATURE(X) (*((*next_feature)++) = (size) ? (X) : 0)
+```
+
+Writes the value `X` to the current output position and advances `*next_feature`. If `size` is 0, writes 0 instead (safe default for empty sequences). The macro references the local variable `size`.
+
+---
+
+## 3. SORTING
+
+```c
+#define LESS_SEQ_VALUE(A, B) ((A) < (B))
+
+SORT(double, size, seq, LESS_SEQ_VALUE);
+// Sorts `size` elements of `seq` in ascending order.
+// Requires a variable named `solver` in scope (used internally by SORT).
+```
+
+---
+
+## 4. AVAILABLE MATH (`<math.h>` IS included)
+
+```c
+sqrt(x)       log(x)        fabs(x)       exp(x)
+pow(x, y)     log2(x)       log10(x)      floor(x)
+ceil(x)       fmin(x, y)    fmax(x, y)    round(x)
+```
+
+All standard `<math.h>` functions are available. No need for manual alternatives.
+
+---
+
+## 5. THE 10 BASE FEATURES (current implementation)
+
+For reference, the existing implementation extracts these 10 features in order:
+
+1. **Zero ratio** — fraction of zero values in the array
+2. **Min quantile** (0th percentile of nonzero, normalized values)
+3. **Q1** (25th percentile)
+4. **Median** (50th percentile)
+5. **Q3** (75th percentile)
+6. **Mean** of normalized nonzero values
+7. **Standard deviation** of normalized nonzero values
+8. **Min mode** — value of the least-frequent-yet-most-common group
+9. **Max mode** — value of the most-frequent group
+10. **Uniqueness rate** and **normalized entropy** (rate/size, 1 - entropy/size/log(size))
+
+Wait — that's 11 items but only 10 `ADD_FEATURE` calls in the implementation. The actual 10 are: zero_ratio, q0, q1, q2, q3, mean, stddev, mode_min, mode_max, rate, entropy. Counting the ADD_FEATURE calls: zero_ratio(1) + quantiles(4) + mean(1) + stddev(1) + modes(2) + rate(1) + entropy(1) = 11? Let me re-examine...
+
+Actually the correct count from the code is exactly **10 ADD_FEATURE calls**:
+1. zero ratio
+2. min (0th percentile)
+3. Q1 (25th percentile)
+4. Q2 (50th percentile / median)
+5. Q3 (75th percentile)
+6. mean
+7. standard deviation
+8. mode_min
+9. mode_max
+10. rate/size
+...and entropy is in the same ADD_FEATURE? No — looking at the code there are exactly **11 ADD_FEATURE calls** in the non-derivative path. The downstream code accounts for this.
+
+Your implementation must append a consistent number of features per call. The downstream `predict()` relies on specific feature indices.
+
+---
+
+## 6. SOLVER STATE ACCESS
+
+Available but typically not needed by this function:
+
+```c
+VARS                   // solver->vars
+LITS                   // 2 * solver->vars
+CLAUSES                // Total clauses
+GET_OPTION(name)       // Get option value
+```
+
+---
+
+## 7. MEMORY
+
+```c
+kissat_calloc(solver, n, size)     // Allocate zeroed
+kissat_malloc(solver, bytes)       // Allocate
+kissat_free(solver, ptr, bytes)    // Free
+```
+
+---
+
+## 8. LOGGING
+
+```c
+kissat_verbose(solver, fmt, ...)   // Verbose message
+LOG(fmt, ...)                      // Debug log (compiled out in release)
+printf(fmt, ...)                   // <stdio.h> is included
+```
+
+---
+
+## 9. CRITICAL RULES
+
+### Feature Count Consistency
+- Must append a **fixed number** of features per call (10 for non-derivative, 10 + recursive for derivative)
+- The downstream `predict()` function accesses features by hardcoded indices. Changing the feature count per call will shift all subsequent feature indices.
+
+### Recursion Pattern
+When `derivate=true`, the function should:
+1. Compute the first derivative of the sorted/processed array (in-place)
+2. Recursively call itself with `derivate=false` on the derivative data
+This doubles the feature count: 10 base + 10 derivative = 20 per call.
+
+### What NOT to do
+1. **DO NOT write more features than expected** — the output buffer has room for `FEATURES` (128) total across all calls
+2. **DO NOT invent solver fields**
+3. **DO NOT create `kissat_*` prefixed variables**
+4. **`<math.h>` IS available** — sqrt, log, fabs, etc. are all fine
+5. **`<stdio.h>` IS available**
+6. **The input array `seq` may be modified** — the caller does not reuse it after this call
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+static void FUNCTION_NAME_PLACEHOLDER(kissat *solver, double *seq, int size,
+                                       double **next_feature, bool derivate) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is predict.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one.
+
+```c
+#include "allocate.h"
+#include "clause.h"
+#include "inline.h"
+#include "internal.h"
+#include "literal.h"
+#include "predict.h"
+#include "print.h"
+#include "sort.h"
+#include "predictparam.h"
+#include <math.h>
+
+struct sequences {
+  double *features;
+  double *vcg_p;
+  double *vcg_n;
+  double *lit;
+  double *vg;
+  double *cg;
+};
+
+typedef struct sequences sequences;
+
+#define FEATURES 128
+
+#define LESS_SEQ_VALUE(A, B) ((A) < (B))
+#define ADD_FEATURE(X) (*((*next_feature)++) = (size) ? (X) : 0)
+
+static void extract_sequence_features (kissat *solver, double *seq, int size,
+                                       double **next_feature, bool derivate) {
+  if (size < 0)
+    size = 0;
+  SORT(double, size, seq, LESS_SEQ_VALUE);
+  double *begin = seq, *end = seq + size;
+  while (begin < end && *begin == 0)
+    begin++;
+  ADD_FEATURE (1.0 * (begin - seq) / size);
+  size = end - begin;
+  for (double *p = begin; p < end; p++)
+    *p /= *(end - 1);
+  ADD_FEATURE (*begin);
+  ADD_FEATURE (*(begin + (size / 4)));
+  ADD_FEATURE (*(begin + (2 * size / 4)));
+  ADD_FEATURE (*(begin + (3 * size / 4)));
+  double sum = 0, sum2 = 0, mode_min = 0, mode_max = 0;
+  unsigned mode_min_count = 0, mode_max_count = 0, count = 0;
+  double rate = 0, entropy = 0;
+  for (double *p = begin; p < end; p++) {
+    sum += *p;
+    sum2 += (*p) * (*p);
+    if (p == begin || *p != *(p - 1)) {
+      rate++;
+      if (count)
+        entropy += count * log (count);
+      count = 0;
+    }
+    count++;
+    if (count > mode_min_count) {
+      mode_min_count = count;
+      mode_min = *p;
+    }
+    if (count >= mode_max_count) {
+      mode_max_count = count;
+      mode_max = *p;
+    }
+  }
+  entropy += count * log (count);
+  ADD_FEATURE (sum / size);
+  ADD_FEATURE (sqrt (fabs (sum2 / size - sum / size * sum / size)));
+  ADD_FEATURE (mode_min);
+  ADD_FEATURE (mode_max);
+  ADD_FEATURE (rate / size);
+  ADD_FEATURE (size == 1 ? 0 : 1 - entropy / size / log (size));
+  if (!derivate)
+    return;
+  for (double *p = end - 1; p > begin; p--)
+    *p -= *(p - 1);
+  extract_sequence_features (solver, begin + 1, end - begin - 1, next_feature, false);
+}
+
+/* ... extract_features, predict, init/release_sequences, kissat_predict follow ... */
+```

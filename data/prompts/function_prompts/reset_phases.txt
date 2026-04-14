@@ -1,0 +1,361 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling rephase.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+static char reset_phases (kissat *solver);
+```
+
+**Purpose:** Select a rephasing strategy (round-robin with prefix scheduling), execute it to reset decision phases, and update rephase bookkeeping. This is the non-MAB rephase orchestrator.
+
+**Return value:** A single character identifying the chosen rephase type:
+- `'B'` — best, `'O'` — original, `'I'` — inverted, `'W'` — walking, `'C'` — conflict, `'F'` — flipped
+
+**Caller context:** Called from `kissat_rephase()` when `solver->mab` is false:
+```c
+solver->mab ? reset_phases_mab(solver) : reset_phases(solver);
+```
+
+---
+
+## 2. REPHASE STRATEGY FUNCTIONS (defined above, available to call)
+
+```c
+static char rephase_best (kissat *solver);      // Returns 'B'
+// Copies solver->phases.best[] into solver->phases.saved[] (where set).
+
+static char rephase_conflict (kissat *solver);   // Returns 'C'
+// Copies solver->phases.conflict[] into solver->phases.saved[].
+
+static char rephase_flipped (kissat *solver);    // Returns 'F'
+// Flips all saved phases: *p *= -1.
+
+static char rephase_original (kissat *solver);   // Returns 'O'
+// Sets all saved phases to INITIAL_PHASE.
+
+static char rephase_inverted (kissat *solver);   // Returns 'I'
+// Sets all saved phases to -INITIAL_PHASE.
+
+static char rephase_walking (kissat *solver);    // Returns 'W'
+// Runs local search (kissat_walk). Requires kissat_walking(solver) == true.
+```
+
+### Calling pattern
+Build a function pointer array and select by index:
+```c
+char (*functions[6]) (kissat *);
+uint64_t candidates = 0;
+// ... populate with PUSH1/PUSH3 ...
+type = functions[select](solver);
+```
+
+---
+
+## 3. REPHASE TRACKING STATE
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->rephased.count` | `uint64_t` | Total rephase count (increment at start) |
+| `solver->rephased.last` | `char` | Last rephase type character |
+| `solver->rephased.last_index` | `unsigned` | Last index into functions[] |
+
+### REPHASES macro
+```c
+#define REPHASES \
+  REPHASE (best, 'B', 0) \
+  REPHASE (inverted, 'I', 1) \
+  REPHASE (original, 'O', 2) \
+  REPHASE (walking, 'W', 3) \
+  REPHASE (conflict, 'C', 4) \
+  REPHASE (flipped, 'F', 5)
+```
+
+---
+
+## 4. REPHASE OPTIONS
+
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `rephasebest` | 1 | 0-1 | Enable best phase rephasing |
+| `rephaseoriginal` | 1 | 0-1 | Enable original phase rephasing |
+| `rephaseinverted` | 1 | 0-1 | Enable inverted phase rephasing |
+| `rephasewalking` | 1 | 0-1 | Enable walking phase rephasing |
+| `rephaseconflict` | 1 | 0-1 | Enable conflict phase rephasing |
+| `rephaseflipped` | 1 | 0-1 | Enable flipped phase rephasing |
+| `rephaseprefix` | varies | 0-N | Prefix iterations (original/inverted only) |
+
+### Walking availability check
+```c
+kissat_walking(solver)   // bool: true if local search is applicable
+```
+
+---
+
+## 5. PHASE ARRAYS
+
+```c
+struct phases {
+  value *best;       // Best assignment phases (size VARS)
+  value *saved;      // Saved/current decision phases (size VARS)
+  value *target;     // Target phases (size VARS)
+  value *conflict;   // Conflict-derived phases (size VARS)
+};
+// value is typedef signed char (-1, 0, or 1)
+```
+
+---
+
+## 6. POST-REPHASE REQUIREMENTS
+
+After selecting and executing a rephase strategy, your function MUST:
+
+1. **Log the rephase type:**
+   ```c
+   #ifndef QUIET
+     char const *type_as_string = 0;
+     switch (type) {
+   #define REPHASE(NAME, TYPE, INDEX) \
+       case TYPE: type_as_string = #NAME; break;
+       REPHASES
+   #undef REPHASE
+     }
+     assert (type_as_string);
+     kissat_phase (solver, "rephase", GET (rephased),
+       "%s phases in %s search mode",
+       type_as_string, solver->stable ? "stable" : "focused");
+   #endif
+   ```
+
+2. **Record the last rephase type:**
+   ```c
+   solver->rephased.last = type;
+   ```
+
+3. **Copy saved phases to target:**
+   ```c
+   memcpy (solver->phases.target, solver->phases.saved, VARS);
+   ```
+
+4. **Update conflict limit:**
+   ```c
+   UPDATE_CONFLICT_LIMIT (rephase, rephased, NLOGNLOGNLOGN, false);
+   ```
+
+5. **Reset target assignment height:**
+   ```c
+   kissat_reset_target_assigned (solver);
+   ```
+
+6. **If type is 'B', also reset best assignment height:**
+   ```c
+   if (type == 'B')
+     kissat_reset_best_assigned (solver);
+   ```
+
+---
+
+## 7. SOLVER STATE ACCESS
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->stable` | `bool` | Current mode |
+| `solver->vars` | `unsigned` | Number of variables |
+| `solver->active` | `unsigned` | Active variable count |
+
+### Convenience Macros
+```c
+VARS                   // solver->vars
+CONFLICTS              // solver->statistics.conflicts
+INITIAL_PHASE          // (GET_OPTION(phase) ? 1 : -1)
+GET_OPTION(name)       // Returns int option value
+GET(name)              // Get statistic value
+INC(name)              // Increment statistic
+LOG(fmt, ...)          // Debug log
+FORMAT_COUNT(x)        // Format uint64_t for display
+```
+
+---
+
+## 8. AVAILABLE FUNCTIONS AND LIBRARIES
+
+```c
+kissat_walking(solver)                 // bool: local search applicable?
+kissat_reset_target_assigned(solver)   // Reset target trail height
+kissat_reset_best_assigned(solver)     // Reset best trail height
+kissat_phase(solver, name, count, fmt, ...)   // Phase logging
+kissat_extremely_verbose(solver, fmt, ...)    // Verbose logging
+```
+
+### Limit scaling
+```c
+NLOGNLOGNLOGN(count)       // kissat_nlognlognlogn(count)
+LINEAR(count)              // kissat_linear(count)
+UPDATE_CONFLICT_LIMIT(rephase, rephased, SCALE_FN, false)
+```
+
+### Math (`<math.h>` IS included)
+```c
+sqrt(x)   log(x)   log2(x)   pow(x, y)   fabs(x)
+```
+
+### String (`<string.h>` IS included)
+```c
+memcpy(dest, src, n)
+```
+
+---
+
+## 9. CRITICAL RULES
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT call `rephase_walking` without checking `kissat_walking(solver)`** -- will assert-fail
+4. **DO NOT skip the post-rephase requirements** -- caller depends on them
+
+### PUSH macros (convenience, you may redefine or use your own approach)
+```c
+#define PUSH1(NAME) \
+  if (NAME) { \
+    assert (candidates < sizeof functions / sizeof *functions); \
+    functions[candidates++] = rephase_ ## NAME; \
+  }
+
+#define PUSH3(NAME) \
+  if (NAME) { PUSH1 (best); PUSH1 (walking); PUSH1 (NAME); }
+```
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+static char FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is the relevant section of rephase.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one.
+
+```c
+#include "autarky.h"
+#include "backtrack.h"
+#include "decide.h"
+#include "internal.h"
+#include "logging.h"
+#include "print.h"
+#include "rephase.h"
+#include "report.h"
+#include "terminate.h"
+#include "walk.h"
+
+#include <inttypes.h>
+#include <string.h>
+#include <math.h>
+
+/* ... rephase_best, rephase_conflict, rephase_flipped,
+       rephase_original, rephase_inverted, rephase_walking
+       defined above (see section 2) ... */
+
+static char reset_phases (kissat *solver) {
+  uint64_t count = solver->rephased.count++;
+  const bool inverted = GET_OPTION (rephaseinverted);
+  const bool original = GET_OPTION (rephaseoriginal);
+  const bool best = GET_OPTION (rephasebest);
+  const bool walking = GET_OPTION (rephasewalking) && kissat_walking (solver);
+  uint64_t prefix = inverted + original;
+  prefix *= GET_OPTION (rephaseprefix);
+  char (*functions[6]) (kissat *);
+  uint64_t candidates = 0;
+#define PUSH1(NAME) \
+  if (NAME) { \
+    assert (candidates < sizeof functions / sizeof *functions); \
+    functions[candidates++] = rephase_ ## NAME; \
+  }
+#define PUSH3(NAME) \
+  if (NAME) { PUSH1 (best); PUSH1 (walking); PUSH1 (NAME); }
+  if (count < prefix) {
+    PUSH1 (original);
+    PUSH1 (inverted);
+  } else {
+    PUSH3 (original);
+    PUSH3 (inverted);
+    count -= prefix;
+  }
+  if (!candidates) {
+    PUSH1 (best);
+    PUSH1 (walking);
+  }
+  char type;
+  if (candidates) {
+    const uint64_t select = count % candidates;
+    type = functions[select] (solver);
+  } else
+    type = rephase_best (solver);
+#ifndef QUIET
+  char const *type_as_string = 0;
+  switch (type) {
+#define REPHASE(NAME, TYPE, INDEX) \
+    case TYPE: type_as_string = #NAME; break;
+    REPHASES
+#undef REPHASE
+  }
+  assert (type_as_string);
+  kissat_phase (solver, "rephase", GET (rephased),
+    "%s phases in %s search mode",
+    type_as_string, solver->stable ? "stable" : "focused");
+#endif
+  kissat_extremely_verbose (solver, "remembering last rephase type '%c' at "
+    "%s conflicts", type, FORMAT_COUNT (CONFLICTS));
+  solver->rephased.last = type;
+  LOG ("copying saved phases as target phases");
+  memcpy (solver->phases.target, solver->phases.saved, VARS);
+  UPDATE_CONFLICT_LIMIT (rephase, rephased, NLOGNLOGNLOGN, false);
+  kissat_reset_target_assigned (solver);
+  if (type == 'B')
+    kissat_reset_best_assigned (solver);
+  return type;
+}
+
+/* Caller: */
+void kissat_rephase (kissat *solver) {
+  kissat_backtrack_propagate_and_flush_trail (solver);
+  assert (!solver->inconsistent);
+  kissat_autarky (solver, 'a');
+  if (TERMINATED (rephase_terminated_1)) return;
+  START (rephase);
+  INC (rephased);
+#ifndef QUIET
+  const char type =
+#endif
+    solver->mab ? reset_phases_mab(solver) : reset_phases(solver);
+  REPORT (0, type);
+  STOP (rephase);
+  if (TERMINATED (rephase_terminated_2)) return;
+  kissat_autarky (solver, 'z');
+}
+```

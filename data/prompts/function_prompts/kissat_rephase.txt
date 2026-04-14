@@ -1,0 +1,168 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling rephase.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+void kissat_rephase (kissat *solver);
+```
+
+**Purpose:** Top-level rephase entry point. Flushes the trail, runs autarky reasoning, then delegates to either `reset_phases_mab` or `reset_phases` to select and apply a rephase strategy.
+
+**Caller context:** Called from the main search loop when `kissat_rephasing(solver)` returns true (conflicts exceeded the rephase limit, stable mode, rephasing enabled).
+
+---
+
+## 2. SUB-FUNCTIONS (defined above in rephase.c, available to call)
+
+```c
+static char reset_phases (kissat *solver);
+// Non-MAB rephase: round-robin selection of rephase strategies.
+// Returns the type character ('B', 'O', 'I', 'W', 'C', 'F').
+
+static char reset_phases_mab (kissat *solver);
+// MAB-driven rephase: UCB1 selection of rephase strategies.
+// Returns the type character.
+```
+
+### External functions
+```c
+kissat_backtrack_propagate_and_flush_trail(solver);
+// Backtracks to level 0, propagates, and flushes the trail.
+// Must be called before rephasing to ensure clean state.
+
+kissat_autarky(solver, char tag);
+// Runs autarky reasoning. Called with 'a' before rephase, 'z' after.
+```
+
+---
+
+## 3. SOLVER STATE
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->mab` | `bool` | If true, use MAB rephasing; otherwise use round-robin |
+| `solver->inconsistent` | `bool` | Must be false on entry (asserted) |
+| `solver->stable` | `bool` | Current mode |
+
+---
+
+## 4. PROFILING AND REPORTING
+
+```c
+START(rephase)         // Begin profiling rephase section
+STOP(rephase)          // End profiling rephase section
+INC(rephased)          // Increment rephase counter (before delegating)
+REPORT(level, type)    // Report rephase result (level=0, type=char)
+```
+
+---
+
+## 5. TERMINATION CHECKS
+
+```c
+TERMINATED(rephase_terminated_1)   // Check before rephasing
+TERMINATED(rephase_terminated_2)   // Check after rephasing
+// If either returns true, return immediately without further work.
+```
+
+---
+
+## 6. CRITICAL RULES
+
+### Required ordering
+1. `kissat_backtrack_propagate_and_flush_trail(solver)` — flush trail
+2. `assert(!solver->inconsistent)` — verify consistency
+3. `kissat_autarky(solver, 'a')` — pre-rephase autarky
+4. Check `TERMINATED(rephase_terminated_1)` — early exit if terminated
+5. `START(rephase)` — begin profiling
+6. `INC(rephased)` — count rephase
+7. Delegate to `reset_phases_mab` or `reset_phases` based on `solver->mab`
+8. `REPORT(0, type)` — report result (in `#ifndef QUIET` the type char is captured)
+9. `STOP(rephase)` — end profiling
+10. Check `TERMINATED(rephase_terminated_2)` — early exit if terminated
+11. `kissat_autarky(solver, 'z')` — post-rephase autarky
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT skip the backtrack/flush** -- rephasing requires level 0
+4. **DO NOT skip autarky calls** -- required for correctness
+5. **DO NOT skip termination checks** -- solver may be interrupted
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+void FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is the relevant section of rephase.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one.
+
+```c
+#include "autarky.h"
+#include "backtrack.h"
+#include "decide.h"
+#include "internal.h"
+#include "logging.h"
+#include "print.h"
+#include "rephase.h"
+#include "report.h"
+#include "terminate.h"
+#include "walk.h"
+
+#include <inttypes.h>
+#include <string.h>
+#include <math.h>
+
+/* ... reset_best_assigned, reset_target_assigned,
+       kissat_rephasing, rephase_best, rephase_conflict,
+       rephase_flipped, rephase_original, rephase_inverted,
+       rephase_walking, reset_phases, reset_phases_mab
+       all defined above ... */
+
+void kissat_rephase (kissat *solver) {
+  kissat_backtrack_propagate_and_flush_trail (solver);
+  assert (!solver->inconsistent);
+  kissat_autarky (solver, 'a');
+  if (TERMINATED (rephase_terminated_1))
+    return;
+  START (rephase);
+  INC (rephased);
+#ifndef QUIET
+  const char type =
+#endif
+    solver->mab ? reset_phases_mab(solver) : reset_phases (solver);
+  REPORT (0, type);
+  STOP (rephase);
+  if (TERMINATED (rephase_terminated_2))
+    return;
+  kissat_autarky (solver, 'z');
+}
+```

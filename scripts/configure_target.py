@@ -135,37 +135,31 @@ def rewrite_leader_prompt(repo_root: Path, func_name: str) -> None:
     path.write_text(new_text)
 
 
-def rewrite_coder_prompt(
+def _install_function_prompt(repo_root: Path, func_name: str) -> bool:
+    """
+    If a function-specific prompt exists in function_prompts/, copy it to
+    coder_prompt_testing.txt.  Returns True if a prompt was installed.
+    """
+    func_prompt = repo_root / "data" / "prompts" / "function_prompts" / f"{func_name}.txt"
+    if not func_prompt.exists():
+        return False
+    dest = repo_root / "data" / "prompts" / "coder_prompt_testing.txt"
+    shutil.copy2(func_prompt, dest)
+    return True
+
+
+def _replace_baseline_reference(
     repo_root: Path,
     solver_path: Path,
-    func_name: str,
     info: dict,
-    signature: str,
 ) -> str:
     """
-    Update coder_prompt_testing.txt:
-      - Update example signature return type + params
-      - Replace embedded baseline source file
-
-    Returns the source filename used for the summary.
+    Replace everything after '### Baseline Reference' in coder_prompt_testing.txt
+    with the full source file contents.  Returns the source filename.
     """
     path = repo_root / "data" / "prompts" / "coder_prompt_testing.txt"
     text = path.read_text()
 
-    # Parse signature for return type and params
-    return_type, params = parse_signature(signature)
-
-    # 1. Update the example signature in the output format section
-    #    Current pattern: "<return_type> FUNCTION_NAME_PLACEHOLDER(<params>) {"
-    text = re.sub(
-        r'^(\s*)\S+\s+FUNCTION_NAME_PLACEHOLDER\s*\([^)]*\)\s*\{',
-        rf'\g<1>{return_type} FUNCTION_NAME_PLACEHOLDER{params} {{',
-        text,
-        count=1,
-        flags=re.MULTILINE,
-    )
-
-    # 2. Replace everything after "### Baseline Reference"
     source_file = info["file"]  # e.g. "src/restart.c"
     source_path = solver_path / source_file
     source_content = source_path.read_text()
@@ -187,7 +181,6 @@ def rewrite_coder_prompt(
         baseline_section += "\n"
     baseline_section += "```\n"
 
-    # Split at the marker and replace
     marker = "### Baseline Reference"
     idx = text.find(marker)
     if idx == -1:
@@ -198,6 +191,44 @@ def rewrite_coder_prompt(
 
     path.write_text(text)
     return source_file
+
+
+def rewrite_coder_prompt(
+    repo_root: Path,
+    solver_path: Path,
+    func_name: str,
+    info: dict,
+    signature: str,
+) -> tuple[str, bool]:
+    """
+    Update coder_prompt_testing.txt:
+      - If a function-specific prompt exists in function_prompts/, install it
+        (skip signature rewrite since those prompts have correct signatures).
+      - Otherwise update the example signature return type + params.
+      - Always replace the embedded baseline source file with the full file.
+
+    Returns (source_filename, used_function_prompt).
+    """
+    used_function_prompt = _install_function_prompt(repo_root, func_name)
+
+    if not used_function_prompt:
+        # No function-specific prompt — update signature in the generic prompt
+        path = repo_root / "data" / "prompts" / "coder_prompt_testing.txt"
+        text = path.read_text()
+
+        return_type, params = parse_signature(signature)
+        text = re.sub(
+            r'^(\s*)\S+\s+FUNCTION_NAME_PLACEHOLDER\s*\([^)]*\)\s*\{',
+            rf'\g<1>{return_type} FUNCTION_NAME_PLACEHOLDER{params} {{',
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        path.write_text(text)
+
+    # Always replace baseline reference with full source file
+    source_file = _replace_baseline_reference(repo_root, solver_path, info)
+    return source_file, used_function_prompt
 
 
 def update_experience_pool_data_root(config_path: Path, func_name: str) -> None:
@@ -275,7 +306,9 @@ def main(argv: list[str] | None = None) -> int:
     rewrite_leader_prompt(repo_root, func_name)
 
     # 5. Rewrite coder prompt
-    source_file = rewrite_coder_prompt(repo_root, solver_path, func_name, info, info["signature"])
+    source_file, used_function_prompt = rewrite_coder_prompt(
+        repo_root, solver_path, func_name, info, info["signature"],
+    )
 
     # 6. Update path_config.yaml with function-specific experience pool root
     config_path = find_path_config()
@@ -286,7 +319,11 @@ def main(argv: list[str] | None = None) -> int:
     for reg in updated_registries:
         print(f"  [OK] {reg}")
     print(f"  [OK] data/prompts/leader_prompt_testing.txt")
-    print(f"  [OK] data/prompts/coder_prompt_testing.txt (embedded {source_file})")
+    if used_function_prompt:
+        print(f"  [OK] data/prompts/coder_prompt_testing.txt "
+              f"(from function_prompts/{func_name}.txt, embedded {source_file})")
+    else:
+        print(f"  [OK] data/prompts/coder_prompt_testing.txt (embedded {source_file})")
     print(f"  [OK] path_config.yaml (experience_pool_data_root = src/experience_pool/data/{func_name})")
 
     return 0

@@ -1,0 +1,239 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling vivify.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+static void sort_vivification_candidates_by_activity (vivifier *vivifier);
+```
+
+**Purpose:** Orchestrate the sorting of vivification candidates. This is the top-level sorting entry point — it decides which strategy to use and calls the appropriate sub-functions to populate, sort, and extract clause references into the vivifier's schedule.
+
+**Parameter:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `vivifier` | `vivifier *` | Vivification context (see struct below) |
+
+**Contract:** After this function returns, the `vivifier->schedule` stack must contain clause references in vivification order (via the init/rank/copy pipeline or via `sort_vivification_candidates`). The schedule is consumed by the main vivification loop.
+
+---
+
+## 2. VIVIFIER STRUCT
+
+```c
+struct vivifier {
+  kissat *solver;              // Solver instance
+  unsigned *counts;            // Literal occurrence counts
+  references schedule;         // Stack of clause references (final output)
+  size_t scheduled, tried, vivified;  // Progress counters
+  countrefs countrefs;         // Stack of countref (non-activity path)
+  activityrefs activityrefs;   // Stack of activityref (activity path)
+  unsigneds sorted;            // Sorted literal scratch space
+  int tier;                    // Current tier being vivified (0=irredundant, 1-3=redundant)
+};
+```
+
+---
+
+## 3. AVAILABLE SUB-FUNCTIONS
+
+These are defined in vivify.c above your function and can be called:
+
+### Activity-based path (stable mode)
+```c
+init_activityrefs(vivifier);
+// Populates vivifier->activityrefs from vivifier->schedule.
+// For each clause ref in schedule: creates an activityref with
+// size, vivify flag, ref, and an activity score.
+// Releases the schedule stack afterward.
+
+rank_vivification_candidates_by_activity(vivifier);
+// Sorts vivifier->activityrefs (by activity, ascending by default).
+
+copy_activityrefs(vivifier);
+// Copies sorted activityref.ref values back into vivifier->schedule.
+// Releases the activityrefs stack afterward.
+```
+
+### Count-based path (non-activity alternative)
+```c
+sort_vivification_candidates(vivifier);
+// Alternative sorting strategy (non-activity).
+// In tiered mode: sorts by literal ordering.
+// In non-tiered mode: uses countref-based ranking (literal occurrence counts).
+// Handles its own START/STOP profiling internally.
+```
+
+### Profiling Macros
+```c
+START(vivifysort)    // Begin profiling this section
+STOP(vivifysort)     // End profiling this section
+```
+These are no-ops in quiet builds. If your function delegates entirely to `sort_vivification_candidates`, you do NOT need START/STOP (it handles its own). If you implement a custom path, wrap it in START/STOP.
+
+### Verbose Logging
+```c
+kissat_extremely_verbose(solver, format, ...);  // Verbose log message
+```
+
+---
+
+## 4. SOLVER STATE ACCESS
+
+Accessed via `kissat *solver = vivifier->solver;`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->stable` | `bool` | Current mode: true=stable, false=focused |
+| `solver->vars` | `unsigned` | Total number of variables |
+| `solver->unassigned` | `unsigned` | Count of unassigned variables |
+| `solver->level` | `unsigned` | Current decision level |
+| `solver->ticks` | `uint64_t` | Overall work counter |
+| `solver->values` | `value *` | Truth values indexed by literal |
+| `solver->scores` | `heap` | VSIDS score heap |
+| `solver->random` | `generator` | RNG state |
+
+### Convenience Macros
+```c
+VARS                   // solver->vars
+SCORES                 // (&solver->scores) — returns heap*
+TIER1                  // solver->tier1[0]
+TIER2                  // solver->tier2[1]
+CONFLICTS              // solver->statistics.conflicts (uint64_t)
+DECISIONS              // solver->statistics.decisions (uint64_t)
+GET_OPTION(name)       // Returns int option value
+```
+
+---
+
+## 5. ACTIVITYREF / COUNTREF STRUCTS
+
+```c
+struct activityref {
+  unsigned vivify : 1;
+  unsigned size : 31;
+  double activity;
+  reference ref;
+};
+
+struct countref {
+  unsigned vivify : 1;
+  unsigned size : 31;
+  unsigned count[1];     // COUNTREF_COUNTS = 1
+  reference ref;
+};
+```
+
+---
+
+## 6. STACK / SORTING MACROS
+
+```c
+SIZE_STACK(s)                  // size_t: number of elements
+BEGIN_STACK(s)                 // TYPE*: pointer to first element
+EMPTY_STACK(s)                 // bool: is stack empty?
+SORT_STACK(TYPE, stack, LESS)  // Sort stack using comparator
+RADIX_STACK(VTYPE, RTYPE, stack, RANK)  // Radix sort by unsigned key
+for (all_stack(TYPE, elem, s)) { ... }  // Iterate stack
+```
+
+---
+
+## 7. CRITICAL RULES
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT use `math.h` functions** -- use `kissat_logn()`/`kissat_sqrt()` from kimits.h
+4. **DO NOT use `stdlib.h`/`stdio.h`** -- use kissat_malloc/calloc/free
+5. **`<string.h>` IS available** in vivify.c
+6. **`<float.h>` IS available** in vivify.c (DBL_MAX, etc.)
+
+### NOTE on `solver` variable
+You must declare `kissat *solver = vivifier->solver;` at the top of your function. Many macros implicitly reference a variable named `solver`.
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+static void FUNCTION_NAME_PLACEHOLDER(vivifier *vivifier) {
+  kissat *solver = vivifier->solver;
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is the relevant section of vivify.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one.
+
+```c
+/* Non-activity sorting path (available to call): */
+static void sort_vivification_candidates (vivifier *vivifier) {
+#ifndef QUIET
+  kissat *solver = vivifier->solver;
+#endif
+  START (vivifysort);
+  if (vivifier->tier) {
+    kissat_extremely_verbose (
+        solver, "sorting %s vivification candidates precisely",
+        vivifier->name);
+    sort_scheduled_candidate_literals (vivifier);
+    sort_vivification_candidates_after_sorting_literals (vivifier);
+  } else {
+    kissat_extremely_verbose (
+        solver,
+        "sorting %s vivification candidates imprecisely "
+        "by first %u literals",
+        vivifier->name, (unsigned) COUNTREF_COUNTS);
+    init_countrefs (vivifier);
+    rank_vivification_candidates (vivifier);
+    copy_countrefs (vivifier);
+  }
+  STOP (vivifysort);
+}
+
+/* YOUR FUNCTION: */
+static void sort_vivification_candidates_by_activity (vivifier *vivifier) {
+  kissat *solver = vivifier->solver;
+  if (!solver->stable)
+    sort_vivification_candidates (vivifier);
+  else {
+    START (vivifysort);
+    kissat_extremely_verbose (
+        solver, "sorting %s vivification candidates by minimal activity",
+        vivifier->name);
+    init_activityrefs (vivifier);
+    rank_vivification_candidates_by_activity (vivifier);
+    copy_activityrefs (vivifier);
+    STOP (vivifysort);
+  }
+}
+
+/* Caller (in vivify_tier, ~line 1357): */
+//  if (GET_OPTION (vivifysort)) {
+//    if (tier || IRREDUNDANT_CLAUSES / 10 <= REDUNDANT_CLAUSES)
+//      sort_vivification_candidates_by_activity (vivifier);
+//  }
+```

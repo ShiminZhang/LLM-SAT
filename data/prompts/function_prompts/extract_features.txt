@@ -1,0 +1,519 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling predict.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+static void extract_features (kissat *solver, sequences *seq);
+```
+
+**Purpose:** Extract a fixed-size feature vector from the SAT instance's clause and variable structure. Populates `seq->features[0..FEATURES-1]` with statistical features derived from variable-clause graphs, literal balance, and clause connectivity.
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `solver` | `kissat *` | Solver instance (provides clause/variable/watch data) |
+| `seq` | `sequences *` | Output struct; all arrays are pre-allocated and zeroed |
+
+**Contract:** Must populate `seq->features[]` with feature values. The downstream `predict()` function reads `seq->features[0..FEATURES-1]` to make a SAT/UNSAT prediction. The raw arrays (`vcg_p`, `vcg_n`, `lit`, `vg`, `cg`) may also be read by `predict()`.
+
+---
+
+## 2. OUTPUT: SEQUENCES STRUCT
+
+```c
+struct sequences {
+  double *features;    // Output feature vector (size: FEATURES = 128)
+  double *vcg_p;       // Positive variable-clause graph (size: VARS + CLAUSES)
+  double *vcg_n;       // Negative variable-clause graph (size: VARS + CLAUSES)
+  double *lit;         // Literal balance features (size: VARS)
+  double *vg;          // Variable-graph features (size: VARS)
+  double *cg;          // Clause-graph features (size: CLAUSES)
+};
+
+#define FEATURES 128
+```
+
+All arrays are pre-allocated and zeroed by `init_sequences()` before your function is called. Indices `0..VARS-1` correspond to variables; indices `VARS..VARS+num_clauses-1` correspond to clauses (for `vcg_p`/`vcg_n`).
+
+---
+
+## 3. HELPER FUNCTION (defined above your function, available to call)
+
+```c
+static void extract_sequence_features (kissat *solver, double *seq, int size,
+                                       double **next_feature, bool derivate);
+```
+
+Computes statistical features from a numeric array and appends them via `*next_feature`:
+- Sorts the array, removes zeros, normalizes by max
+- Extracts: zero ratio, 4 quantiles (0%, 25%, 50%, 75%), mean, standard deviation, min mode, max mode, uniqueness rate, normalized entropy
+- If `derivate=true`, also computes the first derivative and recursively extracts features from that
+- **Each call with `derivate=true` appends 20 features**; with `derivate=false` appends 10 features
+- **WARNING:** This function sorts its input array in-place and normalizes values, destroying the original data
+
+### Usage pattern
+```c
+double *next_feature = seq->features;  // Start of output buffer
+
+// Build raw arrays (vcg_p, vcg_n, lit, vg, cg) from clause structure...
+// Then extract statistical features from each:
+extract_sequence_features(solver, seq->vcg_p, num_entries, &next_feature, true);
+// next_feature now points 20 positions further
+
+// Total: 5 arrays * 20 features each = 100 features (+ room for more up to 128)
+```
+
+### Feature macro
+```c
+#define ADD_FEATURE(X) (*((*next_feature)++) = (size) ? (X) : 0)
+// Appends a feature value and advances the pointer. Only use inside
+// extract_sequence_features or similar contexts where next_feature is a double**.
+```
+
+---
+
+## 4. CLAUSE ITERATION
+
+### Large clauses (3+ literals, stored in arena)
+```c
+for (all_clauses(c)) {
+  if (c->garbage) continue;   // Skip deleted clauses
+  unsigned size = c->size;     // Number of literals
+  unsigned glue = c->glue;     // LBD value
+  bool redundant = c->redundant;  // Learned vs original
+  unsigned used = c->used;    // Usage count (0-31)
+
+  for (all_literals_in_clause(lit, c)) {
+    unsigned idx = IDX(lit);       // Variable index
+    bool neg = NEGATED(lit);       // Polarity
+  }
+}
+```
+
+### Binary clauses (via watch lists)
+```c
+for (all_literals(lit)) {
+  if (lit >= LITS) continue;
+  for (all_binary_large_watches(watch, WATCHES(lit))) {
+    if (!watch.type.binary) continue;  // Skip large clause watches
+    unsigned other = watch.binary.lit;
+    if (lit > other) continue;         // Avoid double-counting
+    if (other >= LITS) continue;
+    // Process binary clause (lit, other)
+    unsigned idx1 = IDX(lit);
+    unsigned idx2 = IDX(other);
+  }
+}
+```
+
+### Watch union type
+```c
+union watch {
+  watch_type type;       // type.binary: bool — true if binary clause watch
+  binary_watch binary;   // binary.lit: unsigned (31 bits) — other literal
+  large_watch large;     // large.ref: unsigned (31 bits) — clause reference
+  unsigned raw;
+};
+```
+
+---
+
+## 5. CLAUSE STRUCT
+
+```c
+struct clause {
+  unsigned glue : 19;      // LBD value
+  bool garbage : 1;        // Marked for deletion
+  bool quotient : 1;
+  bool reason : 1;         // Used as reason clause
+  bool redundant : 1;      // Learned (vs original)
+  bool shrunken : 1;
+  bool subsume : 1;
+  bool swept : 1;
+  bool vivify : 1;
+  unsigned used : 5;       // Usage count (0-31)
+  unsigned searched;
+  unsigned size;            // Number of literals
+  unsigned lits[3];         // Literal array (flexible)
+};
+```
+
+---
+
+## 6. SOLVER STATE ACCESS
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->vars` | `unsigned` | Number of variables |
+| `solver->values` | `value *` | Truth values indexed by literal |
+| `solver->watches` | `watches *` | Watch lists for all literals |
+| `solver->scores` | `heap` | VSIDS score heap |
+| `solver->scinc` | `double` | VSIDS score increment |
+| `solver->stable` | `bool` | Current mode |
+| `solver->level` | `unsigned` | Current decision level |
+| `solver->unassigned` | `unsigned` | Unassigned variable count |
+| `solver->random` | `generator` | RNG state |
+
+### Convenience Macros
+```c
+VARS                   // solver->vars
+LITS                   // 2 * solver->vars
+CLAUSES                // Total clauses (irredundant + binary + redundant)
+IRREDUNDANT_CLAUSES    // solver->statistics.clauses_irredundant
+REDUNDANT_CLAUSES      // solver->statistics.clauses_redundant
+BINARY_CLAUSES         // solver->statistics.clauses_binary
+CONFLICTS              // solver->statistics.conflicts
+DECISIONS              // solver->statistics.decisions
+GET_OPTION(name)       // Get option value (int)
+```
+
+---
+
+## 7. LITERAL / VARIABLE MACROS
+
+```c
+IDX(lit)               // Extract variable index from literal
+LIT(idx)               // Create positive literal from variable index
+NOT(lit)               // Negate literal
+NEGATED(lit)           // True if literal is negative polarity (lit & 1)
+ACTIVE(idx)            // True if variable is active
+VALUE(lit)             // Current truth value (-1, 0, 1)
+```
+
+---
+
+## 8. HEAP FUNCTIONS (variable activity scores)
+
+```c
+kissat_get_heap_score(&solver->scores, idx)  // double: VSIDS score for variable
+kissat_heap_contains(&solver->scores, idx)   // bool: is variable in heap?
+kissat_max_score_on_heap(&solver->scores)    // double: maximum score
+```
+
+---
+
+## 9. AVAILABLE LIBRARIES AND FUNCTIONS
+
+### Math (`<math.h>` IS included)
+```c
+sqrt(x)   log(x)   fabs(x)   exp(x)   pow(x,y)   log2(x)
+floor(x)  ceil(x)  fmin(x,y) fmax(x,y)
+```
+
+### Memory
+```c
+CALLOC(ptr, n)          // Allocate n zeroed elements (macro)
+DEALLOC(ptr, n)         // Free n elements (macro)
+kissat_calloc(solver, n, size)
+kissat_malloc(solver, bytes)
+kissat_free(solver, ptr, bytes)
+```
+
+### Sorting
+```c
+#define LESS_SEQ_VALUE(A, B) ((A) < (B))
+SORT(double, N, array, LESS_SEQ_VALUE)   // Sort N doubles ascending
+SORT(TYPE, N, array, COMPARATOR)         // Generic sort
+```
+
+### Printing / Logging
+```c
+printf(fmt, ...)                        // <stdio.h> is included
+kissat_verbose(solver, fmt, ...)        // Verbose logging
+LOG(fmt, ...)                           // Debug log (compiled out in release)
+```
+
+### Random
+```c
+kissat_pick_random(&solver->random, low, high)  // unsigned in [low, high)
+kissat_pick_double(&solver->random)             // double in [0, 1)
+```
+
+---
+
+## 10. CRITICAL RULES
+
+### Output Requirements
+- `seq->features[]` must be populated with your computed features
+- The downstream `predict()` function reads `seq->features[important_features[i]]` for `i` in `0..TOPS-1`, where `important_features = {0, 10, 22, 28, 31, 32, 33, 38, 49, 72, 82, 89, 97, 99, 104}`. These indices assume the default feature layout. If your algorithm changes the feature ordering or count, the prediction model may need to be retrained — but the code must still compile.
+- You can populate up to `FEATURES` (128) entries in `seq->features[]`
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT write past `seq->features[FEATURES-1]`** -- buffer overflow
+4. **`<math.h>` IS available** in predict.c
+5. **`<stdio.h>` IS available** in predict.c
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+static void FUNCTION_NAME_PLACEHOLDER(kissat *solver, sequences *seq) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is predict.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one.
+
+```c
+#include "allocate.h"
+#include "clause.h"
+#include "inline.h"
+#include "internal.h"
+#include "literal.h"
+#include "predict.h"
+#include "print.h"
+#include "sort.h"
+#include "predictparam.h"
+#include <math.h>
+
+struct sequences {
+  double *features;
+  double *vcg_p;
+  double *vcg_n;
+  double *lit;
+  double *vg;
+  double *cg;
+};
+
+typedef struct sequences sequences;
+
+#define FEATURES 128
+
+#define LESS_SEQ_VALUE(A, B) ((A) < (B))
+#define ADD_FEATURE(X) (*((*next_feature)++) = (size) ? (X) : 0)
+
+static void extract_sequence_features (kissat *solver, double *seq, int size,
+                                       double **next_feature, bool derivate) {
+  if (size < 0)
+    size = 0;
+  SORT(double, size, seq, LESS_SEQ_VALUE);
+  double *begin = seq, *end = seq + size;
+  while (begin < end && *begin == 0)
+    begin++;
+  ADD_FEATURE (1.0 * (begin - seq) / size);
+  size = end - begin;
+  for (double *p = begin; p < end; p++)
+    *p /= *(end - 1);
+  ADD_FEATURE (*begin);
+  ADD_FEATURE (*(begin + (size / 4)));
+  ADD_FEATURE (*(begin + (2 * size / 4)));
+  ADD_FEATURE (*(begin + (3 * size / 4)));
+  double sum = 0, sum2 = 0, mode_min = 0, mode_max = 0;
+  unsigned mode_min_count = 0, mode_max_count = 0, count = 0;
+  double rate = 0, entropy = 0;
+  for (double *p = begin; p < end; p++) {
+    sum += *p;
+    sum2 += (*p) * (*p);
+    if (p == begin || *p != *(p - 1)) {
+      rate++;
+      if (count)
+        entropy += count * log (count);
+      count = 0;
+    }
+    count++;
+    if (count > mode_min_count) {
+      mode_min_count = count;
+      mode_min = *p;
+    }
+    if (count >= mode_max_count) {
+      mode_max_count = count;
+      mode_max = *p;
+    }
+  }
+  entropy += count * log (count);
+  ADD_FEATURE (sum / size);
+  ADD_FEATURE (sqrt (fabs (sum2 / size - sum / size * sum / size)));
+  ADD_FEATURE (mode_min);
+  ADD_FEATURE (mode_max);
+  ADD_FEATURE (rate / size);
+  ADD_FEATURE (size == 1 ? 0 : 1 - entropy / size / log (size));
+  if (!derivate)
+    return;
+  for (double *p = end - 1; p > begin; p--)
+    *p -= *(p - 1);
+  extract_sequence_features (solver, begin + 1, end - begin - 1, next_feature, false);
+}
+
+static void extract_features (kissat *solver, sequences *seq) {
+  double *next_feature = seq->features;
+  unsigned idx = VARS;
+  for (all_clauses (c)) {
+    if (c->garbage)
+      continue;
+    double w = 1.0;
+    for (all_literals_in_clause (lit, c)) {
+      (NEGATED (lit) ? seq->vcg_n : seq->vcg_p)[idx]++;
+      (NEGATED (lit) ? seq->vcg_n : seq->vcg_p)[IDX (lit)]++;
+      w /= 2;
+    }
+    for (all_literals_in_clause (lit, c))
+      seq->vg[IDX (lit)] += (c->size - 1) * w;
+    idx++;
+  }
+  for (all_literals (lit)) {
+    if (lit >= LITS)
+      continue;
+    for (all_binary_large_watches (watch, WATCHES (lit))) {
+      if (!watch.type.binary)
+        continue;
+      unsigned other = watch.binary.lit;
+      if (lit > other)
+        continue;
+      if (other >= LITS)
+        continue;
+      (NEGATED (lit) ? seq->vcg_n : seq->vcg_p)[idx]++;
+      (NEGATED (lit) ? seq->vcg_n : seq->vcg_p)[IDX (lit)]++;
+      (NEGATED (other) ? seq->vcg_n : seq->vcg_p)[idx]++;
+      (NEGATED (other) ? seq->vcg_n : seq->vcg_p)[IDX (other)]++;
+      seq->vg[IDX (lit)] += 1.0 / 4;
+      seq->vg[IDX (other)] += 1.0 / 4;
+      idx++;
+    }
+  }
+  for (unsigned i = 0; i < VARS; i++) {
+    double p = seq->vcg_p[i], n = seq->vcg_n[i];
+    if (p + n == 0)
+      seq->lit[i] = 0;
+    else
+      seq->lit[i] = (p > n ? p : n) / (p + n);
+  }
+  unsigned idx_c = 0;
+  for (all_clauses (c)) {
+    if (c->garbage)
+      continue;
+    for (all_literals_in_clause (lit, c)) {
+      double p = seq->vcg_p[IDX (lit)];
+      double n = seq->vcg_n[IDX (lit)];
+      seq->cg[idx_c] += p + n - 1;
+    }
+    idx_c++;
+  }
+  for (all_literals (lit)) {
+    if (lit >= LITS)
+      continue;
+    for (all_binary_large_watches (watch, WATCHES (lit))) {
+      if (!watch.type.binary)
+        continue;
+      unsigned other = watch.binary.lit;
+      if (lit > other)
+        continue;
+      if (other >= LITS)
+        continue;
+      seq->cg[idx_c] = seq->vcg_p[IDX (lit)]
+                       + seq->vcg_n[IDX (lit)]
+                       + seq->vcg_p[IDX (other)]
+                       + seq->vcg_n[IDX (other)] - 2;
+      idx_c++;
+    }
+  }
+  extract_sequence_features (solver, seq->vcg_p, idx, &next_feature, true);
+  extract_sequence_features (solver, seq->vcg_n, idx, &next_feature, true);
+  extract_sequence_features (solver, seq->lit, VARS, &next_feature, true);
+  extract_sequence_features (solver, seq->vg, VARS, &next_feature, true);
+  extract_sequence_features (solver, seq->cg, idx_c, &next_feature, true);
+  for (double *p = seq->features; p < next_feature; p++)
+    kissat_verbose (solver, "feature %.10lf", *p);
+  if (GET_OPTION (predictonly))
+    for (double *p = seq->features; p < next_feature; p++)
+      printf ("c %.10lf\n", *p);
+}
+
+static int predict (kissat *solver, sequences *seq) {
+  extract_features (solver, seq);
+  for (unsigned i = 0; i < TOPS; i++)
+    seq->features[i] = seq->features[important_features[i]];
+  double weight[VOTES];
+  for (unsigned i = 0; i < VOTES; i++) {
+    unsigned state = 0, coef = predict_coef[i][state];
+    do {
+      double combined = 1.0 * (coef >> 20) / 1023;
+      int feature = (coef >> 16) & 0xf;
+      if (feature == 0xf) {
+        weight[i] = combined;
+        break;
+      }
+      if (seq->features[feature] <= combined)
+        state = (coef >> 8) & 0xff;
+      else
+        state = coef & 0xff;
+      coef = predict_coef[i][state];
+    } while (1);
+  }
+  SORT(double, VOTES, weight, LESS_SEQ_VALUE);
+  double median = weight[VOTES >> 1];
+  kissat_verbose (solver, "prediction score %.5lf", median);
+  double threshold = 0.3;
+  if (GET_OPTION (aggressive))
+    threshold = 0.1;
+  if (median < 0.5 - threshold)
+    return 10;
+  if (median > 0.5 + threshold)
+    return 20;
+  return 0;
+}
+
+static void init_sequences (kissat *solver, sequences *seq) {
+  CALLOC (seq->features, FEATURES);
+  CALLOC (seq->vcg_p, VARS + CLAUSES);
+  CALLOC (seq->vcg_n, VARS + CLAUSES);
+  CALLOC (seq->lit, VARS);
+  CALLOC (seq->vg, VARS);
+  CALLOC (seq->cg, CLAUSES);
+}
+
+static void release_sequences (kissat *solver, sequences *seq) {
+  DEALLOC (seq->features, FEATURES);
+  DEALLOC (seq->vcg_p, VARS + CLAUSES);
+  DEALLOC (seq->vcg_n, VARS + CLAUSES);
+  DEALLOC (seq->lit, VARS);
+  DEALLOC (seq->vg, VARS);
+  DEALLOC (seq->cg, CLAUSES);
+}
+
+void kissat_predict (kissat *solver) {
+  static unsigned predicted = 0;
+  if (predicted)
+    return;
+  predicted = 1;
+  sequences seq;
+  init_sequences (solver, &seq);
+  int res = predict (solver, &seq);
+  kissat_verbose (solver, "instance predicted as %s",
+    res == 20 ? "unsat" : (res == 10 ? "sat" : "unknown"));
+  if (GET_OPTION (predictonly))
+    printf("c predicted as %s\n",
+      res == 20 ? "unsat" : (res == 10 ? "sat" : "unknown"));
+  if (res == 20)
+    kissat_set_configuration (solver, "unsat");
+  else if (res == 10)
+    kissat_set_configuration (solver, "sat");
+  release_sequences (solver, &seq);
+}
+```

@@ -1,0 +1,356 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling decide.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+static unsigned largest_score_unassigned_variable (kissat *solver);
+```
+
+**Purpose:** Select the next decision variable in stable mode. Returns the index of an unassigned variable chosen according to a scoring/activity heuristic.
+
+**Return value:** An unsigned variable index `idx` such that `VALUE(LIT(idx)) == 0` (i.e., the variable is unassigned).
+
+**Caller context:** Called from `kissat_next_decision_variable()` when `solver->stable` is true. The returned variable index is then passed to `decide_phase()` to determine its polarity, and the decision is assigned.
+
+---
+
+## 2. HEAP / SCORING (VSIDS Activity Scores)
+
+```c
+struct heap {
+  bool tainted;
+  unsigned vars;           // Number of variables tracked
+  unsigned size;           // Current heap size
+  unsigneds stack;         // Heap-ordered variable indices
+  double *score;           // Per-variable activity scores
+  unsigned *pos;           // Heap positions (DISCONTAIN if not in heap)
+};
+```
+
+### Heap Query Functions
+```c
+kissat_max_heap(heap)                   // unsigned: idx of highest-scored variable in heap
+kissat_get_heap_score(heap, idx)        // double: activity score for variable idx
+kissat_heap_contains(heap, idx)         // bool: is variable idx in the heap?
+kissat_empty_heap(heap)                 // bool: is heap empty?
+kissat_size_heap(heap)                  // size_t: number of entries
+kissat_max_score_on_heap(heap)          // double: maximum score across all variables
+```
+
+### Heap Mutation Functions (from inlineheap.h, included in decide.c)
+```c
+kissat_pop_max_heap(solver, heap)       // unsigned: pop and return max-scored idx
+kissat_pop_heap(solver, heap, idx)      // Remove specific idx from heap
+kissat_push_heap(solver, heap, idx)     // Insert idx into heap
+kissat_update_heap(solver, heap, idx, new_score)  // Update score and re-heapify
+```
+
+### Access macro
+```c
+SCORES                 // (&solver->scores) — returns heap*
+```
+
+---
+
+## 3. MAB (Multi-Armed Bandit) FIELDS
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->mab` | `bool` | MAB enabled flag |
+| `solver->mab_decisions` | `double` | Decision count since last MAB update |
+| `solver->mab_chosen` | `unsigned *` | Per-variable choice tracking (size VARS) |
+| `solver->mab_chosen_tot` | `unsigned` | Total unique chosen count |
+
+The current implementation updates MAB state when selecting a variable:
+```c
+if (solver->mab) {
+  solver->mab_decisions++;
+  if (!solver->mab_chosen[res]) {
+    solver->mab_chosen_tot++;
+    solver->mab_chosen[res] = 1;
+  }
+}
+```
+
+---
+
+## 4. SOLVER STATE ACCESS
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->stable` | `bool` | Current mode (always true when called) |
+| `solver->vars` | `unsigned` | Total number of variables |
+| `solver->unassigned` | `unsigned` | Count of unassigned variables |
+| `solver->level` | `unsigned` | Current decision level |
+| `solver->values` | `value *` | Truth values indexed by **literal** (not variable) |
+| `solver->scores` | `heap` | VSIDS score heap |
+| `solver->scinc` | `double` | Current VSIDS score increment |
+| `solver->random` | `generator` | RNG state |
+| `solver->ticks` | `uint64_t` | Overall work counter |
+| `solver->links` | `links *` | Queue links for focused mode (not typically used here) |
+| `solver->queue` | `queue` | Decision queue (focused mode) |
+
+### Phase Arrays
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->phases.saved[idx]` | `value` | Saved phase for variable idx |
+| `solver->phases.target[idx]` | `value` | Target phase |
+| `solver->phases.best[idx]` | `value` | Best phase |
+
+---
+
+## 5. CONVENIENCE MACROS
+
+```c
+VARS                   // solver->vars
+LITS                   // 2 * solver->vars
+SCORES                 // (&solver->scores)
+VALUE(lit)             // Current truth value of literal (-1, 0, 1)
+ACTIVE(idx)            // True if variable is active
+IDX(lit)               // Extract variable index from literal
+LIT(idx)               // Create positive literal from variable index
+NOT(lit)               // Negate literal
+NEGATED(lit)           // True if literal is negative polarity
+CONFLICTS              // solver->statistics.conflicts (uint64_t)
+DECISIONS              // solver->statistics.decisions (uint64_t)
+GET_OPTION(name)       // Returns int option value
+INC(name)              // Increment statistic
+```
+
+### Variable Iteration
+```c
+for (all_variables(idx)) { ... }   // Iterate all variable indices 0..VARS-1
+```
+
+---
+
+## 6. STATISTICS
+
+```c
+CONFLICTS              // solver->statistics.conflicts
+DECISIONS              // solver->statistics.decisions
+INC(name)              // Increment statistic
+GET(name)              // Get statistic value
+```
+
+---
+
+## 7. AVAILABLE FUNCTIONS
+
+### Random Number Generation
+```c
+kissat_pick_random(&solver->random, low, high)  // unsigned in [low, high)
+kissat_pick_double(&solver->random)             // double in [0, 1)
+kissat_next_random32(&solver->random)           // unsigned 32-bit
+kissat_pick_bool(&solver->random)               // random bool
+```
+
+### Math (from kimits.h, no math.h available)
+```c
+kissat_logn(count)                              // double: log_n(count)
+kissat_sqrt(count)                              // double: sqrt(count)
+```
+
+### Memory
+```c
+kissat_calloc(solver, n, size)
+kissat_malloc(solver, bytes)
+kissat_free(solver, ptr, bytes)
+```
+
+### Logging
+```c
+LOG(fmt, ...)                                   // Debug log (compiled out in release)
+LOGVAR(idx)                                     // Format variable for logging
+```
+
+---
+
+## 8. CRITICAL RULES
+
+### Return Value
+Must return an unsigned variable index where `VALUE(LIT(idx)) == 0` (unassigned). The caller assumes this invariant.
+
+### Heap Consistency
+If you pop variables from the heap, they are permanently removed. The heap is maintained across decisions — popping assigned variables is the standard approach to skip them.
+
+### Persistent State
+If your algorithm needs state across calls, use `static` local variables:
+```c
+static unsigned my_counter = 0;
+```
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT use `math.h` functions** -- use `kissat_logn()`/`kissat_sqrt()` or manual alternatives
+4. **DO NOT return an assigned variable** -- caller will crash
+5. **Values are indexed by literal, not variable** -- use `solver->values[LIT(idx)]` or `VALUE(LIT(idx))`
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+static unsigned FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is decide.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one.
+
+```c
+#include "decide.h"
+#include "inlineframes.h"
+#include "inlineheap.h"
+#include "inlinequeue.h"
+
+#include <inttypes.h>
+
+static unsigned
+last_enqueued_unassigned_variable (kissat *solver) {
+  assert (solver->unassigned);
+  const links *const links = solver->links;
+  const value *const values = solver->values;
+  unsigned res = solver->queue.search.idx;
+  if (values[LIT (res)]) {
+    do {
+      res = links[res].prev;
+      assert (!DISCONNECTED (res));
+    } while (values[LIT (res)]);
+    kissat_update_queue (solver, links, res);
+  }
+#ifdef LOGGING
+  const unsigned stamp = links[res].stamp;
+  LOG ("last enqueued unassigned %s stamp %u", LOGVAR (res), stamp);
+#endif
+  return res;
+}
+
+static unsigned
+largest_score_unassigned_variable (kissat *solver) {
+  unsigned res = kissat_max_heap (&solver->scores);
+  const value *const values = solver->values;
+  while (values[LIT (res)]) {
+    kissat_pop_max_heap (solver, &solver->scores);
+    res = kissat_max_heap (&solver->scores);
+  }
+  if (solver->mab) {
+    solver->mab_decisions++;
+    if (!solver->mab_chosen[res]) {
+      solver->mab_chosen_tot++;
+      solver->mab_chosen[res] = 1;
+    }
+  }
+#if defined(LOGGING) || defined(CHECK_HEAP)
+  const double score = kissat_get_heap_score (&solver->scores, res);
+#endif
+  LOG ("largest score unassigned %s score %g", LOGVAR (res), score);
+#ifdef CHECK_HEAP
+  for (all_variables (idx)) {
+    if (!ACTIVE (idx)) continue;
+    if (VALUE (LIT (idx))) continue;
+    const double idx_score = kissat_get_heap_score (&solver->scores, idx);
+    assert (score >= idx_score);
+  }
+#endif
+  return res;
+}
+
+unsigned
+kissat_next_decision_variable (kissat *solver) {
+  unsigned res;
+  if (solver->stable)
+    res = largest_score_unassigned_variable (solver);
+  else
+    res = last_enqueued_unassigned_variable (solver);
+  LOG ("next decision %s", LOGVAR (res));
+  return res;
+}
+
+static inline value
+decide_phase (kissat *solver, unsigned idx) {
+  bool force = GET_OPTION (forcephase);
+  value *target;
+  if (force) target = 0;
+  else if (!GET_OPTION (target)) target = 0;
+  else if (solver->stable || GET_OPTION (target) > 1)
+    target = solver->phases.target + idx;
+  else target = 0;
+  value *saved;
+  if (force) saved = 0;
+  else if (GET_OPTION (phasesaving))
+    saved = solver->phases.saved + idx;
+  else saved = 0;
+  value res = 0;
+  if (!res && target && (res = *target)) {
+    LOG ("%s uses target decision phase %d", LOGVAR (idx), (int) res);
+    INC (target_decisions);
+  }
+  if (!res && saved && (res = *saved)) {
+    LOG ("%s uses saved decision phase %d", LOGVAR (idx), (int) res);
+    INC (saved_decisions);
+  }
+  if (!res) {
+    res = INITIAL_PHASE;
+    LOG ("%s uses initial decision phase %d", LOGVAR (idx), (int) res);
+    INC (initial_decisions);
+  }
+  assert (res);
+  return res;
+}
+
+void kissat_decide (kissat *solver) {
+  START (decide);
+  assert (solver->unassigned);
+  INC (decisions);
+  if (solver->stable) INC (stable_decisions);
+  else INC (focused_decisions);
+  solver->level++;
+  assert (solver->level != INVALID_LEVEL);
+  const unsigned idx = kissat_next_decision_variable (solver);
+  const value value = decide_phase (solver, idx);
+  unsigned lit = LIT (idx);
+  if (value < 0) lit = NOT (lit);
+  kissat_push_frame (solver, lit);
+  assert (solver->level < SIZE_STACK (solver->frames));
+  LOG ("decide literal %s", LOGLIT (lit));
+  kissat_assign_decision (solver, lit);
+  STOP (decide);
+}
+
+void kissat_internal_assume (kissat *solver, unsigned lit) {
+  assert (solver->unassigned);
+  assert (!VALUE (lit));
+  solver->level++;
+  assert (solver->level != INVALID_LEVEL);
+  kissat_push_frame (solver, lit);
+  assert (solver->level < SIZE_STACK (solver->frames));
+  LOG ("assuming literal %s", LOGLIT (lit));
+  kissat_assign_decision (solver, lit);
+}
+```

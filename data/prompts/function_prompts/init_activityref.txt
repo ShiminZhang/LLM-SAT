@@ -1,0 +1,378 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling vivify.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+static inline void init_activityref (kissat *solver, activityref *ar,
+                                     clause *c, reference ref,
+                                     heap *scores);
+```
+
+**Purpose:** Populate the `activityref` struct `ar` for a clause `c`, computing an activity metric used to rank vivification candidates.
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `solver` | `kissat *` | Main solver instance |
+| `ar` | `activityref *` | Output struct to populate |
+| `c` | `clause *` | The clause being analyzed |
+| `ref` | `reference` | Reference handle for the clause |
+| `scores` | `heap *` | Variable activity score heap |
+
+**Contract:** Must set `ar->size`, `ar->vivify`, `ar->ref`, and `ar->activity`. The caller then sorts all `activityref` entries by `ar->activity` (ascending) to determine vivification priority.
+
+---
+
+## 2. OUTPUT STRUCT (activityref)
+
+```c
+struct activityref {
+  unsigned vivify : 1;              // 1-bit flag: clause vivification priority
+  unsigned size : 31;               // Clause size (LD_MAX_COUNTREF_SIZE = 31 bits)
+  double activity;                  // Activity metric (used as sort key, ascending)
+  reference ref;                    // Clause reference handle
+};
+```
+
+All four fields MUST be written by your function.
+
+---
+
+## 3. INPUT: CLAUSE STRUCT
+
+```c
+struct clause {
+  unsigned glue : 19;      // LBD (Literal Block Distance) value
+  bool garbage : 1;        // Marked for deletion
+  bool quotient : 1;       // Quotient flag
+  bool reason : 1;         // Used as reason clause
+  bool redundant : 1;      // Learned clause (vs original)
+  bool shrunken : 1;       // Clause was minimized
+  bool subsume : 1;        // Subsumption flag
+  bool swept : 1;          // Swept flag
+  bool vivify : 1;         // Vivification priority flag
+  unsigned used : 5;       // Usage count (0-31)
+  unsigned searched;       // Search counter
+  unsigned size;           // Number of literals
+  unsigned lits[3];        // Literal array (flexible, actual length is `size`)
+};
+```
+
+### Clause Iteration
+```c
+for (all_literals_in_clause(lit, c)) {
+  unsigned idx = IDX(lit);       // Extract variable index
+  bool is_pos = (lit == LIT(idx)); // Check polarity
+}
+```
+
+---
+
+## 4. INPUT: HEAP (Variable Activity Scores)
+
+```c
+struct heap {
+  bool tainted;
+  unsigned vars;           // Number of variables tracked
+  unsigned size;           // Current heap size
+  unsigneds stack;         // Heap stack
+  double *score;           // Per-variable activity scores
+  unsigned *pos;           // Heap positions
+};
+```
+
+### Heap Functions
+```c
+kissat_get_heap_score(scores, idx)  // Returns double: activity score for variable idx
+                                    // Returns 0.0 if idx >= scores->vars
+kissat_heap_contains(scores, idx)   // Returns bool: is variable idx in the heap?
+kissat_max_heap(scores)             // Returns unsigned: idx of highest-scored variable
+kissat_empty_heap(scores)           // Returns bool: is heap empty?
+kissat_size_heap(scores)            // Returns size_t: number of entries in heap
+kissat_max_score_on_heap(scores)    // Returns double: maximum score across all variables
+```
+
+---
+
+## 5. SOLVER STATE ACCESS (kissat *solver)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->stable` | `bool` | Current mode: true=stable, false=focused |
+| `solver->vars` | `unsigned` | Total number of variables |
+| `solver->unassigned` | `unsigned` | Count of unassigned variables |
+| `solver->level` | `unsigned` | Current decision level |
+| `solver->ticks` | `uint64_t` | Overall work counter |
+| `solver->values` | `value *` | Truth values indexed by literal |
+| `solver->scores` | `heap` | VSIDS score heap (same object passed as `scores` parameter) |
+| `solver->scinc` | `double` | Current VSIDS score increment |
+| `solver->tier1[0]` | `unsigned` | Tier 1 glue limit |
+| `solver->tier2[1]` | `unsigned` | Tier 2 glue limit |
+| `solver->random` | `generator` | RNG state |
+
+### Convenience Macros
+```c
+VARS                   // solver->vars
+LITS                   // 2 * solver->vars
+SCORES                 // (&solver->scores) — returns heap*
+TIER1                  // solver->tier1[0]
+TIER2                  // solver->tier2[1]
+VALUE(lit)             // Current truth value of literal (-1, 0, 1)
+ACTIVE(idx)            // True if variable idx is active
+```
+
+---
+
+## 6. STATISTICS (solver->statistics)
+
+```c
+CONFLICTS              // solver->statistics.conflicts (uint64_t)
+DECISIONS              // solver->statistics.decisions (uint64_t)
+INC(name)              // Increment statistic by 1
+ADD(name, n)           // Add n to statistic
+GET(name)              // Get statistic value
+```
+
+Useful counters: `conflicts`, `decisions`, `propagations`, `restarts`, `clauses_learned`, `clauses_irredundant`, `clauses_redundant`.
+
+---
+
+## 7. AVAILABLE FUNCTIONS
+
+### Random Number Generation
+```c
+kissat_pick_random(&solver->random, low, high)  // unsigned in [low, high)
+kissat_pick_double(&solver->random)             // double in [0, 1)
+kissat_next_random32(&solver->random)           // unsigned 32-bit
+```
+
+### Math (from kimits.h, no math.h needed)
+```c
+kissat_logn(count)                              // double: log_n(count)
+kissat_sqrt(count)                              // double: sqrt(count)
+```
+
+### Memory
+```c
+kissat_calloc(solver, n, size)                  // Allocate n*size zeroed bytes
+kissat_malloc(solver, bytes)                    // Allocate bytes
+kissat_free(solver, ptr, bytes)                 // Free memory
+```
+
+### Logging
+```c
+LOG(fmt, ...)                                   // Debug log (compiled out in release)
+```
+
+---
+
+## 8. UTILITY MACROS
+
+```c
+IDX(lit)               // Extract variable index from literal
+LIT(idx)               // Create positive literal from variable index
+NOT(lit)               // Negate literal
+NEGATED(lit)           // True if literal is negative polarity
+```
+
+### Constants Available
+```c
+DBL_MAX                // Maximum double value (<float.h> is included in vivify.c)
+DBL_MIN                // Minimum positive double value
+COUNTREF_COUNTS        // Defined as 1, used for assertion: c->size >= 1
+MAX_COUNTREF_SIZE      // (2^31 - 1), maximum representable clause size
+```
+
+### Iteration
+```c
+for (all_literals_in_clause(lit, c)) { ... }   // Iterate literals in clause c
+for (all_variables(idx)) { ... }               // Iterate all variable indices
+for (all_clauses(c)) { ... }                   // Iterate all clauses
+```
+
+### Options
+```c
+GET_OPTION(name)       // Returns int option value
+```
+
+---
+
+## 9. CRITICAL RULES
+
+### Assertions
+Your function MUST include these assertions before writing to `ar`:
+```c
+assert (COUNTREF_COUNTS <= c->size);
+assert (c->size <= MAX_COUNTREF_SIZE);
+```
+
+### Required Output Fields
+You MUST write all four fields of `ar`:
+- `ar->size = c->size;`
+- `ar->vivify = c->vivify;`
+- `ar->ref = ref;`
+- `ar->activity = <your computed value>;`
+
+The `size`, `vivify`, and `ref` fields must always be copied directly from the inputs. The `activity` field is where your algorithm's logic goes.
+
+### Persistent State Pattern
+If your algorithm needs state across calls, use `static` local variables:
+```c
+static double *my_array = 0;
+static unsigned my_array_size = 0;
+if (!my_array || VARS > my_array_size) {
+    unsigned new_size = VARS + 1000;
+    double *new_arr = kissat_calloc(solver, new_size, sizeof(double));
+    if (my_array) {
+        for (unsigned i = 0; i < my_array_size; i++)
+            new_arr[i] = my_array[i];
+        kissat_free(solver, my_array, my_array_size * sizeof(double));
+    }
+    my_array = new_arr;
+    my_array_size = new_size;
+}
+```
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT use `math.h` functions** (`fabs`, `sqrt`, `log`) -- use `(x > 0 ? x : -x)` or `kissat_logn()`/`kissat_sqrt()`
+4. **DO NOT use `stdlib.h`/`stdio.h`** -- use kissat_malloc/calloc/free
+5. **`<string.h>` IS available** in vivify.c (memcpy, memset, etc. are OK)
+6. **`<float.h>` IS available** in vivify.c (DBL_MAX, DBL_MIN, etc. are OK)
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+static inline void FUNCTION_NAME_PLACEHOLDER(kissat *solver, activityref *ar,
+                                     clause *c, reference ref,
+                                     heap *scores) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is the relevant section of vivify.c surrounding your target function. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file.
+
+```c
+#include "vivify.h"
+#include "allocate.h"
+#include "backtrack.h"
+#include "collect.h"
+#include "colors.h"
+#include "decide.h"
+#include "deduce.h"
+#include "float.h"
+#include "inline.h"
+#include "print.h"
+#include "promote.h"
+#include "proprobe.h"
+#include "rank.h"
+#include "report.h"
+#include "sort.h"
+#include "terminate.h"
+#include "tiers.h"
+#include "trail.h"
+#include "cover.h"
+
+#include <inttypes.h>
+#include <string.h>
+
+/* ... utility functions omitted ... */
+
+#define COUNTREF_COUNTS 1
+#define LD_MAX_COUNTREF_SIZE 31
+#define MAX_COUNTREF_SIZE ((1u << LD_MAX_COUNTREF_SIZE) - 1)
+
+struct countref {
+  unsigned vivify : 1;
+  unsigned size : LD_MAX_COUNTREF_SIZE;
+  unsigned count[COUNTREF_COUNTS];
+  reference ref;
+};
+
+typedef struct countref countref;
+typedef STACK (countref) countrefs;
+
+struct activityref {
+  unsigned vivify : 1;
+  unsigned size : LD_MAX_COUNTREF_SIZE;
+  double activity;
+  reference ref;
+};
+
+typedef struct activityref activityref;
+typedef STACK (activityref) activityrefs;
+
+/* ... vivifier struct and management functions omitted ... */
+
+static inline void init_activityref (kissat *solver, activityref *ar,
+                                     clause *c, reference ref,
+                                     heap *scores) {
+  assert (COUNTREF_COUNTS <= c->size);
+  assert (c->size <= MAX_COUNTREF_SIZE);
+  ar->size = c->size;
+  ar->vivify = c->vivify;
+  ar->ref = ref;
+  double best = DBL_MAX;
+  for (all_literals_in_clause (lit, c)) {
+    unsigned idx = IDX (lit);
+    double activity = kissat_get_heap_score (scores, idx);
+    if (activity < best)
+      best = activity;
+  }
+  ar->activity = best;
+}
+
+static void init_activityrefs (vivifier *vivifier) {
+  kissat *const solver = vivifier->solver;
+  references *schedule = &vivifier->schedule;
+  activityrefs *activityrefs = &vivifier->activityrefs;
+  assert (EMPTY_STACK (*activityrefs));
+  assert (solver->stable);
+  heap *scores = &solver->scores;
+  for (all_stack (reference, ref, *schedule)) {
+    clause *c = kissat_dereference_clause (solver, ref);
+    activityref activityref;
+    init_activityref (solver, &activityref, c, ref, scores);
+    PUSH_STACK (*activityrefs, activityref);
+  }
+  RELEASE_STACK (*schedule);
+}
+
+/* Sorting: activityrefs are sorted by ar->activity ascending */
+static bool smaller_activity (activityref a, activityref b) {
+  return a.activity < b.activity;
+}
+
+static void rank_vivification_candidates_by_activity (vivifier *vivifier) {
+  kissat *solver = vivifier->solver;
+  activityrefs *activityrefs = &vivifier->activityrefs;
+  SORT_STACK (activityref, *activityrefs, smaller_activity);
+}
+```

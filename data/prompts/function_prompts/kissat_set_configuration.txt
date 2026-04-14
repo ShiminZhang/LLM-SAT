@@ -1,0 +1,385 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling config.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+int kissat_set_configuration (kissat *solver, const char *name);
+```
+
+**Purpose:** Apply a named configuration to the solver by setting a combination of options. Called from:
+- Command-line parsing (`--configname` argument)
+- Instance prediction (`predict.c`): calls with `"sat"` or `"unsat"` based on predicted instance type
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `solver` | `kissat *` | Solver instance |
+| `name` | `const char *` | Configuration name string |
+
+**Return value:**
+- `1` if `name` matched a valid configuration (options were applied)
+- `0` if `name` is not recognized
+
+**Required configurations:** The function MUST handle at least `"basic"`, `"default"`, `"plain"`, `"sat"`, and `"unsat"` as valid names. `"default"` must return 1 without changing anything. The `kissat_has_configuration()` function (defined separately in config.c, not replaced) validates names, so your set of handled names should match.
+
+---
+
+## 2. OPTION SETTING API
+
+### Functions
+```c
+kissat_set_option(solver, "option_name", value)
+// Sets the named option to value (clamped to [low, high] bounds).
+// Returns old value.
+
+kissat_get_option(solver, "option_name")
+// Returns current int value of the named option.
+```
+
+### Helper Function (defined above your function in config.c, available to call)
+```c
+static void set_plain_options (kissat *solver);
+// Disables advanced techniques: sets bumpreasons=0, chrono=0, compact=0,
+// eagersubsume=0, jumpreasons=0, otfs=0, preprocess=0, reorder=0,
+// rephase=0, restartreusetrail=0, simplify=0, stable=2, tumble=0.
+```
+
+---
+
+## 3. AVAILABLE OPTIONS (complete list)
+
+Each option is `OPTION(name, default, low, high, description)`.
+
+### Search Strategy
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `stable` | 1 | 0-2 | Stable search mode (0=off, 1=default, 2=always) |
+| `target` | 1 | 0-2 | Target phases (0=off, 1=stable, 2=focused) |
+| `phase` | 1 | 0-1 | Initial decision phase |
+| `phasesaving` | 1 | 0-1 | Phase saving |
+| `forcephase` | 0 | 0-1 | Force initial phase |
+
+### Restarts
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `restart` | 1 | 0-1 | Enable restarts |
+| `restartint` | 1 | 1-10000 | Base restart interval |
+| `restartintinc` | 128 | 1-100000 | Restart interval increasing speed |
+| `restartmargin` | 10 | 0-25 | Fast/slow glue margin (percent) |
+| `restartreusetrail` | 1 | 0-1 | Reuse trail on restarts |
+| `reluctant` | 1 | 0-1 | Reluctant doubling restarting |
+| `reluctantint` | 1024 | 2-32768 | Reluctant interval |
+| `reluctantlim` | 1048576 | 0-1073741824 | Reluctant limit |
+
+### Clause Reduction
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `reduce` | 1 | 0-1 | Learned clause reduction |
+| `reduceinit` | 1000 | 2-100000 | Initial reduce interval |
+| `reduceint` | 1000 | 2-100000 | Base reduce interval |
+| `reducehigh` | 900 | 0-1000 | High reduce fraction per mille |
+| `reducelow` | 500 | 0-1000 | Low reduce fraction per mille |
+| `tier1` | 2 | 1-100 | Tier 1 glue limit |
+| `tier2` | 6 | 1-1000 | Tier 2 glue limit |
+| `tier1relative` | 500 | 0-1000 | Relative tier 1 glue limit |
+| `tier2relative` | 900 | 0-1000 | Relative tier 2 glue limit |
+
+### Clause Learning
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `minimize` | 1 | 0-1 | Learned clause minimization |
+| `minimizedepth` | 1000 | 1-1000000 | Minimization depth |
+| `shrink` | 3 | 0-3 | Learned clause shrinking (1=bin, 2=lrg, 3=rec) |
+| `eagersubsume` | 4 | 0-4 | Eagerly subsume previous learned clauses |
+| `bump` | 1 | 0-1 | Variable bumping |
+| `bumpreasons` | 1 | 0-1 | Bump reason side literals |
+| `chrono` | 1 | 0-1 | Chronological backtracking |
+| `chronolevels` | 100 | 0-INT_MAX | Maximum jumped over levels |
+| `otfs` | 1 | 0-1 | On-the-fly strengthening |
+| `jumpreasons` | 1 | 0-1 | Jump binary reasons |
+| `promote` | 1 | 0-1 | Promote clauses |
+
+### Scoring
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `decay` | 50 | 1-200 | Per mille scores decay |
+
+### Random Decisions
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `randec` | 1 | 0-1 | Random decisions |
+| `randecfocused` | 1 | 0-1 | Random decisions in focused mode |
+| `randecstable` | 0 | 0-1 | Random decisions in stable mode |
+| `randeclength` | 10 | 1-INT_MAX | Random conflicts length |
+
+### Preprocessing / Simplification
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `preprocess` | 1 | 0-1 | Initial preprocessing |
+| `simplify` | 1 | 0-1 | Enable probing and elimination |
+| `eliminate` | 1 | 0-1 | Bounded variable elimination |
+| `eliminatebound` | 16 | 0-8192 | Maximum elimination bound |
+| `eliminateclslim` | 100 | 1-INT_MAX | Elimination clause size limit |
+| `eliminateeffort` | 100 | 0-2000 | Effort in per mille |
+| `eliminateocclim` | 2000 | 0-INT_MAX | Elimination occurrence limit |
+| `substitute` | 1 | 0-1 | Equivalent literal substitution |
+| `rephase` | 1 | 0-1 | Reinitialization of decision phases |
+| `rephaseinit` | 1000 | 10-100000 | Initial rephase interval |
+| `rephaseint` | 1000 | 10-100000 | Base rephase interval |
+| `compact` | 1 | 0-1 | Compacting garbage collection |
+| `tumble` | 1 | 0-1 | Tumbled external indices order |
+
+### Probing
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `probe` | 1 | 0-1 | Enable probing |
+| `probeinit` | 100 | 0-INT_MAX | Initial probing interval |
+| `probeint` | 100 | 2-INT_MAX | Probing interval |
+| `backbone` | 1 | 0-2 | Binary clause backbone (2=eager) |
+| `lucky` | 1 | 0-1 | Try lucky assignments |
+| `forward` | 1 | 0-1 | Forward subsumption in BVE |
+
+### Vivification
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `vivify` | 1 | 0-1 | Vivify clauses |
+| `vivifyeffort` | 100 | 0-1000 | Effort in per mille |
+| `vivifysort` | 1 | 0-1 | Sort vivification candidates |
+
+### Congruence
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `congruence` | 1 | 0-1 | Congruence closure |
+| `congruenceandarity` | 1000000 | 2-50000000 | AND gate arity limit |
+| `congruencexorarity` | 4 | 2-20 | XOR gate arity limit |
+
+### Reordering
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `reorder` | 2 | 0-2 | Reorder decisions (1=stable-mode-only) |
+| `reorderinit` | 10000 | 0-100000 | Initial reorder interval |
+| `reorderint` | 10000 | 1-100000 | Base reorder interval |
+
+### Variable Addition
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `factor` | 1 | 0-1 | Bounded variable addition |
+| `factoreffort` | 50 | 0-1000000 | Effort in per mille |
+| `factorsize` | 5 | 2-INT_MAX | Clause size for variable addition |
+
+### Fast Elimination
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `fastel` | 1 | 0-1 | Initial fast variable elimination |
+| `fastelclslim` | 100 | 1-INT_MAX | Fast elimination clause length limit |
+| `fastelim` | 8 | 1-1000 | Fast elimination resolvents limit |
+
+### Sweeping
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `sweep` | 1 | 0-1 | SAT sweeping |
+| `sweepeffort` | 100 | 0-10000 | Effort in per mille |
+
+### Mode Switching
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `modeinit` | 1000 | 10-100000000 | Initial focused conflicts limit |
+| `modeint` | 1000 | 10-100000000 | Focused conflicts interval |
+| `modemultiplier` | 4 | 1-128 | Focused conflicts interval multiplier |
+
+### Other
+| Option | Default | Range | Description |
+|--------|---------|-------|-------------|
+| `aggressive` | 0 | 0-1 | Use aggressive configurations |
+| `smallclauses` | 100000 | 0-INT_MAX | Small clauses limit |
+| `warmup` | 1 | 0-1 | Initialize phases by unit propagation |
+| `walkinitially` | 0 | 0-1 | Initial local search |
+| `walkeffort` | 50 | 0-1000000 | Walk effort in per mille |
+| `emafast` | 33 | 10-1000000 | Fast EMA window |
+| `emaslow` | 100000 | 100-1000000 | Slow EMA window |
+| `focusedtiers` | 1 | 0-1 | Always use focused mode tiers |
+| `seed` | 0 | 0-INT_MAX | Random seed |
+
+---
+
+## 4. CONFIGURATION CONSTANTS
+
+Defined in `options.h` and available in config.c:
+```c
+#define TARGET_SAT 2
+#define TARGET_DEFAULT 1
+#define STABLE_DEFAULT 1
+#define STABLE_UNSAT 0
+#define RESTARTINT_DEFAULT 1
+#define RESTARTINT_SAT 50
+```
+
+---
+
+## 5. AVAILABLE LIBRARIES
+
+config.c includes:
+- `<stdio.h>` — printf, etc.
+- `<string.h>` — strcmp, strlen, memcpy, etc.
+
+---
+
+## 6. CRITICAL RULES
+
+### What NOT to do
+1. **DO NOT invent option names** -- only use options listed above
+2. **DO NOT access solver internals directly** -- use `kissat_set_option`/`kissat_get_option`
+3. **Option values are clamped** -- `kissat_set_option` clamps to [low, high], so out-of-range values won't crash but won't take effect as expected
+4. **DO NOT change the return value contract** -- return 1 for recognized names, 0 otherwise
+5. **`"default"` must be a no-op** -- return 1 without modifying anything
+6. **`set_plain_options(solver)` is available** -- call it to disable advanced techniques
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+int FUNCTION_NAME_PLACEHOLDER(kissat *solver, const char *name) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is config.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file.
+
+```c
+#ifndef NOPTIONS
+
+#include "config.h"
+#include "kissat.h"
+#include "options.h"
+
+#include <stdio.h>
+#include <string.h>
+
+int kissat_has_configuration (const char *name) {
+  if (!strcmp (name, "basic"))
+    return 1;
+  if (!strcmp (name, "default"))
+    return 1;
+  if (!strcmp (name, "plain"))
+    return 1;
+  if (!strcmp (name, "sat"))
+    return 1;
+  if (!strcmp (name, "unsat"))
+    return 1;
+  return 0;
+}
+
+void kissat_configuration_usage (void) {
+#define FMT "  --%-8s %s"
+  printf (FMT "\n", "basic",
+          "basic CDCL solving "
+          "('--plain' but no restarts, minimize, reduce)");
+  printf (FMT "\n", "default", "default configuration");
+  printf (FMT "\n", "plain",
+          "plain CDCL solving without advanced techniques");
+  printf (FMT " ('--target=%d --restartint=%d')\n", "sat",
+          "target satisfiable instances", (int) TARGET_SAT,
+          (int) RESTARTINT_SAT);
+  printf (FMT " ('--stable=%d')\n", "unsat",
+          "target unsatisfiable instances", (int) STABLE_UNSAT);
+}
+
+static void set_plain_options (kissat *solver) {
+  kissat_set_option (solver, "bumpreasons", 0);
+  kissat_set_option (solver, "chrono", 0);
+  kissat_set_option (solver, "compact", 0);
+  kissat_set_option (solver, "eagersubsume", 0);
+  kissat_set_option (solver, "jumpreasons", 0);
+  kissat_set_option (solver, "otfs", 0);
+  kissat_set_option (solver, "preprocess", 0);
+  kissat_set_option (solver, "reorder", 0);
+  kissat_set_option (solver, "rephase", 0);
+  kissat_set_option (solver, "restartreusetrail", 0);
+  kissat_set_option (solver, "simplify", 0);
+  kissat_set_option (solver, "stable", 2);
+  kissat_set_option (solver, "tumble", 0);
+}
+
+int kissat_set_configuration (kissat *solver, const char *name) {
+  if (!strcmp (name, "basic")) {
+    set_plain_options (solver);
+    kissat_set_option (solver, "restart", 0);
+    kissat_set_option (solver, "reduce", 0);
+    kissat_set_option (solver, "minimize", 0);
+    return 1;
+  }
+  if (!strcmp (name, "default"))
+    return 1;
+  if (!strcmp (name, "plain")) {
+    set_plain_options (solver);
+    return 1;
+  }
+  if (!strcmp (name, "sat")) {
+    kissat_set_option (solver, "target", TARGET_SAT);
+    kissat_set_option (solver, "restartint", RESTARTINT_SAT);
+    if (kissat_get_option (solver, "aggressive")) {
+      kissat_set_option (solver, "congruenceandarity", 5000000);
+      kissat_set_option (solver, "congruencexorarity", 8);
+      kissat_set_option (solver, "fastelclslim", 1000);
+      kissat_set_option (solver, "reorderint", 2000);
+      kissat_set_option (solver, "restartint", 128);
+      kissat_set_option (solver, "smallclauses", 1000000);
+    }
+    return 1;
+  }
+  if (!strcmp (name, "unsat")) {
+    kissat_set_option (solver, "stable", STABLE_UNSAT);
+    if (kissat_get_option (solver, "aggressive")) {
+      kissat_set_option (solver, "congruenceandarity", 5000000);
+      kissat_set_option (solver, "congruencexorarity", 16);
+      kissat_set_option (solver, "fastelclslim", 1000);
+      kissat_set_option (solver, "reorderint", 50000);
+      kissat_set_option (solver, "restartint", 3);
+      kissat_set_option (solver, "smallclauses", 1000000);
+    }
+    return 1;
+  }
+  return 0;
+}
+
+#else
+int kissat_config_dummy_to_avoid_warning;
+#endif
+```
+
+### Caller Context (from predict.c)
+
+```c
+void kissat_predict (kissat *solver) {
+  // ... prediction logic ...
+  if (res == 20)
+    kissat_set_configuration (solver, "unsat");
+  else if (res == 10)
+    kissat_set_configuration (solver, "sat");
+}
+```

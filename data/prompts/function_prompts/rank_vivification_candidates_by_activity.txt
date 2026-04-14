@@ -1,0 +1,337 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling vivify.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+static void rank_vivification_candidates_by_activity (vivifier *vivifier);
+```
+
+**Purpose:** Sort the vivifier's `activityrefs` stack to determine the order in which clauses are vivified. Called after `init_activityrefs()` has populated the stack, and before `copy_activityrefs()` extracts the sorted `ref` values.
+
+**Parameter:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `vivifier` | `vivifier *` | Vivification context (see struct below) |
+
+**Contract:** After this function returns, the `vivifier->activityrefs` stack must be in the desired vivification order. The downstream `copy_activityrefs()` iterates the stack front-to-back, extracting `ar.ref` into the schedule.
+
+---
+
+## 2. VIVIFIER STRUCT
+
+```c
+struct vivifier {
+  kissat *solver;              // Solver instance
+  unsigned *counts;            // Literal occurrence counts
+  references schedule;         // Stack of clause references (output)
+  size_t scheduled, tried, vivified;  // Progress counters
+  countrefs countrefs;         // Stack of countref (used in non-activity path)
+  activityrefs activityrefs;   // Stack of activityref (YOUR INPUT — sort this)
+  unsigneds sorted;            // Sorted literal scratch space
+  int tier;                    // Current tier being vivified
+};
+```
+
+Access the solver via `vivifier->solver`. The stack to sort is `vivifier->activityrefs`.
+
+---
+
+## 3. ACTIVITYREF STRUCT
+
+```c
+struct activityref {
+  unsigned vivify : 1;              // 1-bit flag: clause vivification priority
+  unsigned size : 31;               // Clause size
+  double activity;                  // Activity metric (populated by init_activityref)
+  reference ref;                    // Clause reference handle
+};
+```
+
+Each entry in `vivifier->activityrefs` is an `activityref` with these fields set.
+
+---
+
+## 4. SORTING MACROS
+
+### Comparison-based sort (quicksort + insertion sort)
+```c
+SORT_STACK(TYPE, stack, LESS_THAN)
+// Sorts stack in-place using a comparator function.
+// LESS_THAN(a, b) must return bool: true if a should come before b.
+```
+
+The existing comparator `smaller_activity` is defined in vivify.c and available:
+```c
+static bool smaller_activity (activityref a, activityref b) {
+  return a.activity < b.activity;
+}
+```
+
+### Radix sort (for integer-keyed sorting)
+```c
+RADIX_STACK(VTYPE, RTYPE, stack, RANK)
+// Radix-sorts stack by unsigned rank key.
+// RANK(element) must return an unsigned integer sort key.
+```
+
+### Stack access for manual manipulation
+```c
+SIZE_STACK(s)                  // size_t: number of elements
+BEGIN_STACK(s)                 // TYPE*: pointer to first element
+END_STACK(s)                   // TYPE*: pointer past last element
+EMPTY_STACK(s)                 // bool: is stack empty?
+PEEK_STACK(s, n)               // element at index n
+
+for (all_stack(TYPE, elem, s)) { ... }  // Iterate stack elements
+```
+
+### Raw array sort (if accessing the underlying array)
+```c
+SORT(TYPE, N, array_ptr, LESS_THAN)
+// Sorts array of N elements using comparator.
+```
+
+---
+
+## 5. CLAUSE ACCESS
+
+If your algorithm needs to inspect clause properties beyond what `activityref` stores, you can dereference the clause reference:
+```c
+clause *c = kissat_dereference_clause(solver, ar.ref);
+```
+
+### Clause Fields
+```c
+c->glue          // unsigned (19 bits): LBD value
+c->redundant     // bool: learned clause
+c->used          // unsigned (5 bits): usage count (0-31)
+c->vivify        // bool: vivification flag
+c->size          // unsigned: number of literals
+c->reason        // bool: currently used as reason clause
+c->lits[]        // unsigned array: literals
+```
+
+### Clause Iteration
+```c
+for (all_literals_in_clause(lit, c)) {
+  unsigned idx = IDX(lit);
+}
+```
+
+---
+
+## 6. SOLVER STATE ACCESS
+
+Accessed via `kissat *solver = vivifier->solver;`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->stable` | `bool` | Current mode (always true when this function is called) |
+| `solver->vars` | `unsigned` | Total number of variables |
+| `solver->unassigned` | `unsigned` | Count of unassigned variables |
+| `solver->level` | `unsigned` | Current decision level |
+| `solver->ticks` | `uint64_t` | Overall work counter |
+| `solver->values` | `value *` | Truth values indexed by literal |
+| `solver->scores` | `heap` | VSIDS score heap |
+| `solver->scinc` | `double` | Current VSIDS score increment |
+| `solver->random` | `generator` | RNG state |
+
+### Convenience Macros
+```c
+VARS                   // solver->vars
+SCORES                 // (&solver->scores) — returns heap*
+TIER1                  // solver->tier1[0]
+TIER2                  // solver->tier2[1]
+VALUE(lit)             // Current truth value of literal (-1, 0, 1)
+ACTIVE(idx)            // True if variable idx is active
+CONFLICTS              // solver->statistics.conflicts (uint64_t)
+DECISIONS              // solver->statistics.decisions (uint64_t)
+```
+
+---
+
+## 7. HEAP FUNCTIONS
+
+```c
+kissat_get_heap_score(heap, idx)     // double: activity score for variable idx
+kissat_heap_contains(heap, idx)      // bool: is variable in the heap?
+kissat_max_score_on_heap(heap)       // double: max score across all variables
+```
+
+---
+
+## 8. UTILITY FUNCTIONS
+
+### Random Number Generation
+```c
+kissat_pick_random(&solver->random, low, high)  // unsigned in [low, high)
+kissat_pick_double(&solver->random)             // double in [0, 1)
+kissat_next_random32(&solver->random)           // unsigned 32-bit
+```
+
+### Math (from kimits.h)
+```c
+kissat_logn(count)                              // double: log_n(count)
+kissat_sqrt(count)                              // double: sqrt(count)
+```
+
+### Literal Macros
+```c
+IDX(lit)               // Extract variable index from literal
+LIT(idx)               // Create positive literal from variable index
+NOT(lit)               // Negate literal
+```
+
+---
+
+## 9. CRITICAL RULES
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT use `math.h` functions** (`fabs`, `sqrt`, `log`) -- use `(x > 0 ? x : -x)` or `kissat_logn()`/`kissat_sqrt()`
+4. **DO NOT use `stdlib.h`/`stdio.h`** -- use kissat_malloc/calloc/free for memory
+5. **`<string.h>` IS available** in vivify.c (memcpy, memset, etc. are OK)
+6. **`<float.h>` IS available** in vivify.c (DBL_MAX, DBL_MIN, etc. are OK)
+
+### Memory (if needed for persistent state)
+```c
+kissat_calloc(solver, n, size)     // Allocate zeroed
+kissat_malloc(solver, bytes)       // Allocate
+kissat_free(solver, ptr, bytes)    // Free
+```
+
+### NOTE on `solver` variable
+You must declare `kissat *solver = vivifier->solver;` at the top of your function. Many macros (SORT_STACK, CONFLICTS, VARS, etc.) implicitly reference a variable named `solver`.
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+static void FUNCTION_NAME_PLACEHOLDER(vivifier *vivifier) {
+  kissat *solver = vivifier->solver;
+  activityrefs *activityrefs = &vivifier->activityrefs;
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is the relevant section of vivify.c surrounding your target function. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file.
+
+```c
+#include "vivify.h"
+#include "allocate.h"
+#include "backtrack.h"
+#include "collect.h"
+#include "colors.h"
+#include "decide.h"
+#include "deduce.h"
+#include "float.h"
+#include "inline.h"
+#include "print.h"
+#include "promote.h"
+#include "proprobe.h"
+#include "rank.h"
+#include "report.h"
+#include "sort.h"
+#include "terminate.h"
+#include "tiers.h"
+#include "trail.h"
+#include "cover.h"
+
+#include <inttypes.h>
+#include <string.h>
+
+/* ... earlier vivify.c code ... */
+
+struct activityref {
+  unsigned vivify : 1;
+  unsigned size : LD_MAX_COUNTREF_SIZE;
+  double activity;
+  reference ref;
+};
+
+typedef struct activityref activityref;
+typedef STACK (activityref) activityrefs;
+
+struct vivifier {
+  kissat *solver;
+  unsigned *counts;
+  references schedule;
+  size_t scheduled, tried, vivified;
+  countrefs countrefs;
+  activityrefs activityrefs;
+  unsigneds sorted;
+#ifndef QUIET
+  const char *mode;
+  const char *name;
+  char tag;
+#endif
+  int tier;
+};
+
+/* ... init_activityref / init_activityrefs populate the activityrefs stack ... */
+
+/* This comparator is defined above your function and is available to use: */
+static bool smaller_activity (activityref a, activityref b) {
+  return a.activity < b.activity;
+}
+
+static void rank_vivification_candidates_by_activity (vivifier *vivifier) {
+  kissat *solver = vivifier->solver;
+  activityrefs *activityrefs = &vivifier->activityrefs;
+  SORT_STACK (activityref, *activityrefs, smaller_activity);
+}
+
+/* After your function, copy_activityrefs extracts refs in order: */
+static void copy_activityrefs (vivifier *vivifier) {
+  kissat *solver = vivifier->solver;
+  references *schedule = &vivifier->schedule;
+  activityrefs *activityrefs = &vivifier->activityrefs;
+  assert (EMPTY_STACK (*schedule));
+  for (all_stack (activityref, ar, *activityrefs))
+    PUSH_STACK (*schedule, ar.ref);
+  RELEASE_STACK (*activityrefs);
+}
+
+/* Call chain: init_activityrefs -> YOUR FUNCTION -> copy_activityrefs */
+static void sort_vivification_candidates_by_activity (vivifier *vivifier) {
+  kissat *solver = vivifier->solver;
+  if (!solver->stable)
+    sort_vivification_candidates (vivifier);
+  else {
+    START (vivifysort);
+    kissat_extremely_verbose (
+        solver, "sorting %s vivification candidates by minimal activity",
+        vivifier->name);
+    init_activityrefs (vivifier);
+    rank_vivification_candidates_by_activity (vivifier);
+    copy_activityrefs (vivifier);
+    STOP (vivifysort);
+  }
+}
+```

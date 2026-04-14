@@ -1,0 +1,275 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling rephase.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+static char rephase_walking (kissat *solver);
+```
+
+**Purpose:** Reset decision phases using local search (WalkSAT-style). Runs a walk and saves the resulting assignment as the new saved phases.
+
+**Return value:** Must return `'W'` (the rephase type character for walking rephasing).
+
+**Caller context:** Called from `reset_phases()` and `reset_phases_mab()` via a function pointer array. Only called when `GET_OPTION(rephasewalking)` is true and `kissat_walking(solver)` returns true. The caller handles `START(rephase)` before calling into the rephase selection logic, and `STOP(rephase)` after.
+
+---
+
+## 2. WALKING API
+
+```c
+kissat_walking(solver)      // bool: true if local search is applicable
+                            // (formula not too large for dense mode)
+
+kissat_walk(solver)         // Runs one round of local search.
+                            // Enters dense mode, initializes walker, runs SLS,
+                            // saves best assignment to solver->phases.saved,
+                            // restores sparse mode. Handles everything internally.
+```
+
+### Profiling Note
+Because the caller (`kissat_rephase`) has already called `START(rephase)` before entering your function, and `kissat_walk` calls `STOP_SEARCH_AND_START_SIMPLIFIER` / `STOP_SIMPLIFIER_AND_RESUME_SEARCH` internally, you must bracket the walk with profiling pauses:
+```c
+STOP(rephase);         // Pause rephase profiling
+kissat_walk(solver);   // Walk manages its own profiling
+START(rephase);        // Resume rephase profiling
+```
+
+---
+
+## 3. PHASE ARRAYS
+
+```c
+struct phases {
+  value *best;       // Best assignment phases (size VARS)
+  value *saved;      // Saved/current decision phases (size VARS) — modified by walk
+  value *target;     // Target phases (size VARS)
+  value *conflict;   // Conflict-derived phases (size VARS)
+};
+// value is typedef signed char (-1, 0, or 1)
+```
+
+### Phase iteration macro
+```c
+for (all_phases(saved, p))     // value *p over solver->phases.saved[0..VARS-1]
+for (all_phases(best, p))      // value *p over solver->phases.best[0..VARS-1]
+```
+
+---
+
+## 4. SOLVER STATE ACCESS
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->vars` | `unsigned` | Number of variables |
+| `solver->stable` | `bool` | Current mode |
+| `solver->values` | `value *` | Current truth values indexed by literal |
+| `solver->active` | `unsigned` | Number of active variables |
+| `solver->scores` | `heap` | VSIDS score heap |
+| `solver->random` | `generator` | RNG state |
+| `solver->rephased.count` | `uint64_t` | Current rephase count |
+| `solver->rephased.last` | `char` | Last rephase type character |
+
+### Convenience Macros
+```c
+VARS                   // solver->vars
+CONFLICTS              // solver->statistics.conflicts
+INITIAL_PHASE          // (GET_OPTION(phase) ? 1 : -1)
+GET_OPTION(name)       // Returns int option value
+INC(name)              // Increment statistic
+GET(name)              // Get statistic value
+```
+
+---
+
+## 5. STATISTICS
+
+Your function MUST increment the walking rephase counter:
+```c
+INC(rephased_walking);
+```
+
+Other available counters: `rephased_best`, `rephased_original`, `rephased_inverted`, `rephased_conflict`, `rephased_flipped`.
+
+---
+
+## 6. VARIABLE / LITERAL MACROS
+
+```c
+IDX(lit)               // Variable index from literal
+LIT(idx)               // Positive literal from variable index
+NOT(lit)               // Negate literal
+VALUE(lit)             // Current truth value (-1, 0, 1)
+ACTIVE(idx)            // True if variable is active
+for (all_variables(idx)) { ... }
+```
+
+---
+
+## 7. AVAILABLE FUNCTIONS AND LIBRARIES
+
+### Heap (variable activity scores)
+```c
+kissat_get_heap_score(&solver->scores, idx)  // double: VSIDS score
+```
+
+### Random
+```c
+kissat_pick_random(&solver->random, low, high)
+kissat_pick_double(&solver->random)
+```
+
+### Memory
+```c
+kissat_calloc(solver, n, size)
+kissat_malloc(solver, bytes)
+kissat_free(solver, ptr, bytes)
+```
+
+### Math (`<math.h>` IS included in rephase.c)
+```c
+sqrt(x)   log(x)   log2(x)   pow(x, y)   fabs(x)
+```
+
+### String (`<string.h>` IS included in rephase.c)
+```c
+memcpy(dest, src, n)   memset(dest, val, n)
+```
+
+### Logging
+```c
+LOG(fmt, ...)
+START(name)   STOP(name)    // Profiling macros
+```
+
+---
+
+## 8. CRITICAL RULES
+
+### Return Value
+Must return `'W'`.
+
+### Statistics
+Must call `INC(rephased_walking)` before returning.
+
+### Profiling
+Must call `STOP(rephase)` before `kissat_walk` and `START(rephase)` after, to avoid double-counting profiling time.
+
+### What NOT to do
+1. **DO NOT invent solver fields** -- only use fields documented above
+2. **DO NOT create `kissat_*` prefixed variables** -- reserved for API functions
+3. **DO NOT modify `solver->phases.target`** -- the caller handles that after you return
+4. **DO NOT call `kissat_walk` without STOP/START** -- will corrupt profiling state
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+static char FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
+
+Here is the relevant section of rephase.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one.
+
+```c
+#include "autarky.h"
+#include "backtrack.h"
+#include "decide.h"
+#include "internal.h"
+#include "logging.h"
+#include "print.h"
+#include "rephase.h"
+#include "report.h"
+#include "terminate.h"
+#include "walk.h"
+
+#include <inttypes.h>
+#include <string.h>
+#include <math.h>
+
+/* Other rephase functions for reference: */
+
+static char rephase_best (kissat *solver) {
+  const value *const best = solver->phases.best;
+  const value *const end_of_best = best + VARS;
+  value const *b;
+  value *const saved = solver->phases.saved;
+  value *s;
+  value tmp;
+  for (s = saved, b = best; b != end_of_best; s++, b++)
+    if ((tmp = *b)) *s = tmp;
+  INC (rephased_best);
+  return 'B';
+}
+
+static char rephase_conflict (kissat *solver) {
+  const value *const conflict = solver->phases.conflict;
+  const value *const end_of_conflict = conflict + VARS;
+  value const *b;
+  value *const saved = solver->phases.saved;
+  value *s;
+  value tmp;
+  for (s = saved, b = conflict; b != end_of_conflict; s++, b++)
+    if ((tmp = *b)) *s = tmp;
+  INC (rephased_conflict);
+  return 'C';
+}
+
+static char rephase_flipped (kissat *solver) {
+  assert (GET_OPTION (rephaseflipped));
+  for (all_phases (saved, p)) *p *= -1;
+  INC (rephased_flipped);
+  return 'F';
+}
+
+static char rephase_original (kissat *solver) {
+  assert (GET_OPTION (rephaseoriginal));
+  const value initial_phase = INITIAL_PHASE;
+  for (all_phases (saved, p)) *p = initial_phase;
+  INC (rephased_original);
+  return 'O';
+}
+
+static char rephase_inverted (kissat *solver) {
+  assert (GET_OPTION (rephaseinverted));
+  const value inverted_initial_phase = -INITIAL_PHASE;
+  for (all_phases (saved, p)) *p = inverted_initial_phase;
+  INC (rephased_inverted);
+  return 'I';
+}
+
+static char rephase_walking (kissat *solver) {
+  assert (GET_OPTION (rephasewalking));
+  assert (kissat_walking (solver));
+  STOP (rephase);
+  kissat_walk (solver);
+  START (rephase);
+  INC (rephased_walking);
+  return 'W';
+}
+```
