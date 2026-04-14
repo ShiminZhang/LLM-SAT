@@ -66,6 +66,8 @@ EVALUATION_SOLVER_FLAGS = "-s --check=1"
 INSTANCE_CATEGORIES_PATH = "data/benchmarks/instance_categories.json"
 # Baseline time threshold (seconds) for easy/hard split. Adjust as needed.
 DIFFICULTY_CUTOFF = 100
+# Reject PAR2 scores below this threshold (solver likely giving wrong answers)
+MIN_PAR2_THRESHOLD = 400
 
 
 def _compute_average(values: List[float]) -> Optional[float]:
@@ -279,6 +281,13 @@ class EvaluationPipeline:
 
         par2 = _compute_average(list(solving_times.values()))
         logger.info(f"Computed PAR2 for algorithm {algorithm_id}, code {code_id}: {par2}")
+
+        if par2 is not None and par2 < MIN_PAR2_THRESHOLD:
+            logger.warning(
+                f"PAR2 {par2:.2f} below threshold {MIN_PAR2_THRESHOLD} for "
+                f"algorithm {algorithm_id}, code {code_id} — replacing with penalty {self.par2_penalty}"
+            )
+            par2 = self.par2_penalty
 
         if timeouts_or_errors:
             logger.warning(f"Found {len(timeouts_or_errors)} instances that timed out or had errors")
