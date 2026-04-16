@@ -54,11 +54,25 @@ def find_function_bounds(source: str, func_name: str) -> tuple[int, int, str] | 
         if not re.search(func_pattern, line):
             continue
 
+        # Include possible return-type lines above the function name, e.g.:
+        #   static char
+        #   rephase_conflict (kissat * solver)
+        sig_start = i
+        while sig_start > 0:
+            prev = lines[sig_start - 1].strip()
+            if not prev:
+                break
+            if prev.startswith('#'):
+                break
+            if prev.endswith(';') or prev.endswith('{') or prev.endswith('}'):
+                break
+            sig_start -= 1
+
         # Accumulate lines to handle multi-line signatures
         accumulated = ""
         signature_end_line = i
 
-        for j in range(i, min(i + 10, len(lines))):  # Look ahead up to 10 lines
+        for j in range(sig_start, min(i + 10, len(lines))):  # Look ahead up to 10 lines
             accumulated += lines[j]
             signature_end_line = j
 
@@ -83,7 +97,7 @@ def find_function_bounds(source: str, func_name: str) -> tuple[int, int, str] | 
                 signature = re.sub(r'\s+', ' ', signature)
 
                 # Find the closing brace using brace matching
-                start_line = i + 1  # 1-indexed
+                start_line = sig_start + 1  # 1-indexed
                 brace_count = 0
                 started = False
 
