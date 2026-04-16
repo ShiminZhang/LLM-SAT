@@ -86,8 +86,10 @@ def _load_successful_pairs(
                 )
             )
 
-        if pairs:
-            return pairs
+        # Respect the explicit pair selection file even when it is empty. This
+        # allows callers to say "verify no solvers for this tag" without
+        # falling back to every successful build in the generation.
+        return pairs
 
     algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, generation_tag)
 
@@ -229,6 +231,24 @@ def gather_proof_tasks(
             expected_sat = _is_expected_sat_instance(cnf_file, instance_categories)
             sat_check_failed = _has_sat_checkfail(log_content)
             signal_raised = _has_signal_raise(log_content)
+            is_timeout = _is_timeout_log(log_path)
+
+            # Check timeouts BEFORE signal check: Kissat prints
+            # "raising signal 15 (SIGTERM)" on timeout, which would
+            # otherwise be misclassified as a crash.
+            if is_timeout:
+                timeout_records.append(
+                    ProofCheckRecord(
+                        algorithm_id=algorithm_id,
+                        code_id=code_id,
+                        cnf_file=cnf_file,
+                        cnf_path=cnf_path,
+                        proof_path=proof_path,
+                        status="timeout",
+                        message="Timeout in solving log",
+                    )
+                )
+                continue
 
             if signal_raised:
                 invalid_records.append(

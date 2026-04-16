@@ -394,7 +394,6 @@ class EvaluationPipeline:
             dependency_type="afterany",
             mem="1G",
             time="00:05:00",
-            qos="regular",
         )
 
         try:
@@ -1217,7 +1216,209 @@ exit $EXIT_CODE
 
         logger.info(f"Batch submission complete. Job IDs: {job_ids}")
 
-    def promote_leaders(self, dry_run: bool = False) -> None:
+    def _load_generation_algorithms(self) -> Dict[str, AlgorithmResult]:
+        """Load all algorithms registered under this generation tag."""
+        if not self.generation_tag:
+            logger.error("generation_tag is required")
+            return {}
+
+        algorithm_ids = get_ids_from_router_table(
+            CHATGPT_DATA_GENERATION_TABLE, self.generation_tag
+        )
+        algorithms: Dict[str, AlgorithmResult] = {}
+        for aid in algorithm_ids:
+            algo = get_algorithm_result(aid)
+            if algo is not None:
+                algorithms[aid] = algo
+        return algorithms
+
+    @staticmethod
+    def _primary_code_id(algo: AlgorithmResult) -> Optional[str]:
+        return algo.code_id_list[0] if algo.code_id_list else None
+
+    def _get_algorithm_par2(self, algo: AlgorithmResult) -> Optional[float]:
+        code_id = self._primary_code_id(algo)
+        if code_id is None:
+            return None
+        code_result = get_code_result(code_id)
+        if code_result is None:
+            return None
+        return code_result.par2
+
+    def _build_team_rows(self) -> List[Dict[str, object]]:
+        """Assemble leader/member teams with cached PAR2 lookups."""
+        algorithms = self._load_generation_algorithms()
+        logger.info(
+            f"Found {len(algorithms)} algorithms for generation '{self.generation_tag}'"
+        )
+
+        leaders: Dict[str, AlgorithmResult] = {}
+        members_by_leader: Dict[str, List[AlgorithmResult]] = {}
+        for algo in algorithms.values():
+            if algo.role == Role.LEADER:
+                leaders[algo.id] = algo
+            else:
+                leader_ref = (
+                    algo.parent_id[0]
+                    if isinstance(algo.parent_id, list) and algo.parent_id
+                    else str(algo.parent_id)
+                )
+                members_by_leader.setdefault(leader_ref, []).append(algo)
+
+        logger.info(
+            f"Found {len(leaders)} leaders and "
+            f"{sum(len(m) for m in members_by_leader.values())} members"
+        )
+
+        teams: List[Dict[str, object]] = []
+        for leader_id, leader in leaders.items():
+            leader_par2 = self._get_algorithm_par2(leader)
+            team_members = members_by_leader.get(leader_id, [])
+            member_info: List[Tuple[AlgorithmResult, Optional[float]]] = []
+
+            best_member: Optional[AlgorithmResult] = None
+            best_member_par2: Optional[float] = None
+
+            for member in team_members:
+                member_par2 = self._get_algorithm_par2(member)
+                member_info.append((member, member_par2))
+                if leader_par2 is None or member_par2 is None:
+                    continue
+                if member_par2 < leader_par2 and (
+                    best_member_par2 is None or member_par2 < best_member_par2
+                ):
+                    best_member = member
+                    best_member_par2 = member_par2
+
+            teams.append(
+                {
+                    "leader": leader,
+                    "leader_par2": leader_par2,
+                    "members": team_members,
+                    "member_info": member_info,
+                    "best_member": best_member,
+                    "best_member_par2": best_member_par2,
+                }
+            )
+
+        def _team_best_par2(team: Dict[str, object]) -> float:
+            scores: List[float] = []
+            leader_par2 = team["leader_par2"]
+            if leader_par2 is not None:
+                scores.append(leader_par2)
+            for _, member_par2 in team["member_info"]:
+                if member_par2 is not None:
+                    scores.append(member_par2)
+            return min(scores) if scores else float("inf")
+
+        teams.sort(key=_team_best_par2)
+        return teams
+
+    def export_proof_candidates(self, output_path: Optional[str] = None) -> str:
+        """
+        Export promotable team-best members for proof verification.
+
+        Only members that strictly beat their incumbent leader are exported.
+        If a team's leader is still best, no pair is written for that team.
+        """
+        if not self.generation_tag:
+            raise ValueError("export_proof_candidates requires a generation_tag")
+
+        teams = self._build_team_rows()
+        output_dir = get_generation_output_dir(self.generation_tag)
+        if output_path is None:
+            output_path = os.path.join(output_dir, "best_solver_pairs.json")
+
+        pairs: List[Dict[str, object]] = []
+        for team in teams:
+            leader: AlgorithmResult = team["leader"]  # type: ignore[assignment]
+            best_member: Optional[AlgorithmResult] = team["best_member"]  # type: ignore[assignment]
+            best_member_par2: Optional[float] = team["best_member_par2"]  # type: ignore[assignment]
+            leader_par2: Optional[float] = team["leader_par2"]  # type: ignore[assignment]
+            if best_member is None or best_member_par2 is None:
+                continue
+
+            member_code_id = self._primary_code_id(best_member)
+            if member_code_id is None:
+                logger.warning(
+                    f"Best member {best_member.id[:12]}... has no code_id, skipping proof candidate export"
+                )
+                continue
+
+            pairs.append(
+                {
+                    "algorithm_id": best_member.id,
+                    "code_id": member_code_id,
+                    "role": "members",
+                    "leader_algorithm_id": leader.id,
+                    "leader_code_id": self._primary_code_id(leader),
+                    "leader_par2": leader_par2,
+                    "candidate_par2": best_member_par2,
+                }
+            )
+
+        with open(output_path, "w") as f:
+            json.dump(pairs, f, indent=2)
+
+        logger.info(
+            f"Wrote {len(pairs)} proof candidate pair(s) to {output_path}"
+        )
+        return output_path
+
+    def _load_proof_validation_statuses(self) -> Optional[Dict[Tuple[str, str], bool]]:
+        """
+        Load per-solver proof validity from outputs/<tag>/proof_verification.json.
+
+        This gate is intentionally about correctness, not completeness:
+        ordinary solver timeouts in the evaluation logs are allowed, while
+        invalid solver logs, missing proof results, and drat-trim failures are not.
+        """
+        if not self.generation_tag:
+            return None
+
+        report_path = os.path.join(
+            get_generation_output_dir(self.generation_tag), "proof_verification.json"
+        )
+        if not os.path.exists(report_path):
+            logger.warning(f"Proof verification report not found: {report_path}")
+            return None
+
+        try:
+            with open(report_path, "r") as f:
+                report = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to read proof verification report {report_path}: {e}")
+            return None
+
+        status_by_solver: Dict[Tuple[str, str], bool] = {}
+        for solver_name, cnf_statuses in report.items():
+            if not isinstance(cnf_statuses, dict):
+                continue
+            if not solver_name.startswith("algorithm_") or "/code_" not in solver_name:
+                continue
+            algorithm_part, code_id = solver_name.split("/code_", 1)
+            algorithm_id = algorithm_part.removeprefix("algorithm_")
+
+            def _allows_promotion(status: object) -> bool:
+                if status == "valid":
+                    return True
+                if not isinstance(status, str):
+                    return False
+                # Solver run timeouts are acceptable for the validity gate; they
+                # reflect performance, not incorrect answers or bad proofs.
+                return status.startswith("timeout: Timeout in solving log")
+
+            status_by_solver[(algorithm_id, code_id)] = bool(cnf_statuses) and all(
+                _allows_promotion(status) for status in cnf_statuses.values()
+            )
+
+        return status_by_solver
+
+    def promote_leaders(
+        self,
+        dry_run: bool = False,
+        require_valid_proof: bool = False,
+    ) -> None:
         """
         Promote the best-performing algorithm in each team to be the new leader.
 
@@ -1231,48 +1432,15 @@ exit $EXIT_CODE
             logger.error("promote_leaders requires a generation_tag")
             return
 
-        # 1. Fetch all algorithm IDs for this generation
-        algorithm_ids = get_ids_from_router_table(CHATGPT_DATA_GENERATION_TABLE, self.generation_tag)
-        algorithms: Dict[str, AlgorithmResult] = {}
-        for aid in algorithm_ids:
-            algo = get_algorithm_result(aid)
-            if algo is not None:
-                algorithms[aid] = algo
-
-        logger.info(f"Found {len(algorithms)} algorithms for generation '{self.generation_tag}'")
-
-        # 2. Partition into leaders and members grouped by parent_id
-        leaders: Dict[str, AlgorithmResult] = {}
-        members_by_leader: Dict[str, List[AlgorithmResult]] = {}
-        for algo in algorithms.values():
-            if algo.role == Role.LEADER:
-                leaders[algo.id] = algo
-            else:
-                # parent_id is a list; use first element as the leader ID for grouping
-                leader_ref = algo.parent_id[0] if isinstance(algo.parent_id, list) and algo.parent_id else str(algo.parent_id)
-                members_by_leader.setdefault(leader_ref, []).append(algo)
-
-        logger.info(f"Found {len(leaders)} leaders and {sum(len(m) for m in members_by_leader.values())} members")
-
-        # 3. Get PAR2 scores for all algorithms
-        def _get_par2(algo: AlgorithmResult) -> Optional[float]:
-            if not algo.code_id_list:
-                return None
-            code_result = get_code_result(algo.code_id_list[0])
-            if code_result is None:
-                return None
-            return code_result.par2
-
-        # Build team info for report and processing
-        teams = []  # list of (leader, members, leader_par2, member_par2s)
-        for leader_id, leader in leaders.items():
-            leader_par2 = _get_par2(leader)
-            team_members = members_by_leader.get(leader_id, [])
-            member_info = []
-            for member in team_members:
-                member_par2 = _get_par2(member)
-                member_info.append((member, member_par2))
-            teams.append((leader, team_members, leader_par2, member_info))
+        teams = self._build_team_rows()
+        proof_status_by_solver = (
+            self._load_proof_validation_statuses() if require_valid_proof else None
+        )
+        if require_valid_proof and proof_status_by_solver is None:
+            logger.warning(
+                "Proof-gated promotion requested but no proof verification report is available; "
+                "promotion will fail closed"
+            )
 
         # 4. Write PAR2 summary report
         output_dir = get_generation_output_dir(self.generation_tag)
@@ -1281,21 +1449,9 @@ exit $EXIT_CODE
         def _trunc(s: str, n: int = 12) -> str:
             return s[:n] if len(s) > n else s
 
-        # Sort teams by best PAR2 (best first)
-        def _team_best_par2(team_tuple):
-            leader, _, leader_par2, member_info = team_tuple
-            scores = []
-            if leader_par2 is not None:
-                scores.append(leader_par2)
-            for _, mp in member_info:
-                if mp is not None:
-                    scores.append(mp)
-            return min(scores) if scores else float('inf')
-
-        teams.sort(key=_team_best_par2)
-
         promotion_count = 0
-        promotions = []  # collect (leader, best_member, best_member_par2, leader_par2) for execution
+        blocked_promotions = 0
+        promotions = []
 
         report_lines = [
             f"PAR2 Scores - {self.generation_tag}",
@@ -1303,7 +1459,13 @@ exit $EXIT_CODE
             "",
         ]
 
-        for leader, team_members, leader_par2, member_info in teams:
+        for team in teams:
+            leader: AlgorithmResult = team["leader"]  # type: ignore[assignment]
+            leader_par2: Optional[float] = team["leader_par2"]  # type: ignore[assignment]
+            member_info: List[Tuple[AlgorithmResult, Optional[float]]] = team["member_info"]  # type: ignore[assignment]
+            best_member: Optional[AlgorithmResult] = team["best_member"]  # type: ignore[assignment]
+            best_member_par2: Optional[float] = team["best_member_par2"]  # type: ignore[assignment]
+
             # Find best in team
             all_scores = []
             if leader_par2 is not None:
@@ -1338,25 +1500,44 @@ exit $EXIT_CODE
                 logger.warning(f"Leader {leader.id} has no PAR2 score, skipping team")
                 continue
 
-            best_member = None
-            best_member_par2 = leader_par2
-            for member, mp in member_info:
-                if mp is not None and mp < best_member_par2:
-                    best_member = member
-                    best_member_par2 = mp
+            if best_member is not None and best_member_par2 is not None:
+                if require_valid_proof:
+                    member_code_id = self._primary_code_id(best_member)
+                    is_valid = (
+                        proof_status_by_solver.get((best_member.id, member_code_id))
+                        if proof_status_by_solver is not None and member_code_id is not None
+                        else None
+                    )
+                    if is_valid is not True:
+                        blocked_promotions += 1
+                        report_lines.append(
+                            "  [proof] Best member failed or was missing proof validation; "
+                            "keeping incumbent leader"
+                        )
+                        report_lines.append("")
+                        logger.warning(
+                            f"Skipping promotion of {best_member.id[:12]}... over "
+                            f"{leader.id[:12]}... because proof validation did not pass"
+                        )
+                        continue
 
-            if best_member is not None:
                 promotion_count += 1
-                promotions.append((leader, best_member, best_member_par2, leader_par2, team_members))
+                promotions.append((leader, best_member, best_member_par2, leader_par2))
 
-        report_lines.append(f"Summary: {len(teams)} teams, {promotion_count} promotion{'s' if promotion_count != 1 else ''}")
+        summary_line = (
+            f"Summary: {len(teams)} teams, {promotion_count} promotion"
+            f"{'s' if promotion_count != 1 else ''}"
+        )
+        if require_valid_proof:
+            summary_line += f", {blocked_promotions} blocked by proof gate"
+        report_lines.append(summary_line)
 
         with open(report_path, "w") as f:
             f.write("\n".join(report_lines) + "\n")
         logger.info(f"Wrote PAR2 summary to {report_path}")
 
         # 5. Execute promotions
-        for leader, best_member, best_member_par2, leader_par2, team_members in promotions:
+        for leader, best_member, best_member_par2, leader_par2 in promotions:
             logger.info(
                 f"{'[DRY-RUN] ' if dry_run else ''}"
                 f"Promoting {best_member.id[:12]}... (PAR2={best_member_par2:.2f}) "
@@ -1383,7 +1564,14 @@ exit $EXIT_CODE
         if dry_run:
             logger.info(f"[DRY-RUN] {promotion_count} promotion(s) would be made")
         else:
-            logger.info(f"Completed {promotion_count} promotion(s)")
+            logger.info(
+                f"Completed {promotion_count} promotion(s)"
+                + (
+                    f"; blocked {blocked_promotions} by proof gate"
+                    if require_valid_proof
+                    else ""
+                )
+            )
 
 
 def main():
@@ -1407,6 +1595,10 @@ def main():
                         help="Skip build step, assume solvers are already built")
     parser.add_argument("--promote-leaders", action="store_true",
                         help="Promote best-performing member to leader in each team")
+    parser.add_argument("--require-valid-proof", action="store_true",
+                        help="Require proof verification to pass before promoting a member")
+    parser.add_argument("--export-proof-candidates", action="store_true",
+                        help="Write promotable team-best members to outputs/<tag>/best_solver_pairs.json")
     parser.add_argument("--quick-eval", action="store_true",
                         help="Fast evaluation: 100 representative CNFs, 1000s timeout")
     parser.add_argument("--skip-evaluated", action="store_true",
@@ -1436,11 +1628,21 @@ def main():
                      f"{QUICK_EVAL_TIMEOUT_SECONDS}s timeout, "
                      f"{QUICK_EVAL_WALL_TIME} wall time")
 
+    if args.export_proof_candidates:
+        if not args.generation_tag:
+            logger.error("--export-proof-candidates requires --generation_tag")
+            return
+        evaluation_pipeline.export_proof_candidates()
+        return
+
     if args.promote_leaders:
         if not args.generation_tag:
             logger.error("--promote-leaders requires --generation_tag")
             return
-        evaluation_pipeline.promote_leaders(dry_run=args.dry_run)
+        evaluation_pipeline.promote_leaders(
+            dry_run=args.dry_run,
+            require_valid_proof=args.require_valid_proof,
+        )
         return
 
     if args.collect_result:

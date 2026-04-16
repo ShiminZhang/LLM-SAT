@@ -190,6 +190,76 @@ submit_proof_verification_job() {
         "${slurm_args[@]}"
 }
 
+export_proof_candidates() {
+    local generation_tag="$1"
+    python "$EVAL_SCRIPT" \
+        --generation_tag "$generation_tag" \
+        --export-proof-candidates
+}
+
+wait_for_proof_verification_job() {
+    local generation_tag="$1"
+    local metadata_path="outputs/${generation_tag}/proof_verification_job.json"
+
+    _parse_proof_job_state() {
+        python3 -c "
+import json, subprocess, sys
+path = '$metadata_path'
+try:
+    with open(path) as f:
+        meta = json.load(f)
+except FileNotFoundError:
+    print(-2)
+    sys.exit(0)
+status = meta.get('status')
+if status in ('no_tasks', 'all_tasks_already_collected'):
+    print(0)
+    sys.exit(0)
+job_id = meta.get('collector_job_id')
+if not job_id:
+    print(-3)
+    sys.exit(0)
+result = subprocess.run(
+    ['squeue', '-j', str(job_id), '-h'],
+    capture_output=True, text=True
+)
+if result.returncode != 0:
+    print(-1)
+    sys.exit(0)
+lines = [l for l in result.stdout.strip().split('\\n') if l.strip()]
+print(len(lines))
+" 2>/dev/null
+    }
+
+    while true; do
+        RUNNING=$(_parse_proof_job_state)
+
+        if [ "$RUNNING" = "-1" ]; then
+            echo "  proof squeue query failed, retrying in ${POLL_INTERVAL}s..."
+            sleep "$POLL_INTERVAL"
+            continue
+        fi
+
+        if [ "$RUNNING" = "-2" ]; then
+            echo "ERROR: proof verification metadata missing at $metadata_path" >&2
+            return 1
+        fi
+
+        if [ "$RUNNING" = "-3" ]; then
+            echo "ERROR: proof verification collector job ID missing in $metadata_path" >&2
+            return 1
+        fi
+
+        if [ "$RUNNING" -eq 0 ] 2>/dev/null; then
+            echo "  Proof verification completed"
+            break
+        fi
+
+        echo "  Proof verification still pending/running, waiting ${POLL_INTERVAL}s..."
+        sleep "$POLL_INTERVAL"
+    done
+}
+
 if [ "$VERIFY_PROOFS" = "1" ]; then
     ensure_drat_trim_available
 fi
@@ -350,16 +420,23 @@ if os.path.exists(p):
     python scripts/update_experience_pool.py --generation_tag "${INIT_TAG}" \
         || echo "  [exp_pool] WARNING: pool update failed (non-fatal)"
 
-    # Step 0f: Promote best member in each team
+    # Step 0f: Export promotable members and verify only those challengers.
     if [ "$VERIFY_PROOFS" = "1" ]; then
-        echo "[Init Step 6] Submitting async UNSAT proof verification..."
+        echo "[Init Step 6] Exporting proof candidates..."
+        export_proof_candidates "$INIT_TAG"
+
+        echo "[Init Step 7] Submitting proof verification..."
         submit_proof_verification_job "$INIT_TAG"
+
+        echo "[Init Step 8] Waiting for proof verification..."
+        wait_for_proof_verification_job "$INIT_TAG"
     fi
 
-    # Step 0g: Promote best member in each team
-    echo "[Init Step 7] Promoting leaders..."
+    # Step 0g: Promote best member in each team, but only if proof verification passed.
+    echo "[Init Step 9] Promoting leaders..."
     python "$EVAL_SCRIPT" \
-        --promote-leaders --generation_tag "$INIT_TAG"
+        --promote-leaders --generation_tag "$INIT_TAG" \
+        $( [ "$VERIFY_PROOFS" = "1" ] && printf '%s' "--require-valid-proof" )
 
     SOURCE_TAG="$INIT_TAG"
     echo "=== Init complete. Leaders ready in $INIT_TAG ==="
@@ -497,16 +574,23 @@ if os.path.exists(p):
     python scripts/update_experience_pool.py --generation_tag "${ITER_TAG}" \
         || echo "  [exp_pool] WARNING: pool update failed (non-fatal)"
 
-    # Step 5: Verify UNSAT proofs with drat-trim
+    # Step 5: Export promotable members and verify only those challengers.
     if [ "$VERIFY_PROOFS" = "1" ]; then
-        echo "[Step 5] Submitting async UNSAT proof verification..."
+        echo "[Step 5] Exporting proof candidates..."
+        export_proof_candidates "$ITER_TAG"
+
+        echo "[Step 6] Submitting proof verification..."
         submit_proof_verification_job "$ITER_TAG"
+
+        echo "[Step 7] Waiting for proof verification..."
+        wait_for_proof_verification_job "$ITER_TAG"
     fi
 
-    # Step 6: Promote best member in each team
-    echo "[Step 6] Promoting leaders..."
+    # Step 6: Promote best member in each team, but only if proof verification passed.
+    echo "[Step 8] Promoting leaders..."
     python "$EVAL_SCRIPT" \
-        --promote-leaders --generation_tag "$ITER_TAG"
+        --promote-leaders --generation_tag "$ITER_TAG" \
+        $( [ "$VERIFY_PROOFS" = "1" ] && printf '%s' "--require-valid-proof" )
 
     # Next iteration reads from this iteration's promoted leaders
     SOURCE_TAG="$ITER_TAG"
