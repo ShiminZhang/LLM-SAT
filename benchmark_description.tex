@@ -1,0 +1,159 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{url}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Benchmarks from Van der Waerden Problems and Integer Multiplication Verification}
+
+\author{\IEEEauthorblockN{1\textsuperscript{st} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{2\textsuperscript{nd} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{3\textsuperscript{rd} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{4\textsuperscript{th} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{5\textsuperscript{th} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+\and
+\IEEEauthorblockN{6\textsuperscript{th} Given Name Surname}
+\IEEEauthorblockA{\textit{dept. name of organization (of Aff.)} \\
+\textit{name of organization (of Aff.)}\\
+City, Country \\
+email address or ORCID}
+}
+
+\maketitle
+
+\section{Introduction}
+
+We provide benchmark instances from two combinatorial problems: the Van der
+Waerden (VDW) problem and integer multiplication verification. Both families
+produce instances at the SAT/UNSAT boundary that are challenging for modern
+solvers \cite{b1,b2}. The benchmark list is given in Table~\ref{tab:benchmarks}.
+
+\section{The Van der Waerden Problem}
+
+Van der Waerden's theorem \cite{b3} states that for any $k \geq 1$ and positive
+integers $\ell_1, \ldots, \ell_k$, there exists a threshold $W(k;\ell_1,\ldots,\ell_k)$
+such that every $k$-coloring of $\{1,\ldots,n\}$ with $n \geq W$ contains a
+monochromatic arithmetic progression of length $\ell_i$ in color $i$ for some $i$.
+Determining exact Van der Waerden numbers has been a prominent benchmark problem
+in SAT solving \cite{b4}.
+
+Instances are generated using the VDW encoder of Bright \cite{b6}, which encodes
+the question ``Can we $k$-color $\{1,\ldots,n\}$ without monochromatic
+arithmetic progressions of lengths $\ell_1,\ldots,\ell_k$?'' as a CNF formula.
+Variable $x_{i,c}$ indicates that position $i$ receives color $c$.
+The encoding consists of three types of clauses:
+\begin{itemize}
+  \item At-least-one-color per position: $\bigvee_c x_{i,c}$ for each $i$.
+  \item At-most-one-color per position: $\neg x_{i,c_1} \vee \neg x_{i,c_2}$
+        for each $i$ and $c_1 < c_2$.
+  \item No monochromatic AP: for each color $c$, step $d$, and start $a$
+        with $a + (\ell_c-1)d \leq n$, the clause
+        $\neg x_{a,c} \vee \cdots \vee \neg x_{a+(\ell_c-1)d,\,c}$.
+\end{itemize}
+Instances are selected at and just below known thresholds, so that each
+satisfiable instance is paired with an unsatisfiable one at $n = W$.
+
+\section{The Integer Multiplication Problem}
+
+The integer factorization problem---given $N$, find $a, b > 1$ with $a \cdot b = N$---provides
+a natural source of hard SAT instances \cite{b2}: satisfiable when $N$ is composite
+and unsatisfiable when $N$ is prime.
+
+Instances are generated using the BMC-based multiplication encoder of Li et al.\ \cite{b7},
+which encodes $n$-bit unsigned multiplication via a Tseitin transformation \cite{b5}
+of a schoolbook partial-product multiplier. Input bits $a_0,\ldots,a_{n-1}$ and
+$b_0,\ldots,b_{n-1}$ are the free variables. The encoding consists of:
+\begin{itemize}
+  \item AND Tseitin gates for each partial product $pp_{i,j} = a_i \wedge b_j$.
+  \item Half-adder and full-adder Tseitin gates reducing partial products
+        column-by-column into product bits $p_0,\ldots,p_{2n-1}$.
+  \item Unit clauses fixing $p_0,\ldots,p_{2n-1}$ to the binary representation of $N$.
+  \item Non-triviality clauses enforcing $a > 1$ and $b > 1$.
+\end{itemize}
+Instances span four bit-widths; UNSAT instances use prime targets and
+SAT instances use perfect squares of primes so both factors are exactly $n$-bit.
+
+\section{Benchmarks}
+
+The submitted instances range from easy to hard. Van der Waerden instances
+are denoted $\mathrm{VDW}(\ell_1, \ell_2, n)$ where $\ell_1, \ell_2$ are the
+AP lengths and $n$ is the domain size. Multiplication instances are denoted
+$\mathrm{Mult}(n, N)$ where $n$ is the bit-width of each factor and $N$ is
+the target product.
+
+\begin{table}[htbp]
+\caption{Benchmark List}
+\label{tab:benchmarks}
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Instance Name & Satisfiability \\
+\hline
+$\mathrm{VDW}(3, 3, 8)$    & SAT   \\
+$\mathrm{VDW}(3, 3, 9)$    & UNSAT \\
+$\mathrm{VDW}(4, 4, 34)$   & SAT   \\
+$\mathrm{VDW}(4, 4, 35)$   & UNSAT \\
+$\mathrm{VDW}(5, 5, 177)$  & SAT   \\
+$\mathrm{VDW}(5, 5, 178)$  & UNSAT \\
+$\mathrm{VDW}(3, 7, 45)$   & SAT   \\
+$\mathrm{VDW}(3, 7, 46)$   & UNSAT \\
+$\mathrm{VDW}(3, 8, 57)$   & SAT   \\
+$\mathrm{VDW}(3, 8, 58)$   & UNSAT \\
+$\mathrm{Mult}(8,\; 65003)$          & UNSAT \\
+$\mathrm{Mult}(8,\; 58081)$          & SAT   \\
+$\mathrm{Mult}(8,\; 57121)$          & SAT   \\
+$\mathrm{Mult}(8,\; 63499)$          & UNSAT \\
+$\mathrm{Mult}(12,\; 4194319)$       & UNSAT \\
+$\mathrm{Mult}(12,\; 16752649)$      & SAT   \\
+$\mathrm{Mult}(16,\; 4294967291)$    & UNSAT \\
+$\mathrm{Mult}(16,\; 4294836225)$    & SAT   \\
+$\mathrm{Mult}(20,\; 549755813911)$  & UNSAT \\
+$\mathrm{Mult}(20,\; 1046529)$       & SAT   \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\section*{References}
+
+\begin{thebibliography}{00}
+\bibitem{b1} M. Kouril and J. L. Paul, ``The Van der Waerden number $W(2;3,3)$ is 9,'' \textit{Experimental Mathematics}, vol. 17, no. 1, pp. 53--61, 2008.
+\bibitem{b2} A. Biere, M. Heule, H. van Maaren, and T. Walsh, \textit{Handbook of Satisfiability}, 2nd ed. IOS Press, 2021.
+\bibitem{b3} B. L. van der Waerden, ``Beweis einer Baudetschen Vermutung,'' \textit{Nieuw Arch. Wiskunde}, vol. 15, pp. 212--216, 1927.
+\bibitem{b4} T. Ahmed, ``On the Van der Waerden numbers $w(2;3,t)$,'' \textit{Integers}, vol. 12, no. 5, pp. 855--875, 2012.
+\bibitem{b5} G. S. Tseitin, ``On the complexity of derivation in propositional calculus,'' in \textit{Studies in Constructive Mathematics and Mathematical Logic}, A. O. Slisenko, Ed., pp. 115--125, 1968.
+\bibitem{b6} C. Bright, VDW instance generator, \url{https://cs.uwaterloo.ca/~cbright/talks/vdw.py}, 2024.
+\bibitem{b7} C. Li et al., BMC-based multiplication encoder, \url{https://github.com/ChunxiaolanLi/gen_BMC}, 2024.
+\end{thebibliography}
+
+\end{document}
