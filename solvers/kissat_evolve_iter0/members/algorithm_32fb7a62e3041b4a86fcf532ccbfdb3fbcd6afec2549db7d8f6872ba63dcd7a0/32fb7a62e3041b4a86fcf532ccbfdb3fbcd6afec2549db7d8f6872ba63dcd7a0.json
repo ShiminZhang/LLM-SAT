@@ -1,0 +1,35 @@
+{
+    "id": "32fb7a62e3041b4a86fcf532ccbfdb3fbcd6afec2549db7d8f6872ba63dcd7a0",
+    "function_name": "kissat_bump_score_increment",
+    "description": "Quadratic Depth-Adaptive VSIDS Scaling: Step 1: Calculate the search efficiency ratio R = (EMA_short_LBD / EMA_long_LBD), utilizing the solver's internal moving averages for Learned Clause LBDs. Step 2: Determine the conflict depth impact ratio D = (current_conflict_level / EMA_conflict_level), which measures how 'global' or 'shallow' the current conflict is relative to the search tree. Step 3: Initialize the base decay variable delta using the standard option value (solver->options.decay * 1e-3). Step 4: If R > 1.10, indicating search stagnation or a 'plateau' in learning quality, increase delta by 15% (delta *= 1.15) to force the VSIDS heap to reorganize more aggressively. Step 5: If D < 0.80, calculate a quadratic depth-boost factor B = 1.0 + (0.15 * (1.0 - D)^2), ensuring that shallower conflicts receive a progressively larger score boost to prioritize variables that drive global pruning. Step 6: Compute the final increment factor F = (1.0 / (1.0 - delta)) * (D < 0.80 ? B : 1.0). Step 7: Update solver->scinc = solver->scinc * F and invoke kissat_rescale_scores if the value exceeds MAX_SCORE.",
+    "role": "member",
+    "status": "code_generated",
+    "last_updated": "2026-04-22 11:11:29.519423",
+    "code_id_list": [
+        "5998cbf41f91e1168c9054a5681f04057b8ac2825097e96c9aeaa0106de429ad"
+    ],
+    "parent_id": [
+        "16736ed064d3a9b95959f3e2596faa9f63d8809f33805b393fdaeb09caf039fc"
+    ],
+    "parent_algorithm_description": [
+        "LBD-Volatility and Conflict-Depth Adaptive Scaling: Step 1: Calculate the search efficiency ratio R = (EMA_short_LBD / EMA_long_LBD), utilizing the solver's internal moving averages for Learned Clause LBDs. Step 2: Determine the conflict depth impact ratio D = (current_conflict_level / EMA_conflict_level), which measures how 'global' or 'shallow' the current conflict is relative to the search tree. Step 3: Initialize the base decay variable delta using the standard option value (solver->options.decay * 1e-3). Step 4: If R > 1.10, indicating search stagnation or a 'plateau' in learning quality, increase delta by 15% (delta *= 1.15) to force the VSIDS heap to reorganize more aggressively and escape the local subspace. Step 5: If D < 0.50, identifying a high-impact shallow conflict that likely constrains a large portion of the search space, apply a secondary 1.05x multiplier directly to the calculated increment factor. Step 6: Compute the final increment factor F = (1.0 / (1.0 - delta)) * (D < 0.5 ? 1.05 : 1.0). Step 7: Update solver->scinc = solver->scinc * F and invoke kissat_rescale_scores if the value exceeds MAX_SCORE."
+    ],
+    "raw_par2_score": [
+        85.39444444444445,
+        611.8309375000001,
+        378.05,
+        206.17260869565217,
+        422.31379999999996
+    ],
+    "normalized_par2_score": [
+        0.19867489750231362,
+        1.4234585117025735,
+        0.8795542320040948,
+        0.47967197593330274,
+        0.9825364105904797
+    ],
+    "analysis": "This variant improves upon Step 5 of the original algorithm by replacing the rigid binary threshold (D < 0.50) and fixed multiplier (1.05x) with a continuous quadratic scaling function. In CDCL solvers like Kissat, shallow conflicts are exponentially more valuable for pruning the search space. By using a quadratic boost (1.0 + 0.15 * (1-D)^2) for all conflicts significantly above the average depth (D < 0.80), the heuristic more precisely rewards variables that contribute to 'backbone' discovery. This prevents the 'cliff effect' where a conflict at D=0.49 is boosted while D=0.51 is not, leading to more stable and targeted variable ordering in the VSIDS heap.",
+    "mutation_step": "If D < 0.50, identifying a high-impact shallow conflict that likely constrains a large portion of the search space, apply a secondary 1.05x multiplier directly to the calculated increment factor.",
+    "prompt": "You are designing a variant heuristic strategy on top of the Kissat solver which will optimize performance on the SAT Competition benchmarks (PAR2 scoring).\n\nHere is the given strategy that you are creating a variant of:\n\n{leader_algorithm}\n\nYou will be targeting a specific step within the leader algorithm. Your step will be:\n\n{target_step_num}\n\n{experience_pool_section}\nGenerate a variant of this algorithm that makes changes to this specific step of the algorithm. Your changes can make it longer or shorter depending on your expert SAT solving opinion. Include in your reason the step of the original algorithm.\n\n### Required Output JSON\n{\n       \"name\": \"Brief algorithm name (<=6 words)\",\n       \"algorithm\": \"Complete algorithmic description.\",\n       \"reason\": \"Why this variant improves on the original.\"\n}\n\nIMPORTANT: Your algorithm should be the full algorithm with your step change replaced, not just the specific step. \n",
+    "other_metrics": {}
+}
