@@ -24,10 +24,28 @@ from .types import (
     MutationExperienceRecord,
     OutcomeLabel,
     OutcomeQuery,
+    Par2Scores,
     PersistReceipt,
     PoolName,
     RetrievedExperience,
 )
+
+
+def _par2_from_raw_list(raw: Optional[List[float]]) -> Optional[Par2Scores]:
+    """Convert raw_par2_score `[easy, hard, sat, unsat, all]` into `Par2Scores`.
+
+    Returns None if `raw` is missing, wrong shape, or non-numeric.
+    """
+
+    if not isinstance(raw, list) or len(raw) != 5:
+        return None
+    try:
+        easy, hard, sat, unsat, overall = (
+            float(x) if x is not None else None for x in raw
+        )
+    except (TypeError, ValueError):
+        return None
+    return Par2Scores(sat=sat, unsat=unsat, hard=hard, easy=easy, overall=overall)
 
 
 def _stable_record_id(pool_name: PoolName, outcome: OutcomeLabel, record: ExperienceRecord) -> str:
@@ -42,10 +60,16 @@ def _stable_record_id(pool_name: PoolName, outcome: OutcomeLabel, record: Experi
         str: SHA256 hex digest used as persistent record ID.
     """
 
+    canonical_record = asdict(record)
+    # Identity fields only: par2 breakdowns and the `extra` escape hatch
+    # are intentionally excluded so the same logical experience dedupes
+    # even if numeric par2 shifts on re-evaluation.
+    for k in ("extra", "leader_par2", "member_par2"):
+        canonical_record.pop(k, None)
     canonical = {
         "pool": pool_name,
         "outcome": outcome.value,
-        "record": asdict(record),
+        "record": canonical_record,
     }
     return hashlib.sha256(json.dumps(canonical, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -1268,6 +1292,16 @@ class MutationExperiencePool(BaseExperiencePool):
         normalized = dict(payload_dict)
         normalized.setdefault("leader_algorithm_id", None)
         normalized.setdefault("member_algorithm_id", None)
+        normalized.setdefault("leader_par2", None)
+        normalized.setdefault("member_par2", None)
+        normalized.setdefault("extra", {})
+
+        for key in ("leader_par2", "member_par2"):
+            val = normalized.get(key)
+            if isinstance(val, dict):
+                normalized[key] = Par2Scores(**val)
+            # else None or already a Par2Scores: leave as-is
+
         return MutationExperienceRecord(**normalized)
 
     @staticmethod
@@ -1688,6 +1722,7 @@ class MutationExperiencePool(BaseExperiencePool):
                 "function_name": function_name if isinstance(function_name, str) else "",
                 "description": description,
                 "score": score,
+                "raw_par2": payload.get("raw_par2_score"),
                 "json_path": str(json_path),
             }
 
@@ -1822,6 +1857,7 @@ class MutationExperiencePool(BaseExperiencePool):
                         "leader_algorithm_description": leader["description"],
                         "leader_code": leader["code"],
                         "leader_par2": leader_score,
+                        "leader_raw_par2": leader.get("raw_par2"),
                         "member_algorithm_id": member_id,
                         "member_code_id": member_code_id,
                         "member_function_name": (
@@ -1831,6 +1867,7 @@ class MutationExperiencePool(BaseExperiencePool):
                         "member_algorithm_description": member_desc,
                         "step": member_step_str,
                         "member_par2": member_score_f,
+                        "member_raw_par2": payload.get("raw_par2_score"),
                         "relative_change": relative_change,
                     }
                 )
@@ -1845,6 +1882,7 @@ class MutationExperiencePool(BaseExperiencePool):
                         "leader_algorithm_description": leader["description"],
                         "leader_code": leader["code"],
                         "leader_par2": leader_score,
+                        "leader_raw_par2": leader.get("raw_par2"),
                         "member_algorithm_id": member_id,
                         "member_code_id": member_code_id,
                         "member_function_name": (
@@ -1854,6 +1892,7 @@ class MutationExperiencePool(BaseExperiencePool):
                         "member_algorithm_description": member_desc,
                         "step": member_step_str,
                         "member_par2": member_score_f,
+                        "member_raw_par2": payload.get("raw_par2_score"),
                         "relative_change": relative_change,
                     }
                 )
@@ -1919,6 +1958,8 @@ class MutationExperiencePool(BaseExperiencePool):
                     analysis=generated_analysis,
                     leader_algorithm_id=cand["leader_algorithm_id"],
                     member_algorithm_id=cand["member_algorithm_id"],
+                    leader_par2=_par2_from_raw_list(cand.get("leader_raw_par2")),
+                    member_par2=_par2_from_raw_list(cand.get("member_raw_par2")),
                 )
 
                 receipt = self.persist(record=record, outcome=outcome)

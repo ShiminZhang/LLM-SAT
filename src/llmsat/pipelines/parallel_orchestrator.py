@@ -89,6 +89,28 @@ _SENTINEL = object()  # Signals end of queue
 NERSC_SLURM_THRESHOLD = 128  # solvers × CNFs before NERSC batch submission
 
 
+def _parse_par2_filter_env() -> Optional[str]:
+    """Read SAT/UNSAT/HARD/EASY env vars; return the selected category or None.
+
+    Exactly one of SAT, UNSAT, HARD, EASY may be set to "1". If more than one
+    is set to "1", raises ValueError. If none are set to "1", returns None
+    (no filter applied).
+    """
+    flags = {
+        "sat":   os.environ.get("SAT",   "0").strip(),
+        "unsat": os.environ.get("UNSAT", "0").strip(),
+        "hard":  os.environ.get("HARD",  "0").strip(),
+        "easy":  os.environ.get("EASY",  "0").strip(),
+    }
+    selected = [name for name, val in flags.items() if val == "1"]
+    if len(selected) > 1:
+        raise ValueError(
+            "Mutation pool PAR2 filter: only one of SAT/UNSAT/HARD/EASY may "
+            f"be set to 1, got: {sorted(selected)}"
+        )
+    return selected[0] if selected else None
+
+
 class _SlurmTaskAccumulator:
     """
     Thread-safe accumulator for SLURM solver evaluation tasks (NERSC only).
@@ -260,6 +282,13 @@ class ParallelPipeline:
         self._mutation_pool_disabled = (
             os.environ.get("MUTATION_POOL", "1").strip() == "0"
         )
+        self._par2_filter_category = _parse_par2_filter_env()
+        if self._par2_filter_category is not None:
+            logger.info(
+                f"[parallel] Mutation pool PAR2 filter active: keeping only "
+                f"hits where member_par2.{self._par2_filter_category} < "
+                f"leader_par2.{self._par2_filter_category}"
+            )
         if self._mutation_pool_disabled:
             logger.info(
                 "[parallel] MUTATION_POOL=0 — mutation experience pool disabled by env var"
@@ -367,6 +396,35 @@ class ParallelPipeline:
                 f"[exp_pool] Retrieved {len(good_hits)} good, "
                 f"{len(bad_hits)} bad mutation examples (step {target_step})"
             )
+
+            if self._par2_filter_category is not None:
+                cat = self._par2_filter_category
+
+                def _filter_hits_by_par2(hits):
+                    kept, dropped = [], 0
+                    for hit in hits:
+                        rec = hit.payload  # MutationExperienceRecord
+                        leader = (
+                            getattr(rec.leader_par2, cat, None)
+                            if rec.leader_par2 is not None else None
+                        )
+                        member = (
+                            getattr(rec.member_par2, cat, None)
+                            if rec.member_par2 is not None else None
+                        )
+                        if leader is None or member is None or member >= leader:
+                            dropped += 1
+                            continue
+                        kept.append(hit)
+                    return kept, dropped
+
+                good_hits, good_dropped = _filter_hits_by_par2(good_hits)
+                bad_hits, bad_dropped = _filter_hits_by_par2(bad_hits)
+                logger.info(
+                    f"[exp_pool] PAR2 filter='{cat}': dropped {good_dropped} good, "
+                    f"{bad_dropped} bad mutation examples (kept {len(good_hits)} good, "
+                    f"{len(bad_hits)} bad)"
+                )
 
             if not good_hits and not bad_hits:
                 return ""

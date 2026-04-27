@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal, Optional, Union
 
@@ -38,6 +38,22 @@ class AlgorithmExperienceRecord:
 
 
 @dataclass(frozen=True)
+class Par2Scores:
+    """PAR2 score breakdown across instance categories.
+
+    Stored on records as a flat dict via `dataclasses.asdict`. Field order is
+    deliberately distinct from the storage list `[easy, hard, sat, unsat, all]`
+    used by `AlgorithmResult.raw_par2_score`; conversion happens at the call site.
+    """
+
+    sat: Optional[float]
+    unsat: Optional[float]
+    hard: Optional[float]
+    easy: Optional[float]
+    overall: Optional[float]
+
+
+@dataclass(frozen=True)
 class MutationExperienceRecord:
     """Schema for mutation experiences.
 
@@ -48,6 +64,9 @@ class MutationExperienceRecord:
         member_algorithm_description: Mutated member algorithm description.
         step: Mutation step label that identifies which step produced the member.
         analysis: Text explanation of why the mutation is better or worse.
+        leader_par2: PAR2 breakdown for the leader algorithm at evaluation time.
+        member_par2: PAR2 breakdown for the member algorithm at evaluation time.
+        extra: Escape-hatch dict for forward-compat metadata; excluded from record_id hash.
     """
 
     leader_algorithm_description: str
@@ -56,6 +75,9 @@ class MutationExperienceRecord:
     analysis: str
     leader_algorithm_id: Optional[str] = None
     member_algorithm_id: Optional[str] = None
+    leader_par2: Optional[Par2Scores] = None
+    member_par2: Optional[Par2Scores] = None
+    extra: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
