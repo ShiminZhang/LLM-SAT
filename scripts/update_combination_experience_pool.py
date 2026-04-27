@@ -85,6 +85,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if os.environ.get("COMB_POOL", "1").strip() == "0":
+        logger.info("[exp_pool] COMB_POOL=0 — skipping combination pool update")
+        return 0
+
     # --- Locate path_config.yaml ---
     try:
         config_path = find_path_config()

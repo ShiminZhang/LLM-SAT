@@ -9,6 +9,41 @@ Use `ExperiencePoolManager` as the single entry point.
 
 ---
 
+## Disabling the pools (env-var opt-out)
+
+The mutation pool and combination pool can each be turned off at runtime via
+environment variables, so you can A/B-test runs with and without retrieval
+augmentation. Defaults are **enabled**; set the var to `0` to disable.
+
+| Variable        | Effect when set to `0`                                                                                                                                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MUTATION_POOL` | Skips mutation-pool retrieval in `parallel_orchestrator` (the `{experience_pool_section}` prompt placeholder is filled with `None`) and skips the mutation-pool update step in `scripts/update_experience_pool.py`.                                   |
+| `COMB_POOL`     | Skips combination-pool retrieval in `genetic_evolution` (the experience block in the combination-proposal prompt is filled with `None`) and skips the combination-pool update step in `scripts/update_combination_experience_pool.py`.                |
+
+The variable is parsed permissively: `0` means off; **anything else** (unset,
+empty, `1`, `true`, …) means on. The variables are read inside the Python
+processes, so they propagate naturally from the shell to all child invocations.
+
+**Examples:**
+
+```bash
+# Run Loop A without the mutation experience pool (cc or nersc)
+MUTATION_POOL=0 bash run_loop_a.sh cc gemini_trial5 3
+
+# Run the bridge step without the combination experience pool
+COMB_POOL=0 bash run_bridge.sh nersc gemini_trial5_gen1_v1 gemini_trial5_ge1_gen1
+
+# Disable both pools for a fully zero-shot run
+MUTATION_POOL=0 COMB_POOL=0 bash run_loop_a.sh nersc gemini_trial5 3 --init
+```
+
+When a pool is disabled, retrieval is skipped entirely (no FAISS/embedding
+work) and the corresponding update script exits early with a log line
+indicating it was skipped. The literal `None` substituted into the prompt
+makes the ablation visible in any saved prompt dumps.
+
+---
+
 ## 1. Initialization
 
 To start using any of the pools, you first need to initialize the `ExperiencePoolManager`.

@@ -257,7 +257,14 @@ class ParallelPipeline:
 
         # Experience pool (optional — degrades gracefully if unavailable)
         self.exp_pool_manager = None
-        if _EXPERIENCE_POOL_AVAILABLE and EXPERIENCE_POOL_DATA_ROOT is not None:
+        self._mutation_pool_disabled = (
+            os.environ.get("MUTATION_POOL", "1").strip() == "0"
+        )
+        if self._mutation_pool_disabled:
+            logger.info(
+                "[parallel] MUTATION_POOL=0 — mutation experience pool disabled by env var"
+            )
+        elif _EXPERIENCE_POOL_AVAILABLE and EXPERIENCE_POOL_DATA_ROOT is not None:
             try:
                 self.exp_pool_manager = _ExperiencePoolManager(
                     data_root=EXPERIENCE_POOL_DATA_ROOT
@@ -323,9 +330,13 @@ class ParallelPipeline:
     def _build_experience_section(self, leader_algorithm: str, target_step: int) -> str:
         """Query mutation pool and return a formatted section for prompt injection.
 
-        Returns "" when pool is disabled, empty, or any error occurs — so the
-        prompt degrades cleanly to zero-shot.
+        Returns "None" when MUTATION_POOL=0 (explicit env-var opt-out, makes the
+        ablation visible in saved prompts). Returns "" when the pool is unavailable
+        for other reasons (no manager, no hits, errors) — so the prompt degrades
+        cleanly to zero-shot in those cases.
         """
+        if self._mutation_pool_disabled:
+            return "None"
         if self.exp_pool_manager is None:
             return ""
 

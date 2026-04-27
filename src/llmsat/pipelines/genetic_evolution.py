@@ -86,12 +86,26 @@ logger = get_logger(__name__)
 # Experience Pool helpers (combination pool search)
 # ---------------------------------------------------------------------------
 
+def _comb_pool_disabled() -> bool:
+    """True if COMB_POOL=0 explicitly disables the combination experience pool.
+
+    Default (unset, or anything other than '0') keeps the pool enabled.
+    """
+    return os.environ.get("COMB_POOL", "1").strip() == "0"
+
+
 def _load_exp_pool_manager() -> Optional[Any]:
     """Try to load an ExperiencePoolManager from path_config.yaml.
 
     Returns the manager on success, or None on any failure (missing config,
     missing data_root key, import error, etc.).  Never raises.
+    Also returns None when COMB_POOL=0 (explicit env-var opt-out).
     """
+    if _comb_pool_disabled():
+        logger.info(
+            "[exp_pool] COMB_POOL=0 — combination experience pool disabled by env var"
+        )
+        return None
     try:
         cwd = Path.cwd()
         config_path = None
@@ -2548,9 +2562,13 @@ def _run_proposal_task(
         logger.warning("[Proposal] Batch has <2 valid individuals after causal wait, skipping")
         return
 
-    # Search combination experience pool for past examples relevant to this batch
-    experiences = None
-    if state.exp_pool_manager is not None:
+    # Search combination experience pool for past examples relevant to this batch.
+    # When COMB_POOL=0 (explicit env-var opt-out), substitute the literal string
+    # "None" so the ablation is visible in saved prompts, and skip retrieval.
+    experiences: Optional[str] = None
+    if _comb_pool_disabled():
+        experiences = "None"
+    elif state.exp_pool_manager is not None:
         try:
             experiences = _get_combination_experiences(valid_batch, state.exp_pool_manager)
             if experiences:
