@@ -44,6 +44,52 @@ makes the ablation visible in any saved prompt dumps.
 
 ---
 
+## Mutation pool: controllable retrieval by PAR2 subcategory
+
+Mutation records carry fine-grained PAR2 scores (`sat`, `unsat`, `hard`,
+`easy`, `overall`). By default, retrieval ranks by semantic similarity and
+returns hits regardless of which subcategory each mutation actually
+improved — a "good" mutation may have improved overall PAR2 while
+*regressing* on, say, SAT instances.
+
+To focus retrieval on mutations that improved one specific subcategory,
+set **exactly one** of the following env vars to `1`:
+
+| Variable | Effect when set to `1`                                                                                          |
+| -------- | --------------------------------------------------------------------------------------------------------------- |
+| `SAT`    | Drop any retrieved mutation whose `member_par2.sat   >= leader_par2.sat`   (kept the SAT regression).           |
+| `UNSAT`  | Drop any retrieved mutation whose `member_par2.unsat >= leader_par2.unsat`.                                     |
+| `HARD`   | Drop any retrieved mutation whose `member_par2.hard  >= leader_par2.hard`.                                      |
+| `EASY`   | Drop any retrieved mutation whose `member_par2.easy  >= leader_par2.easy`.                                      |
+
+Filtering happens **after** the existing similarity search, so the
+ranking logic is unchanged — only the post-filter trims hits that did not
+improve the chosen subcategory. Records missing PAR2 fields are also
+filtered out (safe default). Counts of dropped/kept good and bad hits
+are logged. Applies only to the **mutation pool** and works for both the
+`cc` and `nersc` pipelines (both go through `parallel_orchestrator`).
+
+Defaults are `0` (no filter). Setting more than one of the four to `1`
+raises a `ValueError` at orchestrator init.
+
+**Examples:**
+
+```bash
+# Focus retrieval on mutations that improved SAT instances
+SAT=1 bash run_loop_a.sh cc gemini_trial5 3
+
+# Same, on NERSC
+SAT=1 bash run_loop_a.sh nersc gemini_trial5 3 --init
+
+# Combine with pool disable: ablation, no retrieval at all
+MUTATION_POOL=0 bash run_loop_a.sh cc gemini_trial5 3
+
+# Invalid: raises ValueError before any work begins
+SAT=1 UNSAT=1 bash run_loop_a.sh cc gemini_trial5 3
+```
+
+---
+
 ## 1. Initialization
 
 To start using any of the pools, you first need to initialize the `ExperiencePoolManager`.
