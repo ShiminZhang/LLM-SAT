@@ -400,7 +400,11 @@ class ParallelPipeline:
             if self._par2_filter_category is not None:
                 cat = self._par2_filter_category
 
-                def _filter_hits_by_par2(hits):
+                def _filter_hits_by_par2(hits, want_improvement: bool):
+                    """For good hits (want_improvement=True), keep member<leader.
+                    For bad hits (want_improvement=False), keep member>leader.
+                    Higher PAR2 = worse, so improvement means member<leader.
+                    """
                     kept, dropped = [], 0
                     for hit in hits:
                         rec = hit.payload  # MutationExperienceRecord
@@ -412,14 +416,20 @@ class ParallelPipeline:
                             getattr(rec.member_par2, cat, None)
                             if rec.member_par2 is not None else None
                         )
-                        if leader is None or member is None or member >= leader:
+                        if leader is None or member is None:
+                            dropped += 1
+                            continue
+                        if want_improvement and member >= leader:
+                            dropped += 1
+                            continue
+                        if (not want_improvement) and member <= leader:
                             dropped += 1
                             continue
                         kept.append(hit)
                     return kept, dropped
 
-                good_hits, good_dropped = _filter_hits_by_par2(good_hits)
-                bad_hits, bad_dropped = _filter_hits_by_par2(bad_hits)
+                good_hits, good_dropped = _filter_hits_by_par2(good_hits, want_improvement=True)
+                bad_hits, bad_dropped = _filter_hits_by_par2(bad_hits, want_improvement=False)
                 logger.info(
                     f"[exp_pool] PAR2 filter='{cat}': dropped {good_dropped} good, "
                     f"{bad_dropped} bad mutation examples (kept {len(good_hits)} good, "

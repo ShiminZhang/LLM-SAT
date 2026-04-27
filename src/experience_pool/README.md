@@ -52,22 +52,29 @@ returns hits regardless of which subcategory each mutation actually
 improved — a "good" mutation may have improved overall PAR2 while
 *regressing* on, say, SAT instances.
 
-To focus retrieval on mutations that improved one specific subcategory,
-set **exactly one** of the following env vars to `1`:
+To focus retrieval on a specific subcategory, set **exactly one** of the
+following env vars to `1`. The filter direction is asymmetric across the
+GOOD and BAD partitions, since higher PAR2 means worse:
 
-| Variable | Effect when set to `1`                                                                                          |
-| -------- | --------------------------------------------------------------------------------------------------------------- |
-| `SAT`    | Drop any retrieved mutation whose `member_par2.sat   >= leader_par2.sat`   (kept the SAT regression).           |
-| `UNSAT`  | Drop any retrieved mutation whose `member_par2.unsat >= leader_par2.unsat`.                                     |
-| `HARD`   | Drop any retrieved mutation whose `member_par2.hard  >= leader_par2.hard`.                                      |
-| `EASY`   | Drop any retrieved mutation whose `member_par2.easy  >= leader_par2.easy`.                                      |
+- **GOOD hits** (improvements): keep only hits where the mutation
+  *actually improved* that subcategory → `member_par2[cat] < leader_par2[cat]`.
+- **BAD hits** (regressions): keep only hits where the mutation
+  *actually regressed* that subcategory → `member_par2[cat] > leader_par2[cat]`.
 
-Filtering happens **after** the existing similarity search, so the
-ranking logic is unchanged — only the post-filter trims hits that did not
-improve the chosen subcategory. Records missing PAR2 fields are also
-filtered out (safe default). Counts of dropped/kept good and bad hits
-are logged. Applies only to the **mutation pool** and works for both the
-`cc` and `nersc` pipelines (both go through `parallel_orchestrator`).
+| Variable | Filter behavior when set to `1` (applied to both GOOD and BAD partitions)                              |
+| -------- | ------------------------------------------------------------------------------------------------------ |
+| `SAT`    | GOOD: keep `member.sat < leader.sat`. BAD: keep `member.sat > leader.sat`.                             |
+| `UNSAT`  | GOOD: keep `member.unsat < leader.unsat`. BAD: keep `member.unsat > leader.unsat`.                     |
+| `HARD`   | GOOD: keep `member.hard < leader.hard`. BAD: keep `member.hard > leader.hard`.                         |
+| `EASY`   | GOOD: keep `member.easy < leader.easy`. BAD: keep `member.easy > leader.easy`.                         |
+
+Filtering happens **after** the existing similarity search, so ranking is
+unchanged — only the post-filter trims hits that didn't actually move the
+chosen subcategory in the expected direction for their partition. Ties
+(`member == leader`) and records missing PAR2 fields are dropped (safe
+default). Counts of dropped/kept good and bad hits are logged. Applies
+only to the **mutation pool** and works for both the `cc` and `nersc`
+pipelines (both go through `parallel_orchestrator`).
 
 Defaults are `0` (no filter). Setting more than one of the four to `1`
 raises a `ValueError` at orchestrator init.
