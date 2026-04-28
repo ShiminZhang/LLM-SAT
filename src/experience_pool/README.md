@@ -52,37 +52,61 @@ returns hits regardless of which subcategory each mutation actually
 improved — a "good" mutation may have improved overall PAR2 while
 *regressing* on, say, SAT instances.
 
-To focus retrieval on a specific subcategory, set **exactly one** of the
-following env vars to `1`. The filter direction is asymmetric across the
-GOOD and BAD partitions, since higher PAR2 means worse:
+To bias retrieval toward a specific subcategory, set **exactly one** of
+`SAT`, `UNSAT`, `HARD`, `EASY` to `1`. When one is set, the orchestrator
+**over-retrieves** from each partition and then **reranks** the hits by
+that subcategory's PAR2 delta:
 
-- **GOOD hits** (improvements): keep only hits where the mutation
-  *actually improved* that subcategory → `member_par2[cat] < leader_par2[cat]`.
-- **BAD hits** (regressions): keep only hits where the mutation
-  *actually regressed* that subcategory → `member_par2[cat] > leader_par2[cat]`.
+```
+delta = leader_par2[cat] − member_par2[cat]
+```
 
-| Variable | Filter behavior when set to `1` (applied to both GOOD and BAD partitions)                              |
-| -------- | ------------------------------------------------------------------------------------------------------ |
-| `SAT`    | GOOD: keep `member.sat < leader.sat`. BAD: keep `member.sat > leader.sat`.                             |
-| `UNSAT`  | GOOD: keep `member.unsat < leader.unsat`. BAD: keep `member.unsat > leader.unsat`.                     |
-| `HARD`   | GOOD: keep `member.hard < leader.hard`. BAD: keep `member.hard > leader.hard`.                         |
-| `EASY`   | GOOD: keep `member.easy < leader.easy`. BAD: keep `member.easy > leader.easy`.                         |
+Higher PAR2 means worse, so a larger `delta` indicates a stronger
+improvement on `cat`.
 
-Filtering happens **after** the existing similarity search, so ranking is
-unchanged — only the post-filter trims hits that didn't actually move the
-chosen subcategory in the expected direction for their partition. Ties
-(`member == leader`) and records missing PAR2 fields are dropped (safe
-default). Counts of dropped/kept good and bad hits are logged. Applies
-only to the **mutation pool** and works for both the `cc` and `nersc`
-pipelines (both go through `parallel_orchestrator`).
+The reranking is applied **independently** to each partition, after the
+similarity search returns:
 
-Defaults are `0` (no filter). Setting more than one of the four to `1`
-raises a `ValueError` at orchestrator init.
+- **GOOD section**: surviving hits from the GOOD partition are sorted by
+  `delta` **descending**; the top `FINAL_K` are kept (strongest
+  improvers on `cat`).
+- **BAD section**: surviving hits from the BAD partition are sorted by
+  `delta` **ascending**; the top `FINAL_K` are kept (strongest
+  regressors on `cat`, i.e. most-negative delta).
+
+| Variable | When set to `1` |
+| -------- | ----------------------------------------------------------------------------------------- |
+| `SAT`    | Rerank both partitions by `leader.sat − member.sat`. GOOD: top of descending. BAD: top of ascending. |
+| `UNSAT`  | Same, on `unsat`.                                                                         |
+| `HARD`   | Same, on `hard`.                                                                          |
+| `EASY`   | Same, on `easy`.                                                                          |
+
+Defaults (in `src/llmsat/pipelines/parallel_orchestrator.py`):
+
+- `MUTATION_RETRIEVE_FINAL_K = 3` — examples returned per side after rerank.
+- `MUTATION_RETRIEVE_OVERFETCH_K = 10` — semantic hits requested per side
+  when reranking is active. Over-fetching gives the rerank room to
+  surface strong-on-`cat` candidates that similarity alone would have
+  ranked outside the top 3.
+
+When **none** of the four env vars is set, retrieval is unchanged: a
+single semantic search returns `FINAL_K` hits per partition, in
+similarity order, with no reranking and no over-fetch.
+
+Hits with missing PAR2 sub-scores (either `leader_par2` or `member_par2`
+is `None`, or the chosen sub-score is `None`) are dropped before
+reranking — they cannot be ranked. Counts of dropped hits and the
+delta range of the kept hits are logged. Applies only to the
+**mutation pool** and works for both the `cc` and `nersc` pipelines
+(both go through `parallel_orchestrator`).
+
+Setting more than one of the four to `1` raises a `ValueError` at
+orchestrator init.
 
 **Examples:**
 
 ```bash
-# Focus retrieval on mutations that improved SAT instances
+# Focus retrieval on mutations that most improved SAT instances
 SAT=1 bash run_loop_a.sh cc gemini_trial5 3
 
 # Same, on NERSC

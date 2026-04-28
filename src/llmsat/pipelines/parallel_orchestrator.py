@@ -88,13 +88,19 @@ _SENTINEL = object()  # Signals end of queue
 
 NERSC_SLURM_THRESHOLD = 128  # solvers × CNFs before NERSC batch submission
 
+# Mutation-pool controllable retrieval: when a PAR2 category (SAT/UNSAT/HARD/
+# EASY) is selected, we over-retrieve and rerank by per-category delta instead
+# of strictly filtering. See src/experience_pool/README.md.
+MUTATION_RETRIEVE_FINAL_K = 3       # final # of in-context examples per side
+MUTATION_RETRIEVE_OVERFETCH_K = 10  # # to retrieve when reranking is active
+
 
 def _parse_par2_filter_env() -> Optional[str]:
     """Read SAT/UNSAT/HARD/EASY env vars; return the selected category or None.
 
     Exactly one of SAT, UNSAT, HARD, EASY may be set to "1". If more than one
     is set to "1", raises ValueError. If none are set to "1", returns None
-    (no filter applied).
+    (no rerank applied).
     """
     flags = {
         "sat":   os.environ.get("SAT",   "0").strip(),
@@ -105,7 +111,7 @@ def _parse_par2_filter_env() -> Optional[str]:
     selected = [name for name, val in flags.items() if val == "1"]
     if len(selected) > 1:
         raise ValueError(
-            "Mutation pool PAR2 filter: only one of SAT/UNSAT/HARD/EASY may "
+            "Mutation pool PAR2 rerank: only one of SAT/UNSAT/HARD/EASY may "
             f"be set to 1, got: {sorted(selected)}"
         )
     return selected[0] if selected else None
@@ -285,9 +291,12 @@ class ParallelPipeline:
         self._par2_filter_category = _parse_par2_filter_env()
         if self._par2_filter_category is not None:
             logger.info(
-                f"[parallel] Mutation pool PAR2 filter active: keeping only "
-                f"hits where member_par2.{self._par2_filter_category} < "
-                f"leader_par2.{self._par2_filter_category}"
+                f"[parallel] Mutation pool PAR2 rerank active on "
+                f"'{self._par2_filter_category}': over-retrieve "
+                f"{MUTATION_RETRIEVE_OVERFETCH_K} per side, then keep top "
+                f"{MUTATION_RETRIEVE_FINAL_K} good (largest "
+                f"leader-member delta) and bottom {MUTATION_RETRIEVE_FINAL_K} "
+                f"bad (smallest delta)"
             )
         if self._mutation_pool_disabled:
             logger.info(
@@ -376,15 +385,21 @@ class ParallelPipeline:
         )
 
         try:
+            rerank_active = self._par2_filter_category is not None
+            retrieve_k = (
+                MUTATION_RETRIEVE_OVERFETCH_K
+                if rerank_active
+                else MUTATION_RETRIEVE_FINAL_K
+            )
             logger.info(
                 f"[exp_pool] Querying mutation pool for step {target_step} "
-                f"(leader_len={len(leader_algorithm)})"
+                f"(leader_len={len(leader_algorithm)}, retrieve_k={retrieve_k})"
             )
             res = self.exp_pool_manager.search_experience_pool(
                 pool_name="mutation",
                 query_text=query,
-                retrieve_good_k=3,
-                retrieve_bad_k=3,
+                retrieve_good_k=retrieve_k,
+                retrieve_bad_k=retrieve_k,
                 sample_good_k=0,
                 sample_bad_k=0,
             )
@@ -397,15 +412,18 @@ class ParallelPipeline:
                 f"{len(bad_hits)} bad mutation examples (step {target_step})"
             )
 
-            if self._par2_filter_category is not None:
+            if rerank_active:
                 cat = self._par2_filter_category
 
-                def _filter_hits_by_par2(hits, want_improvement: bool):
-                    """For good hits (want_improvement=True), keep member<leader.
-                    For bad hits (want_improvement=False), keep member>leader.
-                    Higher PAR2 = worse, so improvement means member<leader.
+                def _rerank_by_par2_delta(hits, *, descending: bool):
+                    """Sort hits by delta = leader_par2[cat] - member_par2[cat].
+                    Higher PAR2 = worse, so larger delta = stronger improvement.
+                    Descending=True puts the strongest improvers first (GOOD);
+                    descending=False puts the strongest regressors first (BAD).
+                    Hits with missing PAR2 sub-scores are dropped.
                     """
-                    kept, dropped = [], 0
+                    scored = []
+                    dropped = 0
                     for hit in hits:
                         rec = hit.payload  # MutationExperienceRecord
                         leader = (
@@ -419,21 +437,29 @@ class ParallelPipeline:
                         if leader is None or member is None:
                             dropped += 1
                             continue
-                        if want_improvement and member >= leader:
-                            dropped += 1
-                            continue
-                        if (not want_improvement) and member <= leader:
-                            dropped += 1
-                            continue
-                        kept.append(hit)
-                    return kept, dropped
+                        scored.append((leader - member, hit))
+                    scored.sort(key=lambda x: x[0], reverse=descending)
+                    return scored, dropped
 
-                good_hits, good_dropped = _filter_hits_by_par2(good_hits, want_improvement=True)
-                bad_hits, bad_dropped = _filter_hits_by_par2(bad_hits, want_improvement=False)
+                good_scored, good_dropped = _rerank_by_par2_delta(good_hits, descending=True)
+                bad_scored, bad_dropped = _rerank_by_par2_delta(bad_hits, descending=False)
+                good_top = good_scored[:MUTATION_RETRIEVE_FINAL_K]
+                bad_top = bad_scored[:MUTATION_RETRIEVE_FINAL_K]
+                good_hits = [h for _, h in good_top]
+                bad_hits = [h for _, h in bad_top]
+
+                good_delta_str = (
+                    f"max={good_top[0][0]:.3f}, min={good_top[-1][0]:.3f}"
+                    if good_top else "n/a"
+                )
+                bad_delta_str = (
+                    f"min={bad_top[0][0]:.3f}, max={bad_top[-1][0]:.3f}"
+                    if bad_top else "n/a"
+                )
                 logger.info(
-                    f"[exp_pool] PAR2 filter='{cat}': dropped {good_dropped} good, "
-                    f"{bad_dropped} bad mutation examples (kept {len(good_hits)} good, "
-                    f"{len(bad_hits)} bad)"
+                    f"[exp_pool] PAR2 rerank='{cat}': dropped {good_dropped} good, "
+                    f"{bad_dropped} bad (missing data); kept top {len(good_hits)} good "
+                    f"({good_delta_str}), bottom {len(bad_hits)} bad ({bad_delta_str})"
                 )
 
             if not good_hits and not bad_hits:
