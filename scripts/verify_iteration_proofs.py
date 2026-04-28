@@ -917,7 +917,7 @@ def main() -> int:
     parser.add_argument("--slurm-max-concurrent", type=int, default=200, help="Max concurrent proof validation array tasks")
     parser.add_argument("--nersc", action="store_true", help="Use NERSC SLURM wrapper (supports qos/constraint)")
     parser.add_argument("--slurm-constraint", default=None, help="SLURM constraint (default: cpu with --nersc)")
-    parser.add_argument("--slurm-qos", default=None, help="SLURM QoS (default: premium with --nersc)")
+    parser.add_argument("--slurm-qos", default=None, help="SLURM QoS (default: regular with --nersc)")
     args = parser.parse_args()
 
     if args.run_task_json_env:

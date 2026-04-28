@@ -407,6 +407,94 @@ class EvaluationPipeline:
             logger.error(f"Failed to parse collect result job ID for {code_id[:16]}...: {e}")
             return
 
+    def _debug_count_log_path(self) -> Optional[str]:
+        """Path to the JSONL file recording debugging-call counts for the iteration."""
+        if not self.generation_tag:
+            return None
+        return os.path.join(
+            get_generation_output_dir(self.generation_tag), "debugging_count.jsonl"
+        )
+
+    def _record_debug_count(
+        self,
+        code_id: str,
+        algorithm_id: str,
+        target_function: str,
+        debug_count: int,
+        build_success: bool,
+    ) -> None:
+        """Append a per-build debugging-count record to the iteration's JSONL log."""
+        path = self._debug_count_log_path()
+        if path is None:
+            return
+        record = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "code_id": code_id,
+            "algorithm_id": algorithm_id,
+            "target_function": target_function,
+            "debug_count": int(debug_count),
+            "build_success": bool(build_success),
+        }
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "a") as f:
+                f.write(json.dumps(record) + "\n")
+        except Exception as e:
+            logger.warning(f"Failed to record debug count for {code_id}: {e}")
+
+    def print_iteration_debug_count(self) -> None:
+        """Read the iteration's debug-count log and print summary totals."""
+        path = self._debug_count_log_path()
+        if path is None:
+            logger.info("Skipping debug-count summary: no generation_tag set")
+            return
+        if not os.path.exists(path):
+            logger.info(
+                f"[debug-count] No debugging events recorded for {self.generation_tag} "
+                f"(file not found: {path})"
+            )
+            return
+
+        total_calls = 0
+        builds_seen = 0
+        builds_with_debug = 0
+        builds_succeeded = 0
+        try:
+            with open(path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    builds_seen += 1
+                    n = int(rec.get("debug_count", 0))
+                    total_calls += n
+                    if n > 0:
+                        builds_with_debug += 1
+                    if rec.get("build_success"):
+                        builds_succeeded += 1
+        except Exception as e:
+            logger.warning(f"Failed to read debug count log {path}: {e}")
+            return
+
+        logger.info(
+            f"[debug-count] iteration={self.generation_tag} "
+            f"total_debug_calls={total_calls} "
+            f"builds={builds_seen} "
+            f"builds_with_debug={builds_with_debug} "
+            f"builds_succeeded={builds_succeeded}"
+        )
+        print(
+            f"[debug-count] iteration={self.generation_tag} "
+            f"total_debug_calls={total_calls} "
+            f"builds={builds_seen} "
+            f"builds_with_debug={builds_with_debug} "
+            f"builds_succeeded={builds_succeeded}"
+        )
+
     def _compile_with_debugging(
         self,
         solver_path: str,
@@ -419,18 +507,21 @@ class EvaluationPipeline:
         Compile solver with optional LLM debugging on failure.
 
         Returns:
-            Tuple of (success: bool, final_code: str or None, all_logs: list)
+            Tuple of (success: bool, final_code: str or None, all_logs: list, debug_count: int)
+            debug_count is the number of LLM debugging calls (suggest_fix invocations).
         """
         debugger = CompilerDebugger(model=debug_model)
         func_info = self.registry[target_function]
         modified_file_path = f"{solver_path}/{func_info.file}"
+
+        debug_count = 0
 
         try:
             with open(modified_file_path, "r") as f:
                 original_file_content = f.read()
         except FileNotFoundError:
             logger.error(f"Target file not found: {modified_file_path}")
-            return (False, None, [f"[ERROR] Target file not found: {modified_file_path}"])
+            return (False, None, [f"[ERROR] Target file not found: {modified_file_path}"], debug_count)
 
         all_logs = []
         code_to_try = current_code
@@ -444,7 +535,7 @@ class EvaluationPipeline:
                     f.write(original_file_content)
             except Exception as e:
                 logger.error(f"Failed to restore file on attempt {attempt + 1}: {e}")
-                return (False, None, all_logs)
+                return (False, None, all_logs, debug_count)
 
             # Inject the code
             try:
@@ -453,7 +544,7 @@ class EvaluationPipeline:
             except Exception as e:
                 logger.error(f"Failed to inject code on attempt {attempt + 1}: {e}")
                 all_logs.append(f"[ERROR] Failed to inject code: {e}")
-                return (False, None, all_logs)
+                return (False, None, all_logs, debug_count)
 
             # Run configure on first attempt only
             if attempt == 0:
@@ -470,7 +561,7 @@ class EvaluationPipeline:
                 if configure_proc.returncode != 0:
                     logger.error(f"Configure failed")
                     all_logs.append(f"[FAILED] Configure returned {configure_proc.returncode}")
-                    return (False, None, all_logs)
+                    return (False, None, all_logs, debug_count)
                 all_logs.append("[OK] Configure succeeded")
 
             # Run make
@@ -488,7 +579,7 @@ class EvaluationPipeline:
             if make_proc.returncode == 0:
                 logger.info(f"Build succeeded on attempt {attempt + 1}")
                 all_logs.append("[SUCCESS] Build completed successfully!")
-                return (True, code_to_try, all_logs)
+                return (True, code_to_try, all_logs, debug_count)
 
             all_logs.append(f"[FAILED] Make returned {make_proc.returncode}")
 
@@ -508,6 +599,7 @@ class EvaluationPipeline:
             all_logs.append("\n--- LLM Debugging ---")
             logger.info(f"Build failed on attempt {attempt + 1}, requesting LLM fix...")
 
+            debug_count += 1
             fixed_code = debugger.suggest_fix(
                 failing_code=code_to_try,
                 compiler_stderr=make_proc.stderr or "",
@@ -524,7 +616,7 @@ class EvaluationPipeline:
             all_logs.append(f"[OK] LLM suggested fix")
             code_to_try = fixed_code
 
-        return (False, None, all_logs)
+        return (False, None, all_logs, debug_count)
 
     def build_solver(self, code_result: CodeResult) -> Optional[str]:
         """
@@ -592,7 +684,7 @@ class EvaluationPipeline:
         modified_file = f"{new_solver_path}/{func_info.file}"
 
         try:
-            build_success, final_code, all_logs = self._compile_with_debugging(
+            build_success, final_code, all_logs, debug_count = self._compile_with_debugging(
                 solver_path=new_solver_path,
                 current_code=new_code,
                 target_function=target_function,
@@ -606,6 +698,14 @@ class EvaluationPipeline:
             with open(build_log_path, "w") as f:
                 f.write(output)
             logger.info(f"Wrote build log to {build_log_path}")
+
+            self._record_debug_count(
+                code_id=code_result.id,
+                algorithm_id=code_result.algorithm_id,
+                target_function=target_function,
+                debug_count=debug_count,
+                build_success=build_success,
+            )
 
             # Copy the modified source file to the algorithm directory
             modified_file_name = os.path.basename(func_info.file)
@@ -1663,6 +1763,7 @@ def main():
             if algorithm_result and algorithm_result.code_id_list:
                 for code_id in algorithm_result.code_id_list:
                     evaluation_pipeline.collect_results(algorithm_id, code_id, force_recollect=True)
+        evaluation_pipeline.print_iteration_debug_count()
         return
 
     if args.run_all:
