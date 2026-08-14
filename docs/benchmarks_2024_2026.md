@@ -141,6 +141,6 @@ quick subset for each year. Current blockers are hardcoded `satcomp2025` paths.
 5. **Other hardcoded `satcomp2025` references** that must be generalized before
    pointing the evolution loop at a new year:
    `scripts/run_base_solver_eval.sh`, `scripts/generate_benchmark_subset.py`,
-   `scripts/ice_scripts/benchmark_evaluate.py`,
-   `scripts/ice_scripts/run_baseline.py`, `src/llmsat/llmsat.py`,
-   `src/llmsat/pipelines/evaluation.py`.
+   `src/llmsat/llmsat.py`, `src/llmsat/pipelines/evaluation.py`.
+   (The retired `attic/ice_scripts/` stack also hardcodes `satcomp2025` but is
+   not part of the live loop.)

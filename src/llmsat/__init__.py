@@ -1,17 +1,11 @@
 """
-LLM-SAT: Project skeleton.
+LLM-SAT: LLM-driven evolution of SAT solver heuristics.
 
-This package contains placeholders for data models, evaluators,
-trainers, stages, and pipelines described in the design diagrams.
-
-Only interfaces and class declarations are provided here.
+This package contains the data utilities, code injection, debugging helpers,
+and pipelines used by the KissatEvolve workflow.
 """
 
 __all__ = [
     "data",
-    "evaluation",
-    "trainers",
-    "stages",
     "pipelines",
 ]
-

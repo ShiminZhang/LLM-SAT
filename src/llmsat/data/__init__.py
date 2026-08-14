@@ -1,11 +1,1 @@
-"""Data model placeholders."""
-
-from .base import Data, AlgorithmData, CodeData, DPOData
-
-__all__ = [
-    "Data",
-    "AlgorithmData",
-    "CodeData",
-    "DPOData",
-]
-
+"""Data utilities: prompt construction and algorithm-spec parsing."""
