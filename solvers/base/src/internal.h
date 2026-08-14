@@ -33,6 +33,14 @@
 #include "vector.h"
 #include "watch.h"
 
+#include "a_reboot_file.h"      // (taomengxia) [reboot: file] 2025-04-14
+#include "a_reboot_direct.h"    // (taomengxia) [reboot: direct] 2025-04-17
+
+#include "a_coldrestart.h"    // (taomengxia) [coldrestart] 2025-04-25
+
+// (taomengxia) [dynamic sat] 2025-04-27
+#include "a_dynamicsat.h"
+
 typedef struct datarank datarank;
 
 struct datarank {
@@ -127,25 +135,6 @@ struct kissat {
 
   heap scores;
   double scinc;
-
-  // CHB 
-  heap scores_chb;
-  unsigned *conflicted_chb;
-  double step_chb;
-  double step_dec_chb;
-  double step_min_chb;
-
-// MAB
-  unsigned heuristic;
-  bool mab;
-  double mabc;
-  double mab_reward[2];
-  unsigned mab_select[2];
-  unsigned mab_heuristics;
-  double mab_decisions;
-  unsigned *mab_chosen;
-  unsigned mab_chosen_tot;
-  unsigned mab_conflicts;
 
   heap schedule;
   double scoreshift;
@@ -261,6 +250,30 @@ struct kissat {
 #endif
 
   statistics statistics;
+
+#ifdef ENABLE_REBOOT
+  // (taomengxia) [reboot] 2025-04-14
+  const char *input_path;
+  unsigned original_variables;    // count of original variables
+  unsigned original_clauses;      // count of original clauses
+  ints reboot_useful_binaries;    // {reboot_useful_binaries[0], reboot_useful_binaries[1]} is binary with elit
+#endif
+
+
+// (taomengxia) [dynamic sat] 2025-04-27
+  //Dynamic SAT
+  unsigned num_decisions_D;       // Number of variable decisions 
+  double mab_reward_D[DSAT_NO_ACTIONS];           // Reward for each actions 
+  double mab_selected_D[DSAT_NO_ACTIONS];         // Number of times each action is selected
+  double ucb_D[DSAT_NO_ACTIONS];                  // UCB for each action
+  int cur_config_values[DSAT_CONFIG_SIZE];         // Current configuration values
+  unsigned last_clauses_added, last_clauses_deleted;
+  unsigned mab_in_process; 
+  int last_action;                    // Last action
+  unsigned mab_reset_threshold;       // Threshold for MAB reset
+  unsigned num_of_sampling_D;         // Total number of times sampling is done
+  unsigned learned;                   // Number of learned clauses
+  unsigned tot_glue;                  // Total glue of learned clauses
 };
 
 #define VARS (solver->vars)
@@ -311,9 +324,4 @@ static inline unsigned kissat_assigned (kissat *solver) {
 
 void kissat_reset_last_learned (kissat *solver);
 
-#endif
-
-#if 1
-// 获取当前分支启发式策略所对应的分数堆
-heap* kissat_get_scores (kissat *solver);
 #endif

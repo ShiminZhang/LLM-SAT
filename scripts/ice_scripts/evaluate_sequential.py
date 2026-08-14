@@ -301,7 +301,7 @@ def build_solver(code_result: CodeResult) -> Optional[str]:
     # Compile solver
     try:
         configure_proc = subprocess.run(
-            ["./configure", "-c"],
+            ["./configure"],  # no '-c': match base solver build (NDEBUG, asserts off)
             cwd=new_solver_path,
             capture_output=True,
             text=True,

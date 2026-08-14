@@ -1,0 +1,95 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling bump.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+void kissat_bump_score_increment (kissat *solver);
+```
+
+**Purpose:** Update `solver->scinc` — the global additive score increment used by VSIDS. Called once per conflict-analysis round, AFTER the analyzed variables have each had `scinc` added to their score. By growing `scinc` over time, more recent conflicts contribute larger bumps, which is what produces the classic VSIDS decay effect.
+
+**Caller context:** Called from `bump_analyzed_variable_scores` at the end of conflict analysis, immediately after the per-variable bump loop. There is no return value.
+
+---
+
+## 2. SOLVER STATE
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->scinc` | `double` | The current score increment. Read/write. Must stay positive. |
+| `solver->stable` | `bool` | Current search mode (stable vs focused). |
+| `solver->statistics.conflicts` | `uint64_t` | Total conflicts encountered so far. |
+
+---
+
+## 3. CONSTANTS AND MACROS
+
+```c
+#define MAX_SCORE 1e150          // Upper bound for scinc before rescaling.
+GET_OPTION(decay)                // Returns the current decay option (per mille, integer).
+                                 // Divide by 1e3 to get the decay ratio in [0, 0.5].
+CONFLICTS                        // Expands to solver->statistics.conflicts.
+LOG(fmt, ...)                    // Debug log (compiled out in release builds).
+```
+
+---
+
+## 4. CALLABLE FUNCTIONS (defined above in bump.c / linked from bump.h)
+
+```c
+void kissat_rescale_scores (kissat *solver);
+// Divide every variable score AND solver->scinc by the current maximum score,
+// keeping relative priorities intact. Use this when scinc is about to exceed
+// MAX_SCORE. Safe to call; cheap relative to a conflict round.
+```
+
+---
+
+## 5. CRITICAL RULES
+
+### Required invariants
+1. `solver->scinc` must remain strictly positive on exit.
+2. `solver->scinc` should be monotonically non-decreasing across calls (or explicitly rescaled) — the heap relies on newer bumps being at least as large as older ones.
+3. If `solver->scinc > MAX_SCORE` at any point, call `kissat_rescale_scores(solver)` before returning, otherwise subsequent bumps can overflow.
+4. The decay ratio must stay in `(0, 0.5]`. Outside this range the factor `1/(1-decay)` is undefined or unstable; assert or clamp if you compute it dynamically.
+
+### What NOT to do
+1. **DO NOT invent solver fields** — only use fields documented above.
+2. **DO NOT create `kissat_*` prefixed variables** — reserved for API functions.
+3. **DO NOT modify the variable score heap directly** — variable scores are bumped in the caller, not here.
+4. **DO NOT skip the MAX_SCORE / rescale check** — it is the only overflow guard.
+5. **DO NOT set `scinc` to a value smaller than its previous value without calling `kissat_rescale_scores`** — this silently corrupts the decision heap.
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+void FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference

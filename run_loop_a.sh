@@ -87,6 +87,12 @@ case "$CLUSTER" in
     cc)
         EVAL_SCRIPT="src/llmsat/pipelines/evaluation.py"
         module load cuda/12.2 faiss/1.8.0 2>/dev/null || true
+        # Re-activate venv after module load (module load overrides PATH/python)
+        _PY_ACTIVATE=$(grep '^python_activate:' path_config.yaml 2>/dev/null | sed 's/^python_activate:[[:space:]]*//' | tr -d '"' || true)
+        if [ -n "$_PY_ACTIVATE" ]; then
+            # shellcheck disable=SC1090
+            source "$(eval echo "$_PY_ACTIVATE")"
+        fi
         ;;
     nb)
         EVAL_SCRIPT="src/llmsat/pipelines/evaluation_nb.py"
@@ -224,7 +230,12 @@ result = subprocess.run(
     capture_output=True, text=True
 )
 if result.returncode != 0:
-    print(-1)
+    # squeue returns non-zero when the job ID is no longer in queue
+    # (completed and aged out). Treat empty stdout as "0 running".
+    if not result.stdout.strip():
+        print(0)
+    else:
+        print(-1)
     sys.exit(0)
 lines = [l for l in result.stdout.strip().split('\\n') if l.strip()]
 print(len(lines))
@@ -367,8 +378,13 @@ result = subprocess.run(
     capture_output=True, text=True
 )
 if result.returncode != 0:
-    # Signal transient query failure to caller; do not treat as completion.
-    print(-1)
+    # squeue returns non-zero once all passed job IDs have aged out of the
+    # queue. Treat empty stdout as "0 running"; surface real query failures
+    # (e.g. scheduler outage) as -1.
+    if not result.stdout.strip():
+        print(0)
+    else:
+        print(-1)
     sys.exit(0)
 lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
 print(len(lines))
@@ -521,8 +537,13 @@ result = subprocess.run(
     capture_output=True, text=True
 )
 if result.returncode != 0:
-    # Signal transient query failure to caller; do not treat as completion.
-    print(-1)
+    # squeue returns non-zero once all passed job IDs have aged out of the
+    # queue. Treat empty stdout as "0 running"; surface real query failures
+    # (e.g. scheduler outage) as -1.
+    if not result.stdout.strip():
+        print(0)
+    else:
+        print(-1)
     sys.exit(0)
 lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
 print(len(lines))

@@ -5,6 +5,7 @@ You are an expert in writing C code for Kissat-based SAT Solvers and your task i
 - Must compile with existing Kissat codebase
 - CRITICAL: Do NOT invent or hallucinate solver fields.
 - CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+- CRITICAL: You MUST preserve the existing control flow structure of kissat_analyze. Use the existing helper functions (`kissat_deduce_first_uip_clause`, `sort_deduced_clause`, `kissat_minimize_clause`, `kissat_shrink_clause`, `kissat_learn_clause`, `kissat_bump`, `reset_analysis_but_not_analyzed_literals`, `kissat_reset_only_analyzed_literals`). Do NOT reimplement 1-UIP resolution manually — call `kissat_deduce_first_uip_clause()`. Your algorithm modifications should be additions/changes around the standard pipeline (e.g., custom bump logic, clause filtering, backtrack level selection), not a rewrite of the core analysis loop.
 
 ### Kissat API Reference
 
@@ -316,6 +317,16 @@ The standard analysis loop handles multiple cases:
 4. **DO NOT skip `reset_analysis_but_not_analyzed_literals`** -- will leak levels/removable state
 5. **`<math.h>` is NOT included** in analyze.c
 6. **`<inttypes.h>` IS available** (for PRIu64 formatting)
+7. **DO NOT reimplement 1-UIP resolution manually** -- use `kissat_deduce_first_uip_clause()`. Manual reimplementation WILL cause assertion failures in `sort_deduced_clause` because `solver->levels` won't be set up correctly.
+8. **DO NOT remove or reorder the standard calls**: `sort_deduced_clause` → `kissat_minimize_clause` → `kissat_shrink_clause` → `analyze_reason_side_literals` → `kissat_learn_clause`
+
+### Recommended modification pattern
+Start from the baseline function and add your algorithm logic at specific extension points:
+- **Before `kissat_bump`**: modify `solver->analyzed` to change which variables get bumped
+- **After `kissat_deduce_first_uip_clause`**: inspect or filter `solver->clause`
+- **Custom backtrack level**: choose a different level for `kissat_backtrack_after_conflict`
+- **Custom phase saving**: modify `solver->phases.saved[idx]` or `solver->phases.conflict[idx]`
+- **Extra bumps**: push additional indices onto `solver->analyzed` before `kissat_bump`
 
 ---
 

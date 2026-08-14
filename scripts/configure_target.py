@@ -5,7 +5,7 @@ Configure LLM-SAT to target a different C function for optimization.
 Automates the tedious manual steps of switching the target function:
   1. Index the function in the base solver
   2. Update function_registry.yaml (repo root + base solver copy)
-  3. Rewrite leader_prompt_testing.txt with the new target name
+  3. Rewrite leader_prompt_testing.txt with the new target name + embedded source
   4. Rewrite coder_prompt_testing.txt with updated signature + embedded source
 
 Usage:
@@ -118,8 +118,13 @@ def update_registry(repo_root: Path, solver_path: Path, func_name: str, info: di
     return updated
 
 
-def rewrite_leader_prompt(repo_root: Path, func_name: str) -> None:
-    """Replace the target function name in leader_prompt_testing.txt."""
+def rewrite_leader_prompt(
+    repo_root: Path,
+    solver_path: Path,
+    func_name: str,
+    info: dict,
+) -> None:
+    """Replace the target function name and embed baseline source in leader_prompt_testing.txt."""
     path = repo_root / "data" / "prompts" / "leader_prompt_testing.txt"
     text = path.read_text()
 
@@ -129,10 +134,12 @@ def rewrite_leader_prompt(repo_root: Path, func_name: str) -> None:
         rf'\g<1>{func_name}',
         text,
     )
-    if new_text == text:
+    if not re.search(r'### Target Function\n\n\S+', text):
         print("  Warning: Could not find '### Target Function' marker in leader prompt",
               file=sys.stderr)
     path.write_text(new_text)
+
+    _embed_baseline_reference(path, solver_path, info, LEADER_BASELINE_INTRO)
 
 
 def _install_function_prompt(repo_root: Path, func_name: str) -> bool:
@@ -148,48 +155,56 @@ def _install_function_prompt(repo_root: Path, func_name: str) -> bool:
     return True
 
 
-def _replace_baseline_reference(
-    repo_root: Path,
+CODER_BASELINE_INTRO = (
+    "Here is the entire {filename}. Your generated FUNCTION_NAME_PLACEHOLDER "
+    "function will replace the existing one in this file, so ensure it compiles "
+    "with the rest of the code. Make sure you faithfully implement the algorithm "
+    "you are given."
+)
+
+LEADER_BASELINE_INTRO = (
+    "For context, here is the current implementation of the target function in "
+    "{filename}. Ground your algorithm design in this real code structure, but "
+    "describe your algorithm conceptually (not as code) per the output format above."
+)
+
+
+def _embed_baseline_reference(
+    prompt_path: Path,
     solver_path: Path,
     info: dict,
+    intro: str,
 ) -> str:
     """
-    Replace everything after '### Baseline Reference' in coder_prompt_testing.txt
+    Replace (or append) the '### Baseline Reference' section in a prompt file
     with the full source file contents.  Returns the source filename.
     """
-    path = repo_root / "data" / "prompts" / "coder_prompt_testing.txt"
-    text = path.read_text()
+    text = prompt_path.read_text()
 
     source_file = info["file"]  # e.g. "src/restart.c"
-    source_path = solver_path / source_file
-    source_content = source_path.read_text()
+    source_content = (solver_path / source_file).read_text()
     filename = Path(source_file).name
 
-    baseline_section = (
+    section = (
         f"### Baseline Reference\n"
         f"\n"
-        f"Here is the entire {filename}. Your generated FUNCTION_NAME_PLACEHOLDER "
-        f"function will replace the existing one in this file, so ensure it compiles "
-        f"with the rest of the code. Make sure you faithfully implement the algorithm "
-        f"you are given.\n"
+        f"{intro.format(filename=filename)}\n"
         f"\n"
         f"```c\n"
         f"{source_content}"
     )
-    # Ensure source content ends with newline before closing fence
-    if not baseline_section.endswith("\n"):
-        baseline_section += "\n"
-    baseline_section += "```\n"
+    if not section.endswith("\n"):
+        section += "\n"
+    section += "```\n"
 
     marker = "### Baseline Reference"
     idx = text.find(marker)
     if idx == -1:
-        print("  Warning: Could not find '### Baseline Reference' marker in coder prompt",
-              file=sys.stderr)
+        text = text.rstrip() + "\n\n" + section
     else:
-        text = text[:idx] + baseline_section
+        text = text[:idx] + section
 
-    path.write_text(text)
+    prompt_path.write_text(text)
     return source_file
 
 
@@ -227,7 +242,8 @@ def rewrite_coder_prompt(
         path.write_text(text)
 
     # Always replace baseline reference with full source file
-    source_file = _replace_baseline_reference(repo_root, solver_path, info)
+    path = repo_root / "data" / "prompts" / "coder_prompt_testing.txt"
+    source_file = _embed_baseline_reference(path, solver_path, info, CODER_BASELINE_INTRO)
     return source_file, used_function_prompt
 
 
@@ -303,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
     updated_registries = update_registry(repo_root, solver_path, func_name, info)
 
     # 4. Rewrite leader prompt
-    rewrite_leader_prompt(repo_root, func_name)
+    rewrite_leader_prompt(repo_root, solver_path, func_name, info)
 
     # 5. Rewrite coder prompt
     source_file, used_function_prompt = rewrite_coder_prompt(

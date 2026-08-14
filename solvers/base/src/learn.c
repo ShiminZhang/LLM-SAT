@@ -207,4 +207,9 @@ void kissat_learn_clause (kissat *solver) {
     if (ref != INVALID_REF)
       insert_last_learned (solver, ref);
   }
+
+  // (taomengxia) [dynamic sat] (2025-04-27)
+  if (GET_OPTION (dynamicsat)) {
+    kissat_dynamicsat_update_learn_info(solver, glue);
+  }
 }

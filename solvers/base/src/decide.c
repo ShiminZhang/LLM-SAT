@@ -29,21 +29,13 @@ static unsigned last_enqueued_unassigned_variable (kissat *solver) {
   return res;
 }
 
-static unsigned largest_score_unassigned_variable (kissat *solver,heap* scores) {
+static unsigned largest_score_unassigned_variable (kissat *solver) {
+  heap *scores = SCORES;
   unsigned res = kissat_max_heap (scores);
   const value *const values = solver->values;
   while (values[LIT (res)]) {
     kissat_pop_max_heap (solver, scores);
     res = kissat_max_heap (scores);
-  }
-
-  // MAB
-  if(solver->mab) {
-    solver->mab_decisions++;
-    if(!solver->mab_chosen[res]){
-      solver->mab_chosen_tot++;
-      solver->mab_chosen[res] = 1;
-    }
   }
 #if defined(LOGGING) || defined(CHECK_HEAP)
   const double score = kissat_get_heap_score (scores, res);
@@ -141,8 +133,7 @@ unsigned kissat_next_decision_variable (kissat *solver) {
 #ifdef LOGGING
       type = "maximum score";
 #endif
-      heap* scores = kissat_get_scores (solver);
-      res = largest_score_unassigned_variable (solver,scores);
+      res = largest_score_unassigned_variable (solver);
       INC (score_decisions);
     } else {
 #ifdef LOGGING
@@ -239,6 +230,11 @@ void kissat_decide (kissat *solver) {
   LOG ("decide literal %s", LOGLIT (lit));
   kissat_assign_decision (solver, lit);
   STOP (decide);
+
+  // (taomengxia) [dynamic sat] 2025-04-27
+  if (GET_OPTION (dynamicsat)) {
+    kissat_dynamicsat (solver);
+  }
 }
 
 void kissat_internal_assume (kissat *solver, unsigned lit) {

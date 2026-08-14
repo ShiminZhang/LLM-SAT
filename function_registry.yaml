@@ -1,5 +1,5 @@
 version: '1.0'
-generated: '2026-03-24'
+generated: '2026-05-07'
 functions:
   kissat_restarting:
     file: src/restart.c
@@ -13,6 +13,31 @@ functions:
     signature: void restart_mab(kissat *solver)
   kissat_decide_phase:
     file: src/decide.c
-    start_line: 164
-    end_line: 216
+    start_line: 155
+    end_line: 207
     signature: int kissat_decide_phase (kissat *solver, unsigned idx)
+  kissat_rebooting_direct:
+    file: src/a_reboot_direct.c
+    start_line: 18
+    end_line: 29
+    signature: bool kissat_rebooting_direct(kissat *solver)
+  kissat_analyze:
+    file: src/analyze.c
+    start_line: 603
+    end_line: 666
+    signature: int kissat_analyze (kissat * solver, clause * conflict)
+  predict:
+    file: src/predict.c
+    start_line: 187
+    end_line: 220
+    signature: static int predict (kissat *solver, sequences *seq)
+  kissat_dynamicsat:
+    file: src/a_dynamicsat.c
+    start_line: 114
+    end_line: 172
+    signature: void kissat_dynamicsat (kissat *solver)
+  kissat_bump_score_increment:
+    file: src/bump.c
+    start_line: 43
+    end_line: 53
+    signature: void kissat_bump_score_increment (kissat *solver)

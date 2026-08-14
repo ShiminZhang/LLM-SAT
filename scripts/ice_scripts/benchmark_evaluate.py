@@ -131,7 +131,7 @@ def build_solver(code: str, solver_path: str) -> Tuple[bool, str]:
     # Compile
     try:
         configure = subprocess.run(
-            ["./configure", "-c"],
+            ["./configure"],  # no '-c': match base solver build (NDEBUG, asserts off)
             cwd=solver_path,
             capture_output=True,
             text=True,

@@ -36,6 +36,13 @@ kissat_statistics_print (kissat * solver, bool verbose)
 {
   statistics *statistics = &solver->statistics;
 
+#ifdef ENABLE_REBOOT
+   // (taomengxia) [reboot] 2025-04-17
+  if (GET_OPTION(reboot) == 1) {
+    CONFLICTS += statistics->reboots_conflicts;
+  }
+#endif
+
   const double time = kissat_process_time ();
   size_t variables = solver->statistics.variables_original;
 #ifdef METRICS
@@ -334,11 +341,6 @@ kissat_statistics_print (kissat * solver, bool verbose)
 #define IGNORE(...)
 
   METRICS_COUNTERS_AND_STATISTICS
-
-  printf ("%s%-" SFW1 "s %12.6f\n", solver->prefix, "learning_rate:",
-          kissat_average (statistics->clauses_learned, statistics->conflicts));
-  printf ("%s%-" SFW1 "s %12.6f\n", solver->prefix, "propagation_rate:",
-          kissat_average (statistics->propagations, statistics->decisions));
 
 #undef COUNTER
 #undef METRIC

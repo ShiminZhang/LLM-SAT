@@ -74,6 +74,11 @@ static reference new_binary_clause (kissat *solver, bool original,
   if (!original) {
     CHECK_AND_ADD_BINARY (first, second);
     ADD_BINARY_TO_PROOF (first, second);
+
+#ifdef ENABLE_REBOOT
+    // (taomengxia) [reboot: file] 2025-04-15
+    kissat_reboot_file_add_useful_binary(solver, first, second);
+#endif
   }
   return INVALID_REF;
 }

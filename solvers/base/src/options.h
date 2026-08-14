@@ -20,6 +20,12 @@
   DBGOPT (check, 2, 0, 2, "check model (1) and derived clauses (2)") \
   OPTION (chrono, 1, 0, 1, "allow chronological backtracking") \
   OPTION (chronolevels, 100, 0, INT_MAX, "maximum jumped over levels") \
+  OPTION (coldrestart, 1, 0, 1, "enable cold-restart")                                                  /* (taomengxia) [cold restart] 2025-04-25 */ \
+  OPTION (coldrestartfc, 1, 0, 1, "cold-restart: forgetting learnt clauses")                            /* (taomengxia) [cold restart] 2025-04-27 */ \
+  OPTION (coldrestartfclbd, 3, 0, INT_MAX, "cold-restart: lbd threshold for forgetting learnt clauses") /* (taomengxia) [cold restart] 2025-04-25 */ \
+  OPTION (coldrestartfo, 1, 0, 1, "cold-restart: forgetting order")                                     /* (taomengxia) [cold restart] 2025-04-27 */ \
+  OPTION (coldrestartfp, 1, 0, 1, "cold-restart: forgetting phases")                                    /* (taomengxia) [cold restart] 2025-04-27 */ \
+  OPTION (coldrestartint, 700000, 0, INT_MAX, "cold-restart interval")                                  /* (taomengxia) [cold restart] 2025-04-25 */ \
   OPTION (compact, 1, 0, 1, "enable compacting garbage collection") \
   OPTION (compactlim, 10, 0, 100, "compact inactive limit (in percent)") \
   OPTION (congruence, 1, 0, 1, "congruence closure on extracted gates") \
@@ -37,6 +43,7 @@
   OPTION (definitionticks, 1e6, 0, INT_MAX, "kitten ticks limits") \
   OPTION (defraglim, 75, 50, 100, "usable defragmentation limit in percent") \
   OPTION (defragsize, 1 << 18, 10, INT_MAX, "size defragmentation limit") \
+  OPTION (dynamicsat, 1, 0, 1, "dynamic sat")      /* (taomengxia) [dynamic sat] 2025-04-28 */ \
   OPTION (eagersubsume, 4, 0, 4, "eagerly subsume previous learned clauses") \
   OPTION (eliminate, 1, 0, 1, "bounded variable elimination BVE") \
   OPTION (eliminatebound, 16, 0, 1 << 13, "maximum elimination bound") \
@@ -69,7 +76,6 @@
   OPTION (forcephase, 0, 0, 1, "force initial phase") \
   OPTION (forward, 1, 0, 1, "forward subsumption in BVE") \
   OPTION (forwardeffort, 100, 0, 1e6, "effort in per mille") \
-  OPTION (heuristic, 0, 0, 1, "scoring heuristic (0=VSIDS,1=CHB)") \
   OPTION (ifthenelse, 1, 0, 1, "extract and eliminate if-then-else gates") \
   OPTION (incremental, 0, 0, 1, "enable incremental solving") \
   OPTION (jumpreasons, 1, 0, 1, "jump binary reasons") \
@@ -77,9 +83,6 @@
   OPTION (lucky, 1, 0, 1, "try some lucky assignments") \
   OPTION (luckyearly, 1, 0, 1, "lucky assignments before preprocessing") \
   OPTION (luckylate, 1, 0, 1, "lucky assignments after preprocessing") \
-  OPTION (mab, 1, 0, 1, "enable MAB") \
-  OPTION (mabcdecimal, 0, 0, 9, "mab const decimal") \
-  OPTION (mabcint, 4, 0, 10, "mab const floor") \
   OPTION (mineffort, 10, 0, INT_MAX, "minimum absolute effort in millions") \
   OPTION (minimize, 1, 0, 1, "learned clause minimization") \
   OPTION (minimizedepth, 1e3, 1, 1e6, "minimization depth") \
@@ -109,6 +112,9 @@
   OPTION (randecint, 500, 0, INT_MAX, "initial random decisions interval") \
   OPTION (randeclength, 10, 1, INT_MAX, "random conflicts length") \
   OPTION (randecstable, 0, 0, 1, "random decisions in stable mode") \
+  OPTION (reboot,             0,   0,  2, "reboot: mode: 1-direct, 2-cnf file, 0-disable") /* (taomengxia) [reboot] 2025-04-14 */ \
+  OPTION (rebootclausesize,   5,   2, 10, "reboot: clause size")                           /* (taomengxia) [reboot] 2025-04-14 */ \
+  OPTION (rebootconflicts,  5e4, 1e3,1e7, "reboot: conflicts")                             /* (taomengxia) [reboot] 2025-04-14 */ \
   OPTION (reduce, 1, 0, 1, "learned clause reduction") \
   OPTION (reducehigh, 900, 0, 1000, "high reduce fraction per mille") \
   OPTION (reduceinit, 1e3, 2, 1e5, "initial reduce interval") \
@@ -134,7 +140,6 @@
   OPTION (smallclauses, 1e5, 0, INT_MAX, "small clauses limit") \
   OPTION (stable, STABLE_DEFAULT, 0, 2, "enable stable search mode") \
   NQTOPT (statistics, 0, 0, 1, "print complete statistics") \
-  OPTION (stepchb, 4, 1, 9, "CHB step paramater") \
   OPTION (substitute, 1, 0, 1, "equivalent literal substitution") \
   OPTION (substituteeffort, 10, 1, 1e3, "effort in per mille") \
   OPTION (substituterounds, 2, 1, 100, "maximum substitution rounds") \
@@ -171,7 +176,7 @@
   OPTION (vivifytier3, 1, 0, 100, "relative tier3 effort") \
   OPTION (walkeffort, 50, 0, 1e6, "effort in per mille") \
   OPTION (walkinitially, 0, 0, 1, "initial local search") \
-  OPTION (warmup, 1, 0, 1, "initialize phases by unit propagation") \
+  OPTION (warmup, 1, 0, 1, "initialize phases by unit propagation")
 
 // clang-format on
 

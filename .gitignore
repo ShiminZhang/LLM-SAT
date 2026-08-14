@@ -14,8 +14,17 @@ logs/
 __pycache__/
 .env
 path_config.yaml
-*.md
 *_.sh
+
+# vendored SDK / heavyweight local artifacts (never commit)
+google-cloud-sdk/
+KissatEvolve.pdf
+
+# base solver build artifacts
+solvers/base/build/
+solvers/base/kissat
+solvers/base/makefile
+solvers/base/COMMIT
 
 # Log files globally, except solver build logs
 *.log
@@ -39,6 +48,7 @@ src/experience_pool/data/*
 # other files
 .venv/
 dumb_runner.sh
+t.txt
 solvers/*
 !solvers/AE_kissat2025_MAB/
 !solvers/AE_kissat2025_MAB/src/**

@@ -49,6 +49,7 @@
   COUNTER (clauses_used_focused, 2, PCNT_CLS_USED, "%", "used") \
   COUNTER (clauses_used_stable, 2, PCNT_CLS_USED, "%", "used") \
   COUNTER (closures, 2, CONF_INT, "", "interval") \
+  COUNTER (coldrestarts, 1, CONF_INT, "", "interval") /* (taomengxia) [coldrestart] 2025-04-25 */ \
   METRIC (compacted, 1, PCNT_REDUCTIONS, "%", "reductions") \
   COUNTER (conflicts, 0, PER_SECOND, 0, "per second") \
   COUNTER (congruent, 1, PCNT_VARIABLES, "%", "variables") \
@@ -167,6 +168,8 @@
   STATISTIC (queue_decisions, 1, PCNT_DECISIONS, "%", "decision") \
   STATISTIC (random_decisions, 1, PCNT_DECISIONS, "%", "decision") \
   COUNTER (random_sequences, 2, CONF_INT, "", "interval") \
+  COUNTER (reboots, 1, CONF_INT, "", "interval")                /* (taomengxia) [reboot] 2025-04-17 */ \
+  COUNTER (reboots_conflicts, 0, PER_SECOND, 0, "per second")   /* (taomengxia) [reboot] 2025-04-17 */ \
   COUNTER (reductions, 1, CONF_INT, "", "interval") \
   COUNTER (reordered, 1, CONF_INT, "", "interval") \
   STATISTIC (reordered_focused, 1, PCNT_REORDERED, "%", "reordered") \

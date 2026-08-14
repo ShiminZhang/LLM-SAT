@@ -42,18 +42,14 @@ kissat *kissat_init (void) {
   solver->first_reducible = INVALID_REF;
   solver->last_irredundant = INVALID_REF;
   kissat_reset_last_learned (solver);
-  // CHB 
-  solver->step_dec_chb = 0.000001;
-  solver->step_min_chb = 0.06;
-  // MAB
-  solver->mab_heuristics = 2;
-  solver-> mab_decisions = 0;
-  solver-> mab_chosen_tot = 0;
-  solver->mab_conflicts = 0;
 #ifndef NDEBUG
   kissat_init_checker (solver);
 #endif
   solver->prefix = kissat_strdup (solver, "c ");
+  // (taomengxia) [dynamic sat] 2025-04-27 
+  if (GET_OPTION (dynamicsat)) {
+    kissat_dynamicsat_init (solver);
+  }
   return solver;
 }
 
@@ -87,10 +83,6 @@ void kissat_set_prefix (kissat *solver, const char *prefix) {
 void kissat_release (kissat *solver) {
   kissat_require_initialized (solver);
   kissat_release_heap (solver, SCORES);
-  // CHB
-  kissat_release_heap (solver, &solver->scores_chb);
-  DEALLOC_VARIABLE_INDEXED (conflicted_chb);
-
   kissat_release_heap (solver, &solver->schedule);
   kissat_release_vectors (solver);
   kissat_release_phases (solver);
@@ -147,6 +139,13 @@ void kissat_release (kissat *solver) {
   RELEASE_STACK (solver->gates[0]);
   RELEASE_STACK (solver->gates[1]);
   RELEASE_STACK (solver->resolvents);
+
+#ifdef ENABLE_REBOOT
+  // (taomengxia) [reboot: file] 2025-04-16
+  if (GET_OPTION(reboot) == 2) {
+    RELEASE_STACK (solver->reboot_useful_binaries);
+  }
+#endif
 
 #if !defined(NDEBUG) || !defined(NPROOFS)
   RELEASE_STACK (solver->added);
@@ -255,11 +254,6 @@ void kissat_print_statistics (kissat *solver) {
   kissat_section (solver, "statistics");
   const bool verbose = (complete || verbosity > 0);
   kissat_statistics_print (solver, verbose);
-  if(solver->mab) {
-    printf("c MAB stats : ");
-          for (unsigned i=0;i<solver->mab_heuristics;i++) printf("%d ",solver->mab_select[i]);
-    printf("\n");
-  }
 #ifndef NPROOFS
   if (solver->proof) {
     kissat_section (solver, "proof");
@@ -534,19 +528,4 @@ int kissat_value (kissat *solver, int elit) {
   if (elit < 0)
     tmp = -tmp;
   return tmp < 0 ? -elit : elit;
-}
-
-// 获取当前分支启发式策略所对应的分数堆
-heap* kissat_get_scores (kissat *solver) {
-  heap *scores = NULL;
-  switch (solver->heuristic)
-  {
-    case 0:
-      scores = &solver->scores;
-      break;
-    case 1:
-      scores = &solver->scores_chb;
-      break;
-  }
-  return scores;
 }

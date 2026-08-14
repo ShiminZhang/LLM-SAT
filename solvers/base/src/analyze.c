@@ -542,9 +542,6 @@ int kissat_analyze (kissat *solver, clause *conflict) {
   do {
     LOGCLS (conflict, "analyzing conflict %" PRIu64, CONFLICTS);
     unsigned conflict_level;
-
-    if(!solver->probing && solver->stable && solver->mab) solver->mab_conflicts++;
-    
     if (one_literal_on_conflict_level (solver, conflict, &conflict_level))
       res = 1;
     else if (!conflict_level)
@@ -568,13 +565,6 @@ int kissat_analyze (kissat *solver, clause *conflict) {
       }
       analyze_reason_side_literals (solver);
       kissat_learn_clause (solver);
-
-      // MAB bug?
-      // if (!solver->probing && (!solver->stable || solver->heuristic==0))
-      //   kissat_bump_variables (solver);
-      if(!solver->probing && solver->stable && (solver->heuristic==1))
-        kissat_update_conflicted_chb (solver);
-      
       reset_analysis_but_not_analyzed_literals (solver);
       res = 1;
     }

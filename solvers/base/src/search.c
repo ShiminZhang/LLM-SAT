@@ -201,6 +201,14 @@ int kissat_search (kissat *solver) {
         res = 10;
       else if (TERMINATED (search_terminated_1))
         break;
+      else if (kissat_coldrestarting (solver))
+        kissat_coldrestart (solver);
+#ifdef ENABLE_REBOOT
+      else if (kissat_rebooting_direct(solver))
+        return kissat_reboot_direct(solver);        // (taomengxia) [reboot: direct] 2025-04-17
+      else if (kissat_rebooting_file(solver))
+        res = 30;                                   // (taomengxia) [reboot: file] 2025-04-14
+#endif
       else if (kissat_reducing (solver))
         res = kissat_reduce (solver);
       else if (kissat_switching_search_mode (solver))

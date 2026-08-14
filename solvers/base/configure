@@ -34,6 +34,7 @@ symbols=unknown
 testdefault=unknown
 ultimate=no
 unsat=no
+reboot=no
 
 passtocompiler=""
 passtolinker=""
@@ -284,6 +285,8 @@ do
     --check-queue) check_queue=yes;;
     --check-vectors) check_vectors=yes;;
     --check-walk) check_walk=yes;;
+    
+    --reboot) reboot=yes;;
 
     CC=*) CC="`echo \"$1\"|sed -e s,^CC=,,`";;
 
@@ -608,6 +611,7 @@ fi
 [ $sat = yes ] && CFLAGS="$CFLAGS -DSAT"
 [ $statistics = yes -a $metrics = no ] && CFLAGS="$CFLAGS -DSTATISTICS"
 [ $unsat = yes ] && CFLAGS="$CFLAGS -DUNSAT"
+[ $reboot = yes ] && CFLAGS="$CFLAGS -DENABLE_REBOOT"
 
 CFLAGS="${CFLAGS}$passtocompiler"
 

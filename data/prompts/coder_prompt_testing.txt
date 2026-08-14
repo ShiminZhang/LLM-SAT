@@ -8,281 +8,69 @@ You are an expert in writing C code for Kissat-based SAT Solvers and your task i
 
 ### Kissat API Reference
 
-This reference documents the fields, macros, and functions available when compiling decide.c. Use ONLY what is documented here.
+This reference documents the fields, macros, and functions available when compiling bump.c. Use ONLY what is documented here.
 
 ---
 
-## 1. SOLVER STATE ACCESS (kissat *solver)
+## 1. FUNCTION CONTRACT
 
-### Search State
+```c
+void kissat_bump_score_increment (kissat *solver);
+```
+
+**Purpose:** Update `solver->scinc` — the global additive score increment used by VSIDS. Called once per conflict-analysis round, AFTER the analyzed variables have each had `scinc` added to their score. By growing `scinc` over time, more recent conflicts contribute larger bumps, which is what produces the classic VSIDS decay effect.
+
+**Caller context:** Called from `bump_analyzed_variable_scores` at the end of conflict analysis, immediately after the per-variable bump loop. There is no return value.
+
+---
+
+## 2. SOLVER STATE
+
 | Field | Type | Description |
 |-------|------|-------------|
-| `solver->level` | `unsigned` | Current decision level (0 = root) |
-| `solver->stable` | `bool` | Current mode: true=stable, false=focused |
-| `solver->vars` | `unsigned` | Total number of variables |
-| `solver->unassigned` | `unsigned` | Count of unassigned variables |
-| `solver->ticks` | `uint64_t` | Overall work counter |
-| `solver->warming` | `bool` | True during initial local-search warming |
-
-### Phase Arrays (for decision polarity)
-| Field | Type | Description |
-|-------|------|-------------|
-| `solver->phases.saved[idx]` | `value` (`signed char`) | Saved phase for variable idx (-1, 0, or 1). 0 = uninitialized |
-| `solver->phases.target[idx]` | `value` | Target phase (set when assignment count improves) |
-| `solver->phases.best[idx]` | `value` | Best phase (from best overall assignment) |
-
-The `value` type is `typedef signed char value` — it holds -1, 0, or 1.
-
-### Assignment State
-| Field | Type | Description | |-------|------|-------------| | `solver->values` | `value *` | Current truth values indexed by **literal** (not variable). Use `solver->values[LIT(idx)]` |
-| `solver->assigned` | `assigned *` | Per-variable assignment info |
-
-The `assigned` struct fields: `.level` (decision level), `.trail` (position), `.reason` (clause reference or `DECISION_REASON`).
-
-### Scoring Fields
-| Field | Type | Description |
-|-------|------|-------------|
-| `solver->scores` | `heap` | VSIDS score heap |
-| `solver->scinc` | `double` | Current VSIDS score increment |
-
-### Multi-Armed Bandit (MAB) Fields
-| Field | Type | Description |
-|-------|------|-------------|
-| `solver->mab` | `bool` | MAB enabled flag |
-| `solver->heuristic` | `unsigned` | Current heuristic (0=VSIDS, 1=CHB) |
-
-### Random Number Generator
-| Field | Type | Description |
-|-------|------|-------------|
-| `solver->random` | `generator` (uint64_t) | RNG state |
+| `solver->scinc` | `double` | The current score increment. Read/write. Must stay positive. |
+| `solver->stable` | `bool` | Current search mode (stable vs focused). |
+| `solver->statistics.conflicts` | `uint64_t` | Total conflicts encountered so far. |
 
 ---
 
-## 2. STATISTICS (solver->statistics)
+## 3. CONSTANTS AND MACROS
 
-### Access Macros
 ```c
-CONFLICTS              // solver->statistics.conflicts (uint64_t)
-DECISIONS              // solver->statistics.decisions (uint64_t)
-```
-
-### Increment/Add Macros
-```c
-INC(name)              // Increment statistic by 1
-ADD(name, n)           // Add n to statistic
-GET(name)              // Get statistic value (uint64_t)
-```
-
-### Available Statistics Counters (partial list)
-| Counter | Description |
-|---------|-------------|
-| `conflicts` | Total conflicts |
-| `decisions` | Total decisions |
-| `propagations` | Total unit propagations |
-| `restarts` | Total restarts |
-| `clauses_learned` | Learned clauses added |
-| `clauses_irredundant` | Original clauses |
-| `clauses_redundant` | Redundant learned clauses |
-| `target_decisions` | Decisions that used target phase |
-| `saved_decisions` | Decisions that used saved phase |
-| `initial_decisions` | Decisions that used initial/default phase |
-| `switched` | Mode switch counter (used in focused-mode phase cycling) |
-
-### Glue Distribution (LBD histogram)
-```c
-solver->statistics.used[mode].glue[lbd_value]  // uint64_t
-// mode: 0=focused, 1=stable
-// lbd_value: 0 to 127 (MAX_GLUE_USED)
+#define MAX_SCORE 1e150          // Upper bound for scinc before rescaling.
+GET_OPTION(decay)                // Returns the current decay option (per mille, integer).
+                                 // Divide by 1e3 to get the decay ratio in [0, 0.5].
+CONFLICTS                        // Expands to solver->statistics.conflicts.
+LOG(fmt, ...)                    // Debug log (compiled out in release builds).
 ```
 
 ---
 
-## 3. AVERAGES (Exponential Moving Averages)
+## 4. CALLABLE FUNCTIONS (defined above in bump.c / linked from bump.h)
 
 ```c
-AVERAGE(fast_glue)     // Fast EMA of glue/LBD values (double)
-AVERAGE(slow_glue)     // Slow EMA of glue/LBD values (double)
-AVERAGE(level)         // EMA of decision levels (double)
-AVERAGE(trail)         // EMA of trail size (double)
-AVERAGE(decision_rate) // EMA of decision rate (double)
-```
-
-Averages are maintained separately for focused and stable modes, selected automatically.
-
----
-
-## 4. OPTIONS
-
-### Access Macro
-```c
-GET_OPTION(name)       // Returns int option value
-```
-
-### Phase/Decision Options
-| Option | Default | Range | Description |
-|--------|---------|-------|-------------|
-| `forcephase` | 0 | 0-1 | Force initial phase (ignore saved/target) |
-| `phase` | 1 | 0-1 | Initial phase polarity (1=positive, 0=negative) |
-| `phasesaving` | 1 | 0-1 | Enable phase saving |
-| `target` | 1 | 0-2 | Use target phases (0=off, 1=stable only, 2=always) |
-
-### Scoring/Heuristic Options
-| Option | Default | Range | Description |
-|--------|---------|-------|-------------|
-| `decay` | 50 | 1-200 | Per mille scores decay |
-| `tier1` | 2 | 1-100 | Tier 1 glue limit |
-| `tier2` | 6 | 1-1000 | Tier 2 glue limit |
-| `heuristic` | 0 | 0-1 | Scoring heuristic (0=VSIDS, 1=CHB) |
-
-### Restart Options
-| Option | Default | Range | Description |
-|--------|---------|-------|-------------|
-| `restart` | 1 | 0-1 | Enable restarts |
-| `restartint` | 50 | 1-10000 | Base restart interval |
-| `restartmargin` | 10 | 0-25 | Fast/slow glue margin (percent) |
-
----
-
-## 5. CLAUSE STRUCTURE
-
-### Clause Fields
-```c
-struct clause {
-  unsigned glue : 19;      // LBD (Literal Block Distance) value
-  bool garbage : 1;        // Marked for deletion
-  bool reason : 1;         // Used as reason clause
-  bool redundant : 1;      // Learned clause (vs original)
-  bool shrunken : 1;       // Clause was minimized
-  unsigned used : 5;       // Usage count (0-31)
-  unsigned searched;       // Search counter
-  unsigned size;           // Number of literals
-  unsigned lits[3];        // Literal array (flexible)
-};
-```
-
-### Clause Iteration
-```c
-for (all_clauses(c)) {
-  unsigned lbd = c->glue;
-  unsigned size = c->size;
-  bool is_learned = c->redundant;
-}
-
-for (all_literals_in_clause(lit, c)) {
-  unsigned v = IDX(lit);
-  bool is_positive = (lit == LIT(v));
-}
+void kissat_rescale_scores (kissat *solver);
+// Divide every variable score AND solver->scinc by the current maximum score,
+// keeping relative priorities intact. Use this when scinc is about to exceed
+// MAX_SCORE. Safe to call; cheap relative to a conflict round.
 ```
 
 ---
 
-## 6. AVAILABLE FUNCTIONS
+## 5. CRITICAL RULES
 
-### Random Number Generation
-```c
-kissat_pick_random(&solver->random, low, high)  // Returns unsigned in [low, high)
-kissat_pick_double(&solver->random)             // Returns double in [0, 1)
-kissat_pick_bool(&solver->random)               // Returns random bool
-kissat_next_random32(&solver->random)           // Returns unsigned (32-bit)
-```
-
-### Heap/Score Functions
-```c
-SCORES                                          // Macro: expands to (&solver->scores), returns heap*
-kissat_get_heap_score(heap, idx)                // Returns double score for variable
-kissat_max_heap(heap)                           // Returns unsigned idx of max-score variable
-```
-
-### Scaling/Math Functions (from kimits.h, available without math.h)
-```c
-kissat_logn(count)                              // Returns double: log_n(count)
-kissat_sqrt(count)                              // Returns double: sqrt(count)
-kissat_nlogpown(count, p)                       // Returns double: n * (log_n)^p
-```
-
-### Memory Management
-```c
-kissat_calloc(solver, n, size)                  // Allocate n*size zeroed bytes
-kissat_malloc(solver, bytes)                    // Allocate bytes
-kissat_realloc(solver, ptr, old_size, new_size) // Reallocate
-kissat_free(solver, ptr, bytes)                 // Free memory
-```
-
-### Logging
-```c
-LOG(fmt, ...)                                   // Debug log (compiled out in release)
-LOGVAR(idx)                                     // Format variable for logging
-```
-
----
-
-## 7. UTILITY MACROS
-
-### Variable/Literal Macros
-```c
-IDX(lit)               // Extract variable index from literal
-LIT(idx)               // Create positive literal from variable index
-NOT(lit)               // Negate literal
-VALUE(lit)             // Current truth value (-1, 0, 1) — takes a LITERAL not variable
-ACTIVE(idx)            // True if variable is active (not eliminated/fixed)
-VARS                   // solver->vars
-LITS                   // 2 * solver->vars
-```
-
-### Phase Macro (defined in decide.h)
-```c
-INITIAL_PHASE          // (GET_OPTION(phase) ? 1 : -1) — default polarity
-```
-
-### Frame Access
-```c
-FRAME(level)           // Get frame at decision level
-// Frame fields: .decision (literal), .trail (trail size), .used, .promote
-```
-
-### Iteration Macros
-```c
-for (all_variables(idx)) { ... }   // Iterate all variable indices
-for (all_clauses(c)) { ... }       // Iterate all clauses
-```
-
----
-
-## 8. CRITICAL RULES
-
-### Persistent State Pattern
-Your function is called once per decision. To maintain state across calls, use `static` local variables:
-```c
-int kissat_decide_phase(kissat *solver, unsigned idx) {
-    static double *my_array = 0;
-    static unsigned my_array_size = 0;
-    // Grow array if needed
-    if (!my_array || VARS > my_array_size) {
-        unsigned new_size = VARS + 1000;
-        double *new_arr = kissat_calloc(solver, new_size, sizeof(double));
-        if (my_array) {
-            for (unsigned i = 0; i < my_array_size; i++)
-                new_arr[i] = my_array[i];
-            kissat_free(solver, my_array, my_array_size * sizeof(double));
-        }
-        my_array = new_arr;
-        my_array_size = new_size;
-    }
-    // ... use my_array[idx] ...
-}
-```
+### Required invariants
+1. `solver->scinc` must remain strictly positive on exit.
+2. `solver->scinc` should be monotonically non-decreasing across calls (or explicitly rescaled) — the heap relies on newer bumps being at least as large as older ones.
+3. If `solver->scinc > MAX_SCORE` at any point, call `kissat_rescale_scores(solver)` before returning, otherwise subsequent bumps can overflow.
+4. The decay ratio must stay in `(0, 0.5]`. Outside this range the factor `1/(1-decay)` is undefined or unstable; assert or clamp if you compute it dynamically.
 
 ### What NOT to do
-1. **DO NOT invent solver fields** — only use fields documented above
-2. **DO NOT create `kissat_*` prefixed variables** — these are reserved for kissat API functions. Name your static variables without the `kissat_` prefix (e.g., `phase_scores`, `flip_count`)
-3. **DO NOT use `math.h` functions** (`fabs`, `fabsf`, `sqrt`, `log`, `log2`) — `math.h` is NOT included in decide.c. Use manual alternatives: `(x > 0 ? x : -x)` instead of `fabs(x)`, or `kissat_logn()`/`kissat_sqrt()` from the kimits API
-4. **DO NOT use `stdlib.h`/`string.h`/`stdio.h`** — use kissat_malloc/calloc/free for memory
-5. **NO `solver->lbd`** — LBD is per-clause as `clause->glue`
-6. **NO `solver->conflict`** — use `CONFLICTS` macro
-7. **NO `solver->clauses.size`** — iterate with `for (all_clauses(c))`
-
-### Return Value
-Must return `1` (positive phase) or `-1` (negative phase). Never return 0.
+1. **DO NOT invent solver fields** — only use fields documented above.
+2. **DO NOT create `kissat_*` prefixed variables** — reserved for API functions.
+3. **DO NOT modify the variable score heap directly** — variable scores are bumped in the caller, not here.
+4. **DO NOT skip the MAX_SCORE / rescale check** — it is the only overflow guard.
+5. **DO NOT set `scinc` to a value smaller than its previous value without calling `kissat_rescale_scores`** — this silently corrupts the decision heap.
 
 ---
 
@@ -294,7 +82,7 @@ Wrap your complete function in `<code>` tags (no other text outside tags):
 
 EXAMPLE:
 <code>
-int FUNCTION_NAME_PLACEHOLDER(kissat *solver, unsigned idx) {
+void FUNCTION_NAME_PLACEHOLDER(kissat *solver) {
 
      // Your implementation here
 
@@ -306,256 +94,127 @@ IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly
 
 ### Baseline Reference
 
-Here is the entire decide.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
+Here is the entire bump.c. Your generated FUNCTION_NAME_PLACEHOLDER function will replace the existing one in this file, so ensure it compiles with the rest of the code. Make sure you faithfully implement the algorithm you are given.
 
 ```c
-#include "decide.h"
-#include "inlineframes.h"
+#include "bump.h"
+#include "analyze.h"
 #include "inlineheap.h"
 #include "inlinequeue.h"
+#include "inlinevector.h"
+#include "internal.h"
+#include "logging.h"
 #include "print.h"
+#include "rank.h"
+#include "sort.h"
 
-#include <inttypes.h>
+#define RANK(A) ((A).rank)
+#define SMALLER(A, B) (RANK (A) < RANK (B))
 
-static unsigned last_enqueued_unassigned_variable (kissat *solver) {
-  assert (solver->unassigned);
-  const links *const links = solver->links;
-  const value *const values = solver->values;
-  unsigned res = solver->queue.search.idx;
-  if (values[LIT (res)]) {
-    do {
-      res = links[res].prev;
-      assert (!DISCONNECTED (res));
-    } while (values[LIT (res)]);
-    kissat_update_queue (solver, links, res);
-  }
-#ifdef LOGGING
-  const unsigned stamp = links[res].stamp;
-  LOG ("last enqueued unassigned %s stamp %u", LOGVAR (res), stamp);
-#endif
-#ifdef CHECK_QUEUE
-  for (unsigned i = links[res].next; !DISCONNECTED (i); i = links[i].next)
-    assert (VALUE (LIT (i)));
-#endif
-  return res;
-}
+#define RADIX_SORT_BUMP_LIMIT 32
 
-static unsigned largest_score_unassigned_variable (kissat *solver) {
-  heap *scores = SCORES;
-  unsigned res = kissat_max_heap (scores);
-  const value *const values = solver->values;
-  while (values[LIT (res)]) {
-    kissat_pop_max_heap (solver, scores);
-    res = kissat_max_heap (scores);
-  }
-#if defined(LOGGING) || defined(CHECK_HEAP)
-  const double score = kissat_get_heap_score (scores, res);
-#endif
-  LOG ("largest score unassigned %s score %g", LOGVAR (res), score);
-#ifdef CHECK_HEAP
-  for (all_variables (idx)) {
-    if (!ACTIVE (idx))
-      continue;
-    if (VALUE (LIT (idx)))
-      continue;
-    const double idx_score = kissat_get_heap_score (scores, idx);
-    assert (score >= idx_score);
-  }
-#endif
-  return res;
-}
-
-void kissat_start_random_sequence (kissat *solver) {
-  if (!GET_OPTION (randec))
-    return;
-
-  if (solver->stable && !GET_OPTION (randecstable))
-    return;
-
-  if (!solver->stable && !GET_OPTION (randecfocused))
-    return;
-
-  if (solver->randec)
-    kissat_very_verbose (solver,
-                         "continuing random decision sequence "
-                         "at %s conflicts",
-                         FORMAT_COUNT (CONFLICTS));
-  else {
-    INC (random_sequences);
-    const uint64_t count = solver->statistics.random_sequences;
-    const unsigned length = GET_OPTION (randeclength) * LOGN (count);
-    kissat_very_verbose (solver,
-                         "starting random decision sequence "
-                         "at %s conflicts for %s conflicts",
-                         FORMAT_COUNT (CONFLICTS), FORMAT_COUNT (length));
-    solver->randec = length;
-
-    UPDATE_CONFLICT_LIMIT (randec, random_sequences, LOGN, false);
-  }
-}
-
-static unsigned next_random_decision (kissat *solver) {
-  if (!VARS)
-    return INVALID_IDX;
-
-  if (solver->warming)
-    return INVALID_IDX;
-
-  if (!GET_OPTION (randec))
-    return INVALID_IDX;
-
-  if (solver->stable && !GET_OPTION (randecstable))
-    return INVALID_IDX;
-
-  if (!solver->stable && !GET_OPTION (randecfocused))
-    return INVALID_IDX;
-
-  if (!solver->randec) {
-    assert (solver->level);
-    if (solver->level > 1)
-      return INVALID_IDX;
-
-    uint64_t conflicts = CONFLICTS;
-    limits *limits = &solver->limits;
-    if (conflicts < limits->randec.conflicts)
-      return INVALID_IDX;
-
-    kissat_start_random_sequence (solver);
-  }
-
-  for (;;) {
-    unsigned idx = kissat_next_random32 (&solver->random) % VARS;
-    if (!ACTIVE (idx))
-      continue;
-    unsigned lit = LIT (idx);
-    if (solver->values[lit])
-      continue;
-    return idx;
-  }
-}
-
-unsigned kissat_next_decision_variable (kissat *solver) {
-#ifdef LOGGING
-  const char *type = 0;
-#endif
-  unsigned res = next_random_decision (solver);
-  if (res == INVALID_IDX) {
-    if (solver->stable) {
-#ifdef LOGGING
-      type = "maximum score";
-#endif
-      res = largest_score_unassigned_variable (solver);
-      INC (score_decisions);
-    } else {
-#ifdef LOGGING
-      type = "dequeued";
-#endif
-      res = last_enqueued_unassigned_variable (solver);
-      INC (queue_decisions);
-    }
+static void sort_bump (kissat *solver) {
+  const size_t size = SIZE_STACK (solver->analyzed);
+  if (size < RADIX_SORT_BUMP_LIMIT) {
+    LOG ("quick sorting %zu analyzed variables", size);
+    SORT_STACK (datarank, solver->ranks, SMALLER);
   } else {
-#ifdef LOGGING
-    type = "random";
-#endif
-    INC (random_decisions);
+    LOG ("radix sorting %zu analyzed variables", size);
+    RADIX_STACK (datarank, unsigned, solver->ranks, RANK);
   }
-  LOG ("next %s decision %s", type, LOGVAR (res));
-  return res;
 }
 
-int kissat_decide_phase (kissat *solver, unsigned idx) {
-  bool force = GET_OPTION (forcephase);
+void kissat_rescale_scores (kissat *solver) {
+  INC (rescaled);
+  heap *scores = &solver->scores;
+  const double max_score = kissat_max_score_on_heap (scores);
+  kissat_phase (solver, "rescale", GET (rescaled),
+                "maximum score %g increment %g", max_score, solver->scinc);
+  const double rescale = MAX (max_score, solver->scinc);
+  assert (rescale > 0);
+  const double factor = 1.0 / rescale;
+  kissat_rescale_heap (solver, scores, factor);
+  solver->scinc *= factor;
+  kissat_phase (solver, "rescale", GET (rescaled), "rescaled by factor %g",
+                factor);
+}
 
-  value *target;
-  if (force)
-    target = 0;
-  else if (!GET_OPTION (target))
-    target = 0;
-  else if (solver->stable || GET_OPTION (target) > 1)
-    target = solver->phases.target + idx;
+void kissat_bump_score_increment (kissat *solver) {
+  const double old_scinc = solver->scinc;
+  const double decay = GET_OPTION (decay) * 1e-3;
+  assert (0 <= decay), assert (decay <= 0.5);
+  const double factor = 1.0 / (1.0 - decay);
+  const double new_scinc = old_scinc * factor;
+  LOG ("new score increment %g = %g * %g", new_scinc, factor, old_scinc);
+  solver->scinc = new_scinc;
+  if (new_scinc > MAX_SCORE)
+    kissat_rescale_scores (solver);
+}
+
+static inline void bump_analyzed_variable_score (kissat *solver,
+                                                 unsigned idx) {
+  heap *scores = &solver->scores;
+  const double old_score = kissat_get_heap_score (scores, idx);
+  const double inc = solver->scinc;
+  const double new_score = old_score + inc;
+  LOG ("new score[%u] = %g = %g + %g", idx, new_score, old_score, inc);
+  kissat_update_heap (solver, scores, idx, new_score);
+  if (new_score > MAX_SCORE)
+    kissat_rescale_scores (solver);
+}
+
+void kissat_bump_variable (kissat *solver, unsigned idx) {
+  bump_analyzed_variable_score (solver, idx);
+}
+
+static void bump_analyzed_variable_scores (kissat *solver) {
+  flags *flags = solver->flags;
+
+  for (all_stack (unsigned, idx, solver->analyzed))
+    if (flags[idx].active)
+      bump_analyzed_variable_score (solver, idx);
+
+  kissat_bump_score_increment (solver);
+}
+
+static void move_analyzed_variables_to_front_of_queue (kissat *solver) {
+  assert (EMPTY_STACK (solver->ranks));
+  const links *const links = solver->links;
+  for (all_stack (unsigned, idx, solver->analyzed)) {
+    // clang-format off
+    const datarank rank = { .data = idx, .rank = links[idx].stamp };
+    // clang-format on
+    PUSH_STACK (solver->ranks, rank);
+  }
+
+  sort_bump (solver);
+
+  flags *flags = solver->flags;
+  unsigned idx;
+
+  for (all_stack (datarank, rank, solver->ranks))
+    if (flags[idx = rank.data].active)
+      kissat_move_to_front (solver, idx);
+
+  CLEAR_STACK (solver->ranks);
+}
+
+void kissat_bump_analyzed (kissat *solver) {
+  START (bump);
+  const size_t bumped = SIZE_STACK (solver->analyzed);
+  if (!solver->stable)
+    move_analyzed_variables_to_front_of_queue (solver);
   else
-    target = 0;
-
-  value *saved;
-  if (force)
-    saved = 0;
-  else if (GET_OPTION (phasesaving))
-    saved = solver->phases.saved + idx;
-  else
-    saved = 0;
-
-  value res = 0;
-
-  if (!solver->stable) {
-    switch ((solver->statistics.switched >> 1) & 7) {
-    case 1:
-      res = INITIAL_PHASE;
-      break;
-    case 3:
-      res = -INITIAL_PHASE;
-      break;
-    }
-  }
-
-  if (!res && target && (res = *target)) {
-    LOG ("%s uses target decision phase %d", LOGVAR (idx), (int) res);
-    INC (target_decisions);
-  }
-
-  if (!res && saved && (res = *saved)) {
-    LOG ("%s uses saved decision phase %d", LOGVAR (idx), (int) res);
-    INC (saved_decisions);
-  }
-
-  if (!res) {
-    res = INITIAL_PHASE;
-    LOG ("%s uses initial decision phase %d", LOGVAR (idx), (int) res);
-    INC (initial_decisions);
-  }
-  assert (res);
-
-  return res < 0 ? -1 : 1;
+    bump_analyzed_variable_scores (solver);
+  ADD (literals_bumped, bumped);
+  STOP (bump);
 }
 
-void kissat_decide (kissat *solver) {
-  START (decide);
-  assert (solver->unassigned);
-  if (solver->warming)
-    INC (warming_decisions);
-  else {
-    INC (decisions);
-    if (solver->stable)
-      INC (stable_decisions);
-    else
-      INC (focused_decisions);
-  }
-  solver->level++;
-  assert (solver->level != INVALID_LEVEL);
-  const unsigned idx = kissat_next_decision_variable (solver);
-  const value value = kissat_decide_phase (solver, idx);
-  unsigned lit = LIT (idx);
-  if (value < 0)
-    lit = NOT (lit);
-  kissat_push_frame (solver, lit);
-  assert (solver->level < SIZE_STACK (solver->frames));
-  LOG ("decide literal %s", LOGLIT (lit));
-  kissat_assign_decision (solver, lit);
-  STOP (decide);
-
-  // (taomengxia) [dynamic sat] 2025-04-27
-  if (GET_OPTION (dynamicsat)) {
-    kissat_dynamicsat (solver);
-  }
-}
-
-void kissat_internal_assume (kissat *solver, unsigned lit) {
-  assert (solver->unassigned);
-  assert (!VALUE (lit));
-  solver->level++;
-  assert (solver->level != INVALID_LEVEL);
-  kissat_push_frame (solver, lit);
-  assert (solver->level < SIZE_STACK (solver->frames));
-  LOG ("assuming literal %s", LOGLIT (lit));
-  kissat_assign_decision (solver, lit);
+void kissat_update_scores (kissat *solver) {
+  assert (solver->stable);
+  heap *scores = SCORES;
+  for (all_variables (idx))
+    if (ACTIVE (idx) && !kissat_heap_contains (scores, idx))
+      kissat_push_heap (solver, scores, idx);
 }
 ```

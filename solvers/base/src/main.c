@@ -4,6 +4,8 @@
 #include "kissat.h"
 #include "print.h"
 
+#include "a_reboot_file.h"    // (taomengxia) [reboot: file] 2025-04-14
+
 #include <assert.h>
 #include <stdbool.h>
 
@@ -50,7 +52,18 @@ int main (int argc, char **argv) {
   kissat_reset_signal_handler ();
   ignore_alarm = true;
   kissat_reset_alarm ();
+
+#ifdef ENABLE_REBOOT
+  // (taomengxia) [reboot: file] 2025-04-14
+  if (res == 30) {
+      kissat_reboot_file(solver, argc, argv);
+  } else {
+      kissat_release (solver);
+  }
+#else
   kissat_release (solver);
+#endif
+
 #ifndef NDEBUG
   if (!res)
     return kissat_dump (0);

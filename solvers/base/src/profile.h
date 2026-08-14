@@ -12,6 +12,7 @@ typedef struct profiles profiles;
   PROF (analyze, 3) \
   PROF (backbone, 2) \
   PROF (bump, 3) \
+  PROF (coldrestart, 2) /* (taomengxia) [cold restart] 2025-04-25 */ \
   PROF (collect, 3) \
   PROF (congruence, 2) \
   PROF (decide, 4) \

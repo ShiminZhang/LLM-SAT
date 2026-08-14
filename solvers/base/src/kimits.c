@@ -129,6 +129,10 @@ void kissat_init_limits (kissat *solver) {
 
   if (solver->enabled.probe)
     INIT_CONFLICT_LIMIT (probe, true);
+
+  // (taomengxia) [cold restart] 2025-04-25
+  if (GET_OPTION (coldrestart))
+    limits->coldrestart.conflicts = GET_OPTION (coldrestartint);
 }
 
 #ifndef QUIET

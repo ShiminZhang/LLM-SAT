@@ -308,6 +308,16 @@ parse_dimacs (kissat * solver, file * file,
 		  "parsed 'p cnf %d %" PRIu64 "' header", variables, clauses);
   *max_var_ptr = variables;
   kissat_reserve (solver, variables);
+
+#ifdef ENABLE_REBOOT
+	// (taomengxia) [reboot: file] 2025-04-14
+	if (GET_OPTION(reboot) == 2) {
+		solver->input_path = file->path;
+		solver->original_variables = variables;
+		solver->original_clauses = clauses;
+	}
+#endif
+
   uint64_t parsed = 0;
   int lit = 0;
   for (;;)

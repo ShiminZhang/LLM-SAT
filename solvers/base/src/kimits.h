@@ -51,6 +51,11 @@ struct limits {
     uint64_t conflicts;
     uint64_t interval;
   } glue;
+
+  // (taomengxia) [coldrestart] 2025-04-25
+  struct {
+    uint64_t conflicts;
+  } coldrestart;
 };
 
 struct limited {

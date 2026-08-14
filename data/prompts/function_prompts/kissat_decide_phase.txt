@@ -1,0 +1,177 @@
+You are an expert in writing C code for Kissat-based SAT Solvers and your task is to faithfully implement the given algorithm below so that it compiles and implements the strategy that the algorithm describes for the improvement of the SAT Solver.
+
+### Requirements
+- Output complete function with signature and body
+- Must compile with existing Kissat codebase
+- CRITICAL: Do NOT invent or hallucinate solver fields.
+- CRITICAL: Only the function body is injected into the source file. You CANNOT add new #include directives, file-scope declarations, or helper functions. All persistent state must use `static` local variables inside your function.
+
+### Kissat API Reference
+
+This reference documents the fields, macros, and functions available when compiling decide.c. Use ONLY what is documented here.
+
+---
+
+## 1. FUNCTION CONTRACT
+
+```c
+int kissat_decide_phase (kissat *solver, unsigned idx);
+```
+
+**Purpose:** Choose the polarity (true/false) for a variable that has already been picked as the next decision. The variable index `idx` is selected upstream by `kissat_next_decision_variable`; this function only decides whether to assign it positive (`+1`) or negative (`-1`).
+
+**Return value:** Must return `+1` or `-1` (never `0`). The caller turns this into a literal via `LIT(idx)` / `NOT(LIT(idx))` and assigns it.
+
+**Caller context:** Called once per decision from `kissat_decide()`, immediately before the literal is pushed onto a new decision frame. There is no propagation, no conflict analysis, no heap manipulation — the function is on the hot decision path and should remain cheap.
+
+---
+
+## 2. PHASE ARRAYS (the primary inputs)
+
+Kissat maintains three per-variable phase arrays. Each entry is a `value` (`signed char`) holding `-1`, `0` (no recorded phase), or `+1`.
+
+| Field | Description |
+|-------|-------------|
+| `solver->phases.target[idx]` | Phase that produced the most recent "target" trail (deepest non-conflicting assignment so far in the current restart period). Updated by `kissat_save_target_phases`. |
+| `solver->phases.saved[idx]` | Last assigned phase for `idx` (classic phase-saving). Updated when the variable is unassigned. |
+| `solver->phases.best[idx]` | Phase from the globally best trail seen so far across the run. Updated by `kissat_save_best_phases`. |
+
+You may freely **read** any of these. You may also **write** to them, but the write only affects future calls — the variable score / heap / queue is untouched.
+
+Convenience accessors (with bounds-asserts in debug builds):
+```c
+BEST_PHASE(idx)           // solver->phases.best[idx]
+SAVED_PHASE(idx)          // solver->phases.saved[idx]
+TARGET_PHASE(idx)         // solver->phases.target[idx]
+```
+
+---
+
+## 3. CORE TYPES AND CONSTANTS
+
+```c
+typedef signed char value;                         // -1, 0, or +1
+#define INITIAL_PHASE (GET_OPTION (phase) ? 1 : -1)   // user-configured default polarity
+```
+
+Treat `value` as a tri-state: `0` means "no opinion", non-zero is the polarity itself. The function's return type is `int`, but only `-1` and `+1` are valid return values.
+
+---
+
+## 4. RELEVANT OPTIONS
+
+```c
+GET_OPTION(name)       // Returns int
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `phase` | 1 | If 1, default decision polarity is positive; if 0, negative. Used by `INITIAL_PHASE`. |
+| `forcephase` | 0 | If non-zero, ignore both target and saved phase and always use `INITIAL_PHASE`. |
+| `target` | 1 | 0 = never use target phases; 1 = use them only in stable mode; >1 = always use them. |
+| `phasesaving` | 1 | If non-zero, fall back to the saved phase when target isn't applicable. |
+
+These four options are the only "phase policy" knobs the baseline consults. You can read them but you don't need to follow the same priority chain.
+
+---
+
+## 5. SOLVER STATE OFTEN USEFUL FOR PHASE POLICIES
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `solver->stable` | `bool` | Current search mode (true = stable, false = focused). |
+| `solver->level` | `unsigned` | Current decision level (always > 0 here, since this is mid-decision). |
+| `solver->vars` | `unsigned` | Total number of variables. |
+| `solver->statistics.switched` | `uint64_t` | Counts focused/stable mode switches; baseline reads bits 1-3 to alternate phase early in focused mode. |
+| `solver->statistics.conflicts` | `uint64_t` | Total conflicts (exposed via `CONFLICTS` macro). |
+| `solver->statistics.decisions` | `uint64_t` | Total decisions (exposed via `DECISIONS`). |
+| `solver->random` | `generator` | RNG state. |
+
+You also have the entire `phases.{best,saved,target}` arrays at your disposal — you can scan them, average them, hash them, etc., but remember the function runs once per decision so heavy O(VARS) work each call is undesirable.
+
+---
+
+## 6. UTILITY MACROS
+
+```c
+CONFLICTS              // solver->statistics.conflicts (uint64_t)
+DECISIONS              // solver->statistics.decisions (uint64_t)
+INC(name)              // Increment named statistic by 1
+ADD(name, n)           // Add n to named statistic
+GET(name)              // Read named statistic
+GET_OPTION(name)       // Read int option
+
+LIT(idx)               // Positive literal for variable idx
+NOT(lit)               // Negate literal
+VALUE(lit)             // Truth value of literal (-1, 0, +1)
+NEGATED(lit)           // True if literal carries negative polarity
+ACTIVE(idx)            // True if variable idx is active
+
+LOGVAR(idx)            // Format variable index for logging
+LOG(fmt, ...)          // Compiled out in release builds; safe to use freely
+```
+
+Statistics counters that already exist for this function (you may `INC` them; you may **not** invent new counter names):
+```
+target_decisions, saved_decisions, initial_decisions
+```
+
+---
+
+## 7. RANDOMNESS / MATH
+
+```c
+kissat_pick_random(&solver->random, low, high)   // unsigned in [low, high)
+kissat_pick_double(&solver->random)              // double in [0, 1)
+kissat_pick_bool(&solver->random)                // random bool
+kissat_next_random32(&solver->random)            // 32-bit unsigned
+
+kissat_logn(n)                                   // double: log_n(n) approximation
+kissat_sqrt(n)                                   // double: sqrt
+```
+
+Note: `<math.h>` is **not** available in this translation unit. Use the helpers above or write integer math directly.
+
+---
+
+## 8. PERSISTENT STATE
+
+If the algorithm needs counters/timers/EMAs across calls, declare `static` locals inside the function body, e.g.:
+```c
+static uint64_t my_phase_period_start = 0;
+static double my_polarity_bias = 0.0;
+```
+These survive across calls but cannot escape the function.
+
+---
+
+## 9. CRITICAL RULES
+
+1. The return value MUST be `+1` or `-1`. Returning `0` will trip an assertion in the caller and corrupt the trail.
+2. Do not modify any solver field outside the `solver->phases.*` arrays and the documented statistics counters.
+3. Do not call into propagation, analysis, restart, or heap maintenance — those are not safe from this function.
+4. The function is on the decision hot path; per-call work that scales with `solver->vars` should be amortized (e.g. only every N decisions) when possible.
+5. Do not invent fields like `solver->phase_score`, `solver->polarity`, etc. — only fields documented above exist.
+6. No `#include` lines, no file-scope helpers — the function body is what gets injected.
+
+---
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Wrap your complete function in `<code>` tags (no other text outside tags):
+
+EXAMPLE:
+<code>
+int FUNCTION_NAME_PLACEHOLDER(kissat *solver, unsigned idx) {
+
+     // Your implementation here
+
+}
+</code>
+
+
+IMPORTANT: Wrap your code between <code> </code> tags so that it can be properly parsed.
+
+### Baseline Reference
