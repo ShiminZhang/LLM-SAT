@@ -220,6 +220,24 @@ class FunctionInjector:
                 f"(file has {len(lines)} lines)"
             )
 
+        # The registry's line numbers go stale whenever the base solver changes.
+        # A blind splice at stale lines silently corrupts an unrelated region,
+        # so verify the target actually starts in the recorded range and
+        # relocate it if not.
+        if not self._range_contains_definition(lines, start_idx, end_idx, func_name):
+            relocated = self._relocate_function(lines, func_name)
+            if relocated is None:
+                raise ValueError(
+                    f"Registry lines {info.start_line}-{info.end_line} for {func_name} "
+                    f"do not contain its definition and it could not be relocated in "
+                    f"{file_path}; re-run scripts/configure_target.py to re-index"
+                )
+            start_idx, end_idx = relocated
+            logger.warning(
+                f"Registry lines for {func_name} were stale; relocated definition to "
+                f"lines {start_idx + 1}-{end_idx} in {file_path}"
+            )
+
         # Ensure new_code ends with newline
         if not new_code.endswith("\n"):
             new_code += "\n"
@@ -233,6 +251,128 @@ class FunctionInjector:
             f"Replaced {func_name} in {file_path} "
             f"(was lines {info.start_line}-{info.end_line})"
         )
+
+    def _range_contains_definition(
+        self, lines: list[str], start_idx: int, end_idx: int, func_name: str
+    ) -> bool:
+        """True if func_name's definition plausibly starts within [start_idx, end_idx)."""
+        window = "".join(lines[start_idx:min(end_idx, start_idx + 5)])
+        return re.search(rf"\b{re.escape(func_name)}\s*\(", window) is not None
+
+    @staticmethod
+    def _blank_comments_and_strings(text: str) -> str:
+        """Replace comment/string/char-literal contents with spaces, preserving
+        line structure, so brace counting cannot be fooled by braces in them."""
+        out = []
+        i, n = 0, len(text)
+        mode = None  # None | "line" | "block" | "str" | "chr"
+        while i < n:
+            c = text[i]
+            nxt = text[i + 1] if i + 1 < n else ""
+            if mode is None:
+                if c == "/" and nxt == "/":
+                    mode = "line"
+                    out.append("  ")
+                    i += 2
+                    continue
+                if c == "/" and nxt == "*":
+                    mode = "block"
+                    out.append("  ")
+                    i += 2
+                    continue
+                if c == '"':
+                    mode = "str"
+                    out.append(" ")
+                    i += 1
+                    continue
+                if c == "'":
+                    mode = "chr"
+                    out.append(" ")
+                    i += 1
+                    continue
+                out.append(c)
+            else:
+                if c == "\n":
+                    out.append("\n")
+                    if mode == "line":
+                        mode = None
+                    i += 1
+                    continue
+                if mode == "block" and c == "*" and nxt == "/":
+                    mode = None
+                    out.append("  ")
+                    i += 2
+                    continue
+                if mode in ("str", "chr") and c == "\\":
+                    out.append("  ")
+                    i += 2
+                    continue
+                if (mode == "str" and c == '"') or (mode == "chr" and c == "'"):
+                    mode = None
+                out.append(" ")
+            i += 1
+        return "".join(out)
+
+    def _relocate_function(
+        self, lines: list[str], func_name: str
+    ) -> Optional[tuple[int, int]]:
+        """Scan the file for func_name's definition; return (start_idx, end_idx)
+        as a 0-based/exclusive line range, or None if not found unambiguously."""
+        blanked = self._blank_comments_and_strings("".join(lines)).splitlines(keepends=True)
+        name_re = re.compile(rf"\b{re.escape(func_name)}\s*\(")
+        type_line_re = re.compile(r"^(?:static\s+|inline\s+)*[A-Za-z_][\w\s\*]*\**\s*$")
+
+        candidates = []
+        for i, line in enumerate(blanked):
+            if not name_re.search(line):
+                continue
+            # Definitions in kissat start at column 0 (name-first for multiline
+            # signatures, or type-first single-line); calls are indented.
+            if not re.match(rf"[A-Za-z_].*\b{re.escape(func_name)}\s*\(", line):
+                continue
+            # Find the opening brace; a ';' before it means this is a prototype.
+            offset = name_re.search(line).start()
+            brace_line = None
+            for j in range(i, min(i + 10, len(blanked))):
+                text_j = blanked[j]
+                from_pos = offset if j == i else 0
+                semi = text_j.find(";", from_pos)
+                brace = text_j.find("{", from_pos)
+                if brace != -1 and (semi == -1 or brace < semi):
+                    brace_line = j
+                    break
+                if semi != -1:
+                    break
+            if brace_line is None:
+                continue
+            # Include a bare return-type line directly above (multiline signature).
+            start = i
+            if i > 0 and type_line_re.match(blanked[i - 1].rstrip("\n")):
+                start = i - 1
+            # Brace-match from the opening brace to find the end of the body.
+            depth = 0
+            seen_open = False
+            end = None
+            for k in range(brace_line, len(blanked)):
+                for ch in blanked[k]:
+                    if ch == "{":
+                        depth += 1
+                        seen_open = True
+                    elif ch == "}":
+                        depth -= 1
+                if seen_open and depth == 0:
+                    end = k + 1
+                    break
+            if end is not None:
+                candidates.append((start, end))
+
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1:
+            logger.warning(
+                f"Found {len(candidates)} definition candidates for {func_name}; refusing to guess"
+            )
+        return None
 
     def _normalize_whitespace(self, text: str) -> str:
         """Normalize escaped whitespace from JSON responses."""

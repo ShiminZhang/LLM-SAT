@@ -7,6 +7,7 @@ import json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+from llmsat.utils.results import instance_key
 from llmsat.llmsat import (
     BASE_SOLVER_PATH,
     SAT2025_BENCHMARK_PATH,
@@ -82,7 +83,7 @@ def main():
         if os.path.isdir(BASELINE_RESULT_DIR):
             for file in sorted(os.listdir(BASELINE_RESULT_DIR)):
                 if file.endswith(".solving.log"):
-                    instance_name = file.split(".")[0]
+                    instance_name = instance_key(file)
                     t = pipeline.parse_solving_time(f"{BASELINE_RESULT_DIR}/{file}")
                     if t is not None:
                         solving_times[instance_name] = t

@@ -26,6 +26,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from llmsat.llmsat import SAT2025_BENCHMARK_PATH, setup_logging, get_logger
+from llmsat.utils.results import instance_key
 from llmsat.pipelines.evaluation import (
     EvaluationPipeline,
     SLURM_TIMEOUT_SECONDS,
@@ -66,7 +67,7 @@ def collect(pipeline: EvaluationPipeline, result_dir: str) -> None:
     for fname in sorted(os.listdir(result_dir)):
         if not fname.endswith(".solving.log"):
             continue
-        instance = fname.rsplit(".cnf.solving.log", 1)[0]
+        instance = instance_key(fname)
         t = pipeline.parse_solving_time(os.path.join(result_dir, fname))
         if t is not None:
             solving_times[instance] = t

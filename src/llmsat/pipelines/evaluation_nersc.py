@@ -139,12 +139,19 @@ while IFS= read -r CNF_FILE; do
 
         echo "Running solver on $CNF_FILE"
 
-        # Run solver with timeout, capturing wall-clock time
+        # Run solver with timeout, capturing CPU time (user+sys) like the CC
+        # pipeline so PAR2 is comparable across clusters; fall back to
+        # wall-clock only if GNU time is unavailable.
+        TIME_FILE="${{OUTPUT_FILE}}.time"
         START_TIME=$(date +%s.%N)
-        timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" "$PROOF_FILE" > "$OUTPUT_FILE" 2>&1
+        timeout ${{TIMEOUT}}s /usr/bin/time -f "%U %S" -o "$TIME_FILE" "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" "$PROOF_FILE" > "$OUTPUT_FILE" 2>&1
         EXIT_CODE=$?
         END_TIME=$(date +%s.%N)
-        ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
+        ELAPSED=$(awk '{{printf "%.6f", $1 + $2}}' "$TIME_FILE" 2>/dev/null)
+        if [ -z "$ELAPSED" ]; then
+            ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
+        fi
+        rm -f "$TIME_FILE"
 
         if [ $EXIT_CODE -eq 124 ]; then
             echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
@@ -290,12 +297,19 @@ while IFS=$'\\t' read -r SOLVER_PATH RESULT_DIR CNF_FILE; do
 
         echo "Running solver on $CNF_FILE"
 
-        # Run solver with timeout, capturing wall-clock time
+        # Run solver with timeout, capturing CPU time (user+sys) like the CC
+        # pipeline so PAR2 is comparable across clusters; fall back to
+        # wall-clock only if GNU time is unavailable.
+        TIME_FILE="${{OUTPUT_FILE}}.time"
         START_TIME=$(date +%s.%N)
-        timeout ${{TIMEOUT}}s "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" "$PROOF_FILE" > "$OUTPUT_FILE" 2>&1
+        timeout ${{TIMEOUT}}s /usr/bin/time -f "%U %S" -o "$TIME_FILE" "$SOLVER" "$BENCHMARK_PATH/$CNF_FILE" "$PROOF_FILE" > "$OUTPUT_FILE" 2>&1
         EXIT_CODE=$?
         END_TIME=$(date +%s.%N)
-        ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
+        ELAPSED=$(awk '{{printf "%.6f", $1 + $2}}' "$TIME_FILE" 2>/dev/null)
+        if [ -z "$ELAPSED" ]; then
+            ELAPSED=$(awk "BEGIN {{printf \\"%.6f\\", $END_TIME - $START_TIME}}")
+        fi
+        rm -f "$TIME_FILE"
 
         if [ $EXIT_CODE -eq 124 ]; then
             echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"

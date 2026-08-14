@@ -39,6 +39,7 @@ from llmsat.utils.paths import (
     get_generation_output_dir,
 )
 from llmsat.utils.utils import wrap_command_to_slurm, wrap_command_to_slurm_array
+from llmsat.utils.results import instance_key
 from llmsat.code_injection import FunctionRegistry, FunctionInjector
 from llmsat.debugging import CompilerDebugger
 from llmsat.config import DEFAULT_MODEL
@@ -242,7 +243,7 @@ class EvaluationPipeline:
         if os.path.isdir(solver_dir):
             for file in os.listdir(solver_dir):
                 if file.endswith(".solving.log"):
-                    instance_name = file.split(".")[0]
+                    instance_name = instance_key(file)
                     log_path = f"{solver_dir}/{file}"
                     instance_time = self.parse_solving_time(log_path)
                     if instance_time is not None:
@@ -260,11 +261,6 @@ class EvaluationPipeline:
         else:
             logger.warning(f"Solver directory missing: {solver_dir}")
 
-        expected_benchmark_count = len(self.cnf_files) if self.cnf_files else 400
-        if len(solving_times) < expected_benchmark_count:
-            missing_count = expected_benchmark_count - len(solving_times)
-            logger.warning(f"Missing results for {missing_count} instances out of {expected_benchmark_count}")
-
         if not solving_times:
             # do not overwrite an existing PAR2 with None when this iteration skipped evaluation (e.g., --skip-evaluated leaders) or logs are missing.
             if existing_code_result is not None and existing_code_result.par2 is not None:
@@ -279,15 +275,48 @@ class EvaluationPipeline:
             )
             return None
 
+        # A run with SOME logs but not all (died jobs, node failures) must not
+        # score optimistically: every expected-but-missing instance counts as a
+        # penalty, in the subcategory buckets too. Zero-log runs were handled
+        # above (skip-evaluated leaders rely on PAR2 preservation there).
+        if self.cnf_files:
+            expected_keys = {instance_key(f) for f in self.cnf_files}
+        elif self.instance_categories:
+            expected_keys = set(self.instance_categories)
+        else:
+            expected_keys = None
+        n_evaluated = len(solving_times)
+        if expected_keys is not None:
+            missing = expected_keys - set(solving_times)
+            if missing:
+                logger.warning(
+                    f"Missing solving logs for {len(missing)}/{len(expected_keys)} instances; "
+                    f"scoring each as penalty {self.par2_penalty}"
+                )
+                for key in missing:
+                    solving_times[key] = self.par2_penalty
+                    timeouts_or_errors.append(key)
+
         par2 = _compute_average(list(solving_times.values()))
         logger.info(f"Computed PAR2 for algorithm {algorithm_id}, code {code_id}: {par2}")
 
-        if par2 is not None and par2 < MIN_PAR2_THRESHOLD:
-            logger.warning(
-                f"PAR2 {par2:.2f} below threshold {MIN_PAR2_THRESHOLD} for "
-                f"algorithm {algorithm_id}, code {code_id} — replacing with penalty {self.par2_penalty}"
-            )
-            par2 = self.par2_penalty
+        suspicious_par2 = par2 is not None and par2 < MIN_PAR2_THRESHOLD
+        if suspicious_par2:
+            if os.environ.get("LLMSAT_MIN_PAR2_MODE", "flag") == "penalize":
+                logger.warning(
+                    f"PAR2 {par2:.2f} below threshold {MIN_PAR2_THRESHOLD} for "
+                    f"algorithm {algorithm_id}, code {code_id} — replacing with penalty {self.par2_penalty}"
+                )
+                par2 = self.par2_penalty
+            else:
+                # A too-good score is a correctness *signal*, not proof of lying;
+                # answer validation (proof/model checks) gates promotion. The old
+                # auto-penalty capped legitimate improvement at MIN_PAR2_THRESHOLD.
+                logger.warning(
+                    f"PAR2 {par2:.2f} below sanity threshold {MIN_PAR2_THRESHOLD} for "
+                    f"algorithm {algorithm_id}, code {code_id} — flagged suspicious; "
+                    "promotion requires validated answers (LLMSAT_MIN_PAR2_MODE=penalize restores old behavior)"
+                )
 
         if timeouts_or_errors:
             logger.warning(f"Found {len(timeouts_or_errors)} instances that timed out or had errors")
@@ -345,6 +374,10 @@ class EvaluationPipeline:
                     par2_breakdown.get("unsat"),
                     par2_breakdown.get("all"),
                 ]
+                if not isinstance(algorithm.other_metrics, dict):
+                    algorithm.other_metrics = {}
+                algorithm.other_metrics["suspicious_par2"] = suspicious_par2
+                algorithm.other_metrics["n_instances_evaluated"] = n_evaluated
 
                 # Compute normalized PAR2 if baseline is configured
                 if BASELINE_PAR2 is not None:
@@ -1453,6 +1486,7 @@ exit $EXIT_CODE
         proof_status_by_solver = (
             self._load_proof_validation_statuses() if require_valid_proof else None
         )
+        proof_statuses_loaded = require_valid_proof
         if require_valid_proof and proof_status_by_solver is None:
             logger.warning(
                 "Proof-gated promotion requested but no proof verification report is available; "
@@ -1537,6 +1571,35 @@ exit $EXIT_CODE
                             f"{leader.id[:12]}... because proof validation did not pass"
                         )
                         continue
+                elif (
+                    isinstance(best_member.other_metrics, dict)
+                    and best_member.other_metrics.get("suspicious_par2")
+                ):
+                    # Sanity gate: a suspiciously low PAR2 (below MIN_PAR2_THRESHOLD)
+                    # is only promotable with validated answers, even on promotion
+                    # paths that did not request the full proof gate.
+                    if not proof_statuses_loaded:
+                        proof_status_by_solver = self._load_proof_validation_statuses()
+                        proof_statuses_loaded = True
+                    member_code_id = self._primary_code_id(best_member)
+                    is_valid = (
+                        proof_status_by_solver.get((best_member.id, member_code_id))
+                        if proof_status_by_solver is not None and member_code_id is not None
+                        else None
+                    )
+                    if is_valid is not True:
+                        blocked_promotions += 1
+                        report_lines.append(
+                            "  [sanity] Best member PAR2 is suspiciously low and its "
+                            "answers are not validated; keeping incumbent leader"
+                        )
+                        report_lines.append("")
+                        logger.warning(
+                            f"Skipping promotion of {best_member.id[:12]}... over "
+                            f"{leader.id[:12]}...: PAR2 below sanity threshold and no "
+                            "passing answer validation"
+                        )
+                        continue
 
                 promotion_count += 1
                 promotions.append((leader, best_member, best_member_par2, leader_par2))
@@ -1545,8 +1608,8 @@ exit $EXIT_CODE
             f"Summary: {len(teams)} teams, {promotion_count} promotion"
             f"{'s' if promotion_count != 1 else ''}"
         )
-        if require_valid_proof:
-            summary_line += f", {blocked_promotions} blocked by proof gate"
+        if blocked_promotions:
+            summary_line += f", {blocked_promotions} blocked by validation gate"
         report_lines.append(summary_line)
 
         with open(report_path, "w") as f:
