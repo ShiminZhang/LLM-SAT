@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from llmsat.utils.aws import get_code_result
 from llmsat.utils.chatgpt_helper import get_llm_response
+from llmsat.config import ANALYSIS_MODEL
 
 from .runtime import SharedRuntime
 from .types import (
@@ -895,7 +896,7 @@ class AlgorithmExperiencePool(BaseExperiencePool):
                             "You are an expert SAT solver engineer. "
                             "Return valid JSON wrapped in ```json ... ``` only."
                         ),
-                        model="gpt-5.4-2026-03-05",
+                        model=ANALYSIS_MODEL,
                         temperature=0.7,
                     )
 
@@ -1448,7 +1449,7 @@ class MutationExperiencePool(BaseExperiencePool):
                             "You are an expert SAT solver engineer. "
                             "Return valid JSON wrapped in ```json ... ``` only."
                         ),
-                        model="gemini-3-flash-preview",
+                        model=ANALYSIS_MODEL,
                         temperature=0.7,
                     )
 
@@ -2269,7 +2270,7 @@ class CombinationExperiencePool(BaseExperiencePool):
                         "You are an expert SAT solver engineer. "
                         "Return valid JSON wrapped in ```json ... ``` only."
                     ),
-                    model="gpt-5.4-2026-03-05",
+                    model=ANALYSIS_MODEL,
                     temperature=0.7,
                 )
 

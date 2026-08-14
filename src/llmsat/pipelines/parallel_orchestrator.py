@@ -39,6 +39,7 @@ from llmsat.llmsat import (
     SAT2025_BENCHMARK_PATH,
 )
 from llmsat.utils.gemini_helper import get_response_from_gemini
+from llmsat.utils.chatgpt_helper import get_llm_response
 from llmsat.utils.aws import (
     get_algorithm_result,
     get_ids_from_router_table,
@@ -175,6 +176,13 @@ class ParallelPipeline:
     ):
         self.generation_tag = generation_tag
         self.model = model
+        # Coder role can use a different (typically cheaper, coding-focused)
+        # model than algorithm generation; falls back to the run model.
+        try:
+            from llmsat.config import CODER_MODEL as _coder_model
+        except Exception:
+            _coder_model = None
+        self.coder_model = _coder_model or model
         self.quick_eval = quick_eval
         self.nersc = nersc
 
@@ -709,10 +717,10 @@ class ParallelPipeline:
                 async with self.api_semaphore:
                     raw_text = await loop.run_in_executor(
                         self.api_pool,
-                        lambda p=code_prompt: get_response_from_gemini(
+                        lambda p=code_prompt: get_llm_response(
                             p,
                             system_message=self.system_message,
-                            model=self.model,
+                            model=self.coder_model,
                         ),
                     )
                 self._record_item_time("code_gen", _t0, time.time())

@@ -13,7 +13,8 @@ logger = get_logger(__name__)
 try:
     from llmsat.config import DEFAULT_MODEL as _DEFAULT_MODEL
 except (FileNotFoundError, ImportError):
-    _DEFAULT_MODEL = "gemini-3-flash-preview"
+    # No path_config.yaml (e.g. bare checkout): mirror config.py's fallback.
+    _DEFAULT_MODEL = "gemini-3.1-pro-preview"
 
 
 def _get_gemini_client():

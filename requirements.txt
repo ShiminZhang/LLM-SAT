@@ -11,4 +11,5 @@ python-dotenv
 psycopg2-binary
 openai
 google-genai
+anthropic
 faiss-cpu

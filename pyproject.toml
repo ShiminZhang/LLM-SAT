@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llmsat"
+version = "0.2.0"
+description = "KissatEvolve: LLM-driven evolutionary search over kissat SAT-solver heuristics"
+requires-python = ">=3.10"
+dependencies = [
+    "transformers",
+    "torch",
+    "scikit-learn",
+    "numpy",
+    "pandas",
+    "tqdm",
+    "rich",
+    "pyyaml",
+    "python-dotenv",
+    "psycopg2-binary",
+    "openai",
+    "google-genai",
+    "anthropic",
+    "faiss-cpu",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["llmsat*", "experience_pool*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

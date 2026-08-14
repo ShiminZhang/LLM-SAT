@@ -14,21 +14,23 @@ def get_llm_response(
     temperature: float = 0.7,
 ) -> str:
     """
-    Unified LLM call that dispatches to Gemini or OpenAI based on the model name.
+    Unified LLM call that dispatches by model-name prefix.
 
     Model routing:
-      - Model names starting with "gemini" → Gemini API (requires GOOGLE_API_KEY)
-      - All other model names            → OpenAI API  (requires OPENAI_API_KEY)
+      - "gemini*" → Gemini on Vertex AI (requires GOOGLE_PROJECT_ID + gcloud ADC)
+      - "claude*" → Anthropic API (requires ANTHROPIC_API_KEY)
+      - everything else → OpenAI API (requires OPENAI_API_KEY)
 
-    Falls back to the GEMINI_MODEL / OPENAI_MODEL environment variable when
-    model is None, then to "gemini-2.5-pro-preview-05-06" / "gpt-4.1" respectively.
+    Falls back to GEMINI_MODEL / OPENAI_MODEL env vars when model is None,
+    then to the project-wide DEFAULT_MODEL from path_config.yaml.
     """
     resolved_model = model or ""
     if resolved_model.lower().startswith("gemini") or (
         not resolved_model and os.environ.get("GEMINI_MODEL", "").lower().startswith("gemini")
     ):
         from llmsat.utils.gemini_helper import get_response_from_gemini
-        effective_model = resolved_model or os.environ.get("GEMINI_MODEL", "gemini-2.5-pro-preview-05-06")
+        from llmsat.config import DEFAULT_MODEL
+        effective_model = resolved_model or os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
         logger.info(f"Routing LLM call to Gemini (model={effective_model})")
         return get_response_from_gemini(
             prompt=prompt,
@@ -36,8 +38,17 @@ def get_llm_response(
             model=effective_model,
             temperature=temperature,
         )
+    elif resolved_model.lower().startswith("claude"):
+        from llmsat.utils.anthropic_helper import get_response_from_claude
+        logger.info(f"Routing LLM call to Anthropic (model={resolved_model})")
+        return get_response_from_claude(
+            prompt=prompt,
+            system_message=system_message,
+            model=resolved_model,
+            temperature=temperature,
+        )
     else:
-        effective_model = resolved_model or os.environ.get("OPENAI_MODEL", "gpt-4.1")
+        effective_model = resolved_model or os.environ.get("OPENAI_MODEL", "gpt-5.4-2026-03-05")
         logger.info(f"Routing LLM call to OpenAI (model={effective_model})")
         return get_response_from_chatgpt(
             prompt=prompt,
@@ -69,17 +80,26 @@ def get_response_from_chatgpt(prompt: str, system_message: Optional[str] = None,
     """
     # logger.info(f"Getting response from ChatGPT for prompt: {prompt}")
     client = _get_openai_client()
-    chosen_model = model or os.environ.get("OPENAI_MODEL", "gpt-4.1")
+    chosen_model = model or os.environ.get("OPENAI_MODEL", "gpt-5.4-2026-03-05")
     messages = []
     if system_message:
         messages.append({"role": "system", "content": system_message})
     messages.append({"role": "user", "content": prompt})
-    # Use Responses API (preferred for new SDK)
-    resp = client.responses.create(
-        model=chosen_model,
-        input=messages,
-        temperature=temperature,
-    )
+    # Use Responses API (preferred for new SDK). Models >= gpt-5.5 reject the
+    # temperature parameter outright; retry without it rather than maintaining
+    # a model blocklist.
+    kwargs = {"model": chosen_model, "input": messages}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    try:
+        resp = client.responses.create(**kwargs)
+    except Exception as exc:
+        if "temperature" in kwargs and "temperature" in str(exc).lower():
+            logger.info(f"{chosen_model} rejected temperature; retrying without it")
+            kwargs.pop("temperature")
+            resp = client.responses.create(**kwargs)
+        else:
+            raise
     # logger.info(f"Response from ChatGPT: {resp}")
     # Try multiple extraction strategies for robustness across SDK versions
     text = getattr(resp, "output_text", None)
