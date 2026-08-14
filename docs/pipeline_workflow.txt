@@ -1,3 +1,9 @@
+NOTE (2026-08-14): This document predates the Aug-2026 overhaul and contains
+stale details (quick-eval is 50 CNFs/600s/1200 penalty, not 100/1000/2000;
+the coder prompt is coder_prompt_testing.txt; run_loop_a.sh now takes a
+leading <cc|nb|nersc> cluster argument). README.md and IMPROVEMENTS.md are
+authoritative; treat this file as historical background.
+
 # Full Pipeline Workflow
 
 This document describes the end-to-end pipeline for evolving SAT solver

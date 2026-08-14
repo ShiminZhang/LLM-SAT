@@ -1,6 +1,11 @@
-# LLM-SAT
+# LLM-SAT (KissatEvolve)
 
-Evolutionary search over SAT solver restart heuristics using LLMs. The pipeline generates candidate heuristic function implementations via Gemini, evaluates them on SAT Competition 2025 benchmarks via SLURM, promotes the best, and evolves new candidates through LLM-guided genetic crossover.
+Evolutionary search over kissat SAT-solver heuristic functions using LLMs. The pipeline generates candidate heuristic implementations (Gemini/OpenAI/Claude), evaluates them on SAT Competition benchmarks via SLURM, validates answers (DRAT proofs for UNSAT, model checking for SAT), promotes the best, and steers future mutations through a FAISS-backed experience memory bank with optional subcategory targeting.
+
+> **Aug 2026 overhaul:** the codebase was systematically audited and improved on branch
+> `claude/overhaul` — see [IMPROVEMENTS.md](IMPROVEMENTS.md) for every decision, fixed bug,
+> and new capability (controlled retrieval, SAT model checker, ~1s incremental candidate
+> builds, SATCOMP 2024/2026, provider-agnostic model config, 34-test suite).
 
 ## Summary Run
 
@@ -61,20 +66,21 @@ Create a `.env` file in the project root:
 ```
 DB_PASS="<postgres password>"
 OPENAI_API_KEY="<openai key>"
-GOOGLE_API_KEY="<google/gemini key>"
+GOOGLE_PROJECT_ID="<gcp project id>"
+ANTHROPIC_API_KEY="<anthropic key>"   # optional, enables claude-* models
 ```
 
-`DB_PASS` is for the shared PostgreSQL database that stores algorithms, code, and scores. `OPENAI_API_KEY` is used by the genetic evolution pipeline. `GOOGLE_API_KEY` is used by data generation (Gemini batch API).
+`DB_PASS` is for the shared PostgreSQL database that stores algorithms, code, and scores. Gemini runs on **Vertex AI**: it needs `GOOGLE_PROJECT_ID` plus gcloud application-default credentials (`gcloud auth application-default login`), not an API key. `OPENAI_API_KEY` enables `gpt-*` models; `ANTHROPIC_API_KEY` enables `claude-*` models. Model roles (generation/coder/analysis) are set in `path_config.yaml` — see the template.
 
 ### 4. Base solver
 
-The base solver is AE_kissatMAB. Place the `AE_kissat2025_MAB.tar.xz` tarball in the repo root and run:
+Six kissat-family solver tarballs live in the repo root (`AE_kissat2025_MAB`, `Kissat-CURE`, `Kissat_CoRephase_CoReward`, `Kissat_MAB_CoRephase`, `kissat-pred`, `vsa`). Install any of them as the base:
 
 ```bash
-bash setup_aemab.sh
+bash setup_solver.sh AE_kissat2025_MAB.tar.xz
 ```
 
-This extracts the solver to your configured `base_solver` path, copies the function registry, and runs `./configure`.
+This extracts the solver to your configured `base_solver` path, copies the function registry, runs `./configure`, and flattens the `src/makefile` symlink. (`setup_aemab.sh` is the older AE-MAB-only variant.) Build the base once (`cd $base_solver && ./configure && make`) — candidate builds then hardlink-clone the prebuilt tree and rebuild only the injected file (~1s each).
 
 ### 5. Baseline evaluation (for PAR2 normalization)
 
@@ -98,17 +104,18 @@ This enables normalized PAR2 scores (1.0 = same as baseline, lower is better).
 
 ### 6. Benchmarks
 
-Place `track_main_2025.uri` in the repo root (the SAT Competition 2025 URI list), then:
+SAT Competition main tracks 2024, 2025, and 2026 are supported (400 instances each; URI lists in `data/benchmarks/track_main_*.uri` and repo root):
 
 ```bash
-bash scripts/download_satcomp2025.sh
+bash scripts/download_satcomp.sh 2025            # or 2024 / 2026
+bash scripts/download_satcomp.sh 2026 --sample 8 # small sample
 ```
 
-Downloads and extracts ~400 CNF files to `data/benchmarks/satcomp2025/`.
+Resumable; validates DIMACS headers; extracts to `data/benchmarks/satcomp<year>/`. Note: 2024/2026 still need per-year baseline runs + `instance_categories.json` + a quick subset before the evolution loop can target them — see `docs/benchmarks_2024_2026.md` for the exact steps.
 
 ### 7. Function registry
 
-The file `solvers/base/function_registry.yaml` tells the evaluation pipeline which C function to replace and where it lives in the source. It currently targets `kissat_restarting` and `restart_mab` in `src/restart.c`:
+The file `solvers/base/function_registry.yaml` tells the evaluation pipeline which C function to replace and where it lives in the source. The active target is set by `configure_target.py` (currently `kissat_bump_score_increment`); the registry lists every indexed candidate, e.g.:
 
 ```yaml
 functions:
@@ -132,7 +139,7 @@ python scripts/configure_target.py restart_mab --file src/restart.c
 python scripts/configure_target.py my_func --solver /path/to/solver
 ```
 
-This updates the function registry, rewrites the prompt templates (`leader_prompt_testing.txt` and `coder_prompt_testing.txt`) with the correct target name, signature, and embedded source file. Without this script you'd need to manually edit both prompts and the registry.
+This updates the function registry, rewrites the prompt templates (`leader_prompt_testing.txt` and `coder_prompt_testing.txt`) with the correct target name, signature, and embedded source file, and points `experience_pool_data_root` at the target's memory bank. Injection additionally verifies at build time that the function really is where the registry says (relocating or refusing if stale), so a missed re-index can no longer corrupt source files.
 
 ## SLURM Configuration
 
@@ -162,7 +169,7 @@ Runs N iterations of: generate mutant variants → SLURM evaluation → collect 
 **Usage:**
 
 ```bash
-./run_loop_a.sh <cc|nersc> <base_tag> <n_iterations> [source_tag] [--init]
+./run_loop_a.sh <cc|nb|nersc> <base_tag> <n_iterations> [source_tag] [--init]
 ```
 
 **Arguments:**
@@ -180,10 +187,14 @@ Runs N iterations of: generate mutant variants → SLURM evaluation → collect 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `M_VARIANTS` | 3 | Number of mutant variants per leader |
-| `MODEL` | `gemini-3-flash-preview` | LLM model for generation |
+| `MODEL` | `default_model` from path_config.yaml (`gemini-3.1-pro-preview`) | LLM model for generation |
+| `TARGET_SUBCATEGORY` | (unset) | Controlled retrieval: `easy`\|`hard`\|`sat`\|`unsat` steers mutation exemplars toward that subcategory |
+| `QUICK_EVAL` | 1 | Quick 50-CNF eval (600s/1200 penalty) vs full 400 (5000s/10000) |
+| `VERIFY_PROOFS` | 1 | DRAT-check UNSAT proofs + model-check SAT answers; gates promotion |
 | `POLL_INTERVAL` | 120 | Seconds between SLURM job status checks |
 | `N_LEADERS` | 5 | (Init mode only) Number of leaders to generate |
 | `DESIGNER_PROMPT` | `data/prompts/leader_prompt_testing.txt` | (Init mode only) Path to leader prompt |
+| `LLMSAT_BUILD_CONCURRENCY` | 8 | Concurrent candidate builds (each ~1s incremental) |
 
 **Examples:**
 
@@ -241,14 +252,15 @@ Promotes top offspring from a refined population, runs LLM-guided genetic crosso
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TOP_K` | 5 | LLM combination proposals per minibatch |
+| `TOP_K` | 10 | LLM combination proposals per minibatch |
 | `MINIBATCH_SIZE` | 10 | Leaders per LLM proposal call |
 | `RUBRIC_MIN` | 6.0 | Minimum proposal score to proceed |
-| `RUBRIC_KEEP_TOP_N` | 10 | Keep top-N proposals after score filter |
-| `SHUFFLE_PASSES` | 1 | Number of shuffled minibatch passes |
-| `MODEL` | `gemini-3-flash-preview` | LLM model |
-| `PAR2_KEEP_TOP_N` | 7 | Keep top-N offspring by PAR2 score |
+| `RUBRIC_KEEP_TOP_N` | 50 | Keep top-N proposals after score filter (also the promote count) |
+| `SHUFFLE_PASSES` | 2 | Number of shuffled minibatch passes |
+| `MODEL` | `default_model` from path_config.yaml | LLM model |
+| `PAR2_KEEP_TOP_N` | 50 | Keep top-N offspring by PAR2 score (run_ge_collect.sh defaults to 7) |
 | `POLL_INTERVAL` | 120 | Seconds between SLURM job status checks |
+| `QUICK_EVAL` | 1 | Set to `0` for full evaluation |
 
 **Example:**
 
@@ -301,9 +313,10 @@ M_VARIANTS=3 ./run_loop_a.sh cc experiment1_gen1 3
 **Results location:**
 
 - Solver binaries and code: `solvers/<TAG>/{leaders,members}/algorithm_<ID>/code_<ID>/`
-- Per-instance times: `results/solving_times_<code_id>.json`
-- PAR2 breakdown: `results/par2_breakdown_<code_id>.json`
-- Solver statistics: `results/solver_stats_<code_id>.json`
+- Per-instance times: `solvers/<TAG>/<role>/algorithm_<ID>/solving_times_<code_id>.json`
+- PAR2 breakdown / solver statistics: `par2_breakdown_<code_id>.json` / `solver_stats_<code_id>.json` alongside it
+- Run artifacts (job ids, timing, par2 report, proof verdicts): `outputs/<TAG>/`
+- Reclaim old runs' build trees: `scripts/prune_run_artifacts.sh <solvers-dir>` (dry-run by default)
 
 **PAR2 scoring:**
 
@@ -346,8 +359,16 @@ python scripts/verify_iteration_proofs.py \
     --slurm-max-concurrent "$PROOF_VERIFY_MAX_CONCURRENT"
 ```
 
-The run_loop_a.sh will automatically call validation after each iteration too. (only tested on rescale env, further testing needed.)
+`run_loop_a.sh` calls validation after each iteration automatically. Validation covers **both answer types**: UNSAT proofs are checked with drat-trim, and SAT models are verified against the CNF by `tools/checkmodel` (built automatically; without it SAT results are recorded `unverified`, which blocks promotion fail-safe).
 
-After all validation jobs are done, there will be multiple proof_verification_xxx.json in outputs/tag/ directory. All invalid (solver,formula) runs for an iteration will be recorded in proof_verification_invalid.json. They should be empty for valid solvers. 
+After all validation jobs are done, there will be multiple proof_verification_xxx.json in outputs/tag/ directory. All invalid (solver,formula) runs for an iteration will be recorded in proof_verification_invalid.json. They should be empty for valid solvers.
 
 Complete results including verification timeout and verification mem-kill warning will be in proof_verification.json.
+
+---
+
+## Tests
+
+```bash
+python -m pytest tests/    # 34 tests: injector safety, instance keys, controlled retrieval, checkmodel
+```
