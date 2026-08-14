@@ -40,7 +40,7 @@ One-page summary for the team meeting. Full decision log with commit hashes: [IM
 
 1. **Rotate the Postgres credential** (it is in git history on GitHub).
 2. **~600 GB reclaimable** in old run archives (`scripts/prune_run_artifacts.sh`, dry-run ready) — needs a go-ahead.
-3. **Baseline is stale**: today's smoke measured PAR-2 564.69 vs the configured 429.82 on the same base solver — normalized scores are currently misleading; recommend a 3-repeat re-baseline before the next campaign.
+3. **Baseline is stale and eval noise is large**: three same-day repeats of the unmodified base solver measured PAR-2 **564.69 / 791.28 / 789.68** vs the configured 429.82 (raw data in `solvers/base/result_quick_rep{1,2,3}/`). Normalized scores are currently meaningless on this cluster, and ~40% run-to-run spread means candidate-vs-baseline comparisons need same-batch scheduling or repeats — worth a protocol decision before the next campaign.
 4. **Coder-model A/B**: `gemini-3.6-flash` is ~2.7× cheaper than the current coder; one quick-eval iteration per arm would settle whether quality holds.
 5. Add `ANTHROPIC_API_KEY` if you want Claude in the mix (routing is ready).
 6. SC2024/SC2026 need per-year baselines + categories before the loop can target them (steps in `docs/benchmarks_2024_2026.md`).
