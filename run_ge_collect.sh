@@ -17,6 +17,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/loop_common.sh
+source "${SCRIPT_DIR}/scripts/lib/loop_common.sh"
+
 if [ $# -lt 3 ]; then
     echo "Usage: $0 <cc|nersc> <generation_tag> <output_tag>"
     exit 1
@@ -35,8 +39,7 @@ elif [ "$CLUSTER" != "cc" ]; then
 fi
 
 PAR2_KEEP_TOP_N="${PAR2_KEEP_TOP_N:-7}"
-_CFG_MODEL=$(grep '^default_model:' path_config.yaml 2>/dev/null | sed 's/^default_model:[[:space:]]*//' | tr -d '"' || true)
-MODEL="${MODEL:-${_CFG_MODEL:-gemini-3-flash-preview}}"
+MODEL="${MODEL:-$(cfg_default_model)}"
 
 echo "============================================"
 echo "GE Phase 2: Collect Results"

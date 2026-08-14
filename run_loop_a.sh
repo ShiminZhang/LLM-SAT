@@ -31,6 +31,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/loop_common.sh
+source "${SCRIPT_DIR}/scripts/lib/loop_common.sh"
+
 DATAGEN_MAX_RETRIES="${DATAGEN_MAX_RETRIES:-10}"
 DATAGEN_RETRY_DELAY="${DATAGEN_RETRY_DELAY:-60}"
 
@@ -55,6 +59,24 @@ run_datagen_with_retry() {
         echo "  [datagen] Failed, retrying in ${DATAGEN_RETRY_DELAY}s..."
         sleep "$DATAGEN_RETRY_DELAY"
     done
+}
+
+# Record how long we waited on SLURM eval jobs in the tag's timing log.
+# Usage: record_eval_wait <tag> <eval_wait_seconds>
+record_eval_wait() {
+    local tag="$1"
+    local eval_wait_s="$2"
+    python3 - "outputs/${tag}/timing_log.json" "$eval_wait_s" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+wait_s = int(sys.argv[2])
+if os.path.exists(p):
+    d = json.load(open(p))
+    rec = d[-1] if isinstance(d, list) else d
+    rec['eval_wait_s'] = wait_s
+    rec['total_s'] = round(rec.get('pipeline_wall_s', 0) + wait_s, 2)
+    json.dump(d, open(p, 'w'), indent=2)
+PY
 }
 
 if [ $# -lt 3 ]; then
@@ -108,93 +130,14 @@ esac
 NERSC_FLAG=$([ "$CLUSTER" = "nersc" ] && echo "--nersc" || echo "")
 POLL_INTERVAL="${POLL_INTERVAL:-120}"  # seconds between squeue checks
 M_VARIANTS="${M_VARIANTS:-3}"
-_CFG_MODEL=$(grep '^default_model:' path_config.yaml 2>/dev/null | sed 's/^default_model:[[:space:]]*//' | tr -d '"' || true)
-MODEL="${MODEL:-${_CFG_MODEL:-gemini-3-flash-preview}}"
+MODEL="${MODEL:-$(cfg_default_model)}"
 PARALLEL="${PARALLEL:-0}"
 QUICK_EVAL="${QUICK_EVAL:-1}"
 VERIFY_PROOFS="${VERIFY_PROOFS:-1}"
-DRAT_TRIM_CMD="${DRAT_TRIM_CMD:-external/drat-trim/drat-trim}"
-PROOF_CHECK_TIMEOUT="${PROOF_CHECK_TIMEOUT:-7200}"
 PROOF_VERIFY_TIME="${PROOF_VERIFY_TIME:-01:00:00}"
 PROOF_VERIFY_MEM="${PROOF_VERIFY_MEM:-10G}"
-PROOF_VERIFY_MAX_CONCURRENT="${PROOF_VERIFY_MAX_CONCURRENT:-200}"
-if [ "$CLUSTER" = "nersc" ]; then
-    PROOF_VERIFY_ACCOUNT="${PROOF_VERIFY_ACCOUNT:-m4831}"
-    PROOF_VERIFY_QOS="${PROOF_VERIFY_QOS:-regular}"
-    PROOF_VERIFY_CONSTRAINT="${PROOF_VERIFY_CONSTRAINT:-cpu}"
-else
-    PROOF_VERIFY_ACCOUNT="${PROOF_VERIFY_ACCOUNT:-def-vganesh}"
-fi
-
-resolve_drat_trim() {
-    local cmd="$1"
-    if [[ "$cmd" == */* ]]; then
-        if [ -x "$cmd" ]; then
-            printf '%s\n' "$cmd"
-            return 0
-        fi
-    else
-        if command -v "$cmd" >/dev/null 2>&1; then
-            command -v "$cmd"
-            return 0
-        fi
-    fi
-    return 1
-}
-
-ensure_drat_trim_available() {
-    local resolved
-    if resolved="$(resolve_drat_trim "$DRAT_TRIM_CMD")"; then
-        DRAT_TRIM_CMD="$resolved"
-        return 0
-    fi
-
-    echo "drat-trim not available at '$DRAT_TRIM_CMD'; attempting local build..."
-    if ! make -C external/drat-trim drat-trim; then
-        echo "ERROR: failed to build drat-trim in external/drat-trim" >&2
-        return 1
-    fi
-
-    if resolved="$(resolve_drat_trim "$DRAT_TRIM_CMD")"; then
-        DRAT_TRIM_CMD="$resolved"
-        return 0
-    fi
-
-    if resolved="$(resolve_drat_trim "external/drat-trim/drat-trim")"; then
-        DRAT_TRIM_CMD="$resolved"
-        return 0
-    fi
-
-    echo "ERROR: drat-trim is still unavailable after build attempt" >&2
-    return 1
-}
-
-
-submit_proof_verification_job() {
-    local generation_tag="$1"
-    local slurm_args=(
-        --slurm-account "$PROOF_VERIFY_ACCOUNT"
-        --slurm-mem "$PROOF_VERIFY_MEM"
-        --slurm-time "$PROOF_VERIFY_TIME"
-        --slurm-max-concurrent "$PROOF_VERIFY_MAX_CONCURRENT"
-    )
-
-    if [ "$CLUSTER" = "nersc" ]; then
-        slurm_args+=(
-            --nersc
-            --slurm-qos "$PROOF_VERIFY_QOS"
-            --slurm-constraint "$PROOF_VERIFY_CONSTRAINT"
-        )
-    fi
-
-    python scripts/verify_iteration_proofs.py \
-        --submit-slurm \
-        --generation_tag "$generation_tag" \
-        --benchmark_path data/benchmarks/satcomp2025 \
-        --drat_trim "$DRAT_TRIM_CMD" \
-        --check_timeout "$PROOF_CHECK_TIMEOUT" \
-        "${slurm_args[@]}"
-}
+# Shared defaults + cluster-aware SLURM account/qos/constraint (loop_common.sh)
+init_proof_verify_defaults
 
 export_proof_candidates() {
     local generation_tag="$1"
@@ -203,81 +146,8 @@ export_proof_candidates() {
         --export-proof-candidates
 }
 
-wait_for_proof_verification_job() {
-    local generation_tag="$1"
-    local metadata_path="outputs/${generation_tag}/proof_verification_job.json"
-
-    _parse_proof_job_state() {
-        python3 -c "
-import json, subprocess, sys
-path = '$metadata_path'
-try:
-    with open(path) as f:
-        meta = json.load(f)
-except FileNotFoundError:
-    print(-2)
-    sys.exit(0)
-status = meta.get('status')
-if status in ('no_tasks', 'all_tasks_already_collected'):
-    print(0)
-    sys.exit(0)
-job_id = meta.get('collector_job_id')
-if not job_id:
-    print(-3)
-    sys.exit(0)
-result = subprocess.run(
-    ['squeue', '-j', str(job_id), '-h'],
-    capture_output=True, text=True
-)
-if result.returncode != 0:
-    # squeue returns non-zero when the job ID is no longer in queue
-    # (completed and aged out). Treat empty stdout as "0 running".
-    if not result.stdout.strip():
-        print(0)
-    else:
-        print(-1)
-    sys.exit(0)
-lines = [l for l in result.stdout.strip().split('\\n') if l.strip()]
-print(len(lines))
-" 2>/dev/null
-    }
-
-    while true; do
-        RUNNING=$(_parse_proof_job_state)
-
-        if [ "$RUNNING" = "-1" ]; then
-            echo "  proof squeue query failed, retrying in ${POLL_INTERVAL}s..."
-            sleep "$POLL_INTERVAL"
-            continue
-        fi
-
-        if [ "$RUNNING" = "-2" ]; then
-            echo "ERROR: proof verification metadata missing at $metadata_path" >&2
-            return 1
-        fi
-
-        if [ "$RUNNING" = "-3" ]; then
-            echo "ERROR: proof verification collector job ID missing in $metadata_path" >&2
-            return 1
-        fi
-
-        if [ "$RUNNING" -eq 0 ] 2>/dev/null; then
-            echo "  Proof verification completed"
-            break
-        fi
-
-        echo "  Proof verification still pending/running, waiting ${POLL_INTERVAL}s..."
-        sleep "$POLL_INTERVAL"
-    done
-}
-
 if [ "$VERIFY_PROOFS" = "1" ]; then
-    ensure_drat_trim_available
-    # SAT model checker (validates satisfying assignments, not just proofs);
-    # verify_iteration_proofs.py degrades SAT results to "unverified" without it.
-    if [ ! -x tools/checkmodel/checkmodel ]; then
-        make -s -C tools/checkmodel || echo "WARNING: checkmodel build failed; SAT models will be unverified" >&2
-    fi
+    ensure_verifiers_available
 fi
 
 # Controlled retrieval: set TARGET_SUBCATEGORY=easy|hard|sat|unsat to steer
@@ -355,86 +225,14 @@ if [ "$INIT" = true ]; then
             $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval " )--batch-mode
     fi
 
-    # Poll SLURM until all jobs complete
-    JOB_IDS_FILE="outputs/${INIT_TAG}/submitted_job_ids.json"
-    JOB_IDS_JSONL="outputs/${INIT_TAG}/submitted_job_ids.jsonl"
+    # Poll SLURM until all jobs complete (job IDs merged from
+    # submitted_job_ids.json/.jsonl by poll_slurm_job_ids in loop_common.sh)
     echo "[Init Step 3] Polling SLURM jobs..."
-
-    _parse_init_job_ids() {
-        python3 -c "
-import json, subprocess, sys
-ids = []
-try:
-    with open('$JOB_IDS_JSONL') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                record = json.loads(line)
-                ids.extend(record.get('job_ids', []))
-except FileNotFoundError:
-    pass
-# Always merge JSON IDs too: in NERSC parallel mode the final accumulator flush
-# writes IDs only to the consolidated JSON (not JSONL), so JSONL can be non-empty
-# but incomplete.  Using JSONL as a fallback-only source would miss those IDs.
-try:
-    json_ids = json.load(open('$JOB_IDS_FILE')).get('job_ids', [])
-    ids = list(dict.fromkeys(ids + json_ids))
-except (FileNotFoundError, json.JSONDecodeError):
-    pass
-if not ids:
-    print(0)
-    sys.exit(0)
-result = subprocess.run(
-    ['squeue', '-j', ','.join(str(j) for j in ids), '-h'],
-    capture_output=True, text=True
-)
-if result.returncode != 0:
-    # squeue returns non-zero once all passed job IDs have aged out of the
-    # queue. Treat empty stdout as "0 running"; surface real query failures
-    # (e.g. scheduler outage) as -1.
-    if not result.stdout.strip():
-        print(0)
-    else:
-        print(-1)
-    sys.exit(0)
-lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
-print(len(lines))
-" 2>/dev/null
-    }
-
     EVAL_POLL_START=$SECONDS
-    if [ ! -f "$JOB_IDS_FILE" ] && [ ! -f "$JOB_IDS_JSONL" ]; then
-        echo "  No job IDs file found, skipping poll"
-    else
-        while true; do
-            RUNNING=$(_parse_init_job_ids)
-
-            if [ "$RUNNING" = "-1" ]; then
-                echo "  squeue query failed, retrying in ${POLL_INTERVAL}s..."
-                sleep "$POLL_INTERVAL"
-                continue
-            fi
-
-            if [ "$RUNNING" -eq 0 ] 2>/dev/null; then
-                echo "  All SLURM jobs completed"
-                break
-            fi
-            echo "  $RUNNING jobs still running/pending, waiting ${POLL_INTERVAL}s..."
-            sleep "$POLL_INTERVAL"
-        done
-    fi
+    poll_slurm_job_ids "$INIT_TAG" "$POLL_INTERVAL"
     EVAL_WAIT=$(( SECONDS - EVAL_POLL_START ))
     echo "  Eval wait: ${EVAL_WAIT}s"
-    python3 -c "
-import json, os
-p = 'outputs/${INIT_TAG}/timing_log.json'
-if os.path.exists(p):
-    d = json.load(open(p))
-    rec = d[-1] if isinstance(d, list) else d
-    rec['eval_wait_s'] = $EVAL_WAIT
-    rec['total_s'] = round(rec.get('pipeline_wall_s', 0) + $EVAL_WAIT, 2)
-    json.dump(d, open(p, 'w'), indent=2)
-"
+    record_eval_wait "$INIT_TAG" "$EVAL_WAIT"
 
     # Step 0d: Collect PAR2 results
     echo "[Init Step 4] Collecting results..."
@@ -512,88 +310,14 @@ for i in $(seq 1 "$N_ITERATIONS"); do
             $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval " )--batch-mode --skip-evaluated
     fi
 
-    # Step 3: Poll SLURM until all jobs complete
-    JOB_IDS_FILE="outputs/${ITER_TAG}/submitted_job_ids.json"
-    JOB_IDS_JSONL="outputs/${ITER_TAG}/submitted_job_ids.jsonl"
+    # Step 3: Poll SLURM until all jobs complete (job IDs merged from
+    # submitted_job_ids.json/.jsonl by poll_slurm_job_ids in loop_common.sh)
     echo "[Step 3] Polling SLURM jobs..."
-
-    # Parse job IDs from either JSONL (parallel) or JSON (sequential) format
-    _parse_job_ids() {
-        python3 -c "
-import json, subprocess, sys
-ids = []
-# Read JSONL first (parallel mode: threshold-triggered batch IDs)
-try:
-    with open('$JOB_IDS_JSONL') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                record = json.loads(line)
-                ids.extend(record.get('job_ids', []))
-except FileNotFoundError:
-    pass
-# Always merge JSON IDs too: in NERSC parallel mode the final accumulator flush
-# writes IDs only to the consolidated JSON (not JSONL), so JSONL can be non-empty
-# but incomplete.  Using JSONL as a fallback-only source would miss those IDs.
-try:
-    json_ids = json.load(open('$JOB_IDS_FILE')).get('job_ids', [])
-    ids = list(dict.fromkeys(ids + json_ids))
-except (FileNotFoundError, json.JSONDecodeError):
-    pass
-if not ids:
-    print(0)
-    sys.exit(0)
-result = subprocess.run(
-    ['squeue', '-j', ','.join(str(j) for j in ids), '-h'],
-    capture_output=True, text=True
-)
-if result.returncode != 0:
-    # squeue returns non-zero once all passed job IDs have aged out of the
-    # queue. Treat empty stdout as "0 running"; surface real query failures
-    # (e.g. scheduler outage) as -1.
-    if not result.stdout.strip():
-        print(0)
-    else:
-        print(-1)
-    sys.exit(0)
-lines = [l for l in result.stdout.strip().split('\n') if l.strip()]
-print(len(lines))
-" 2>/dev/null
-    }
-
     EVAL_POLL_START=$SECONDS
-    if [ ! -f "$JOB_IDS_FILE" ] && [ ! -f "$JOB_IDS_JSONL" ]; then
-        echo "  No job IDs file found, skipping poll"
-    else
-        while true; do
-            RUNNING=$(_parse_job_ids)
-
-            if [ "$RUNNING" = "-1" ]; then
-                echo "  squeue query failed, retrying in ${POLL_INTERVAL}s..."
-                sleep "$POLL_INTERVAL"
-                continue
-            fi
-
-            if [ "$RUNNING" -eq 0 ] 2>/dev/null; then
-                echo "  All SLURM jobs completed"
-                break
-            fi
-            echo "  $RUNNING jobs still running/pending, waiting ${POLL_INTERVAL}s..."
-            sleep "$POLL_INTERVAL"
-        done
-    fi
+    poll_slurm_job_ids "$ITER_TAG" "$POLL_INTERVAL"
     EVAL_WAIT=$(( SECONDS - EVAL_POLL_START ))
     echo "  Eval wait: ${EVAL_WAIT}s"
-    python3 -c "
-import json, os
-p = 'outputs/${ITER_TAG}/timing_log.json'
-if os.path.exists(p):
-    d = json.load(open(p))
-    rec = d[-1] if isinstance(d, list) else d
-    rec['eval_wait_s'] = $EVAL_WAIT
-    rec['total_s'] = round(rec.get('pipeline_wall_s', 0) + $EVAL_WAIT, 2)
-    json.dump(d, open(p, 'w'), indent=2)
-"
+    record_eval_wait "$ITER_TAG" "$EVAL_WAIT"
 
     # Step 4: Collect PAR2 results
     echo "[Step 4] Collecting results..."

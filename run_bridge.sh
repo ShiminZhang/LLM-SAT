@@ -1,9 +1,10 @@
 #!/bin/bash
-# run_bridge.sh — Bridge: GE Offspring → New Leader Pool → Next GE Run (Phase 1)
+# run_bridge.sh — Bridge: GE Offspring → New Leader Pool → Next GE Run
 #
-# Promotes top-N offspring from a GE run as new leaders, then immediately
-# kicks off the next GE run (LLM stages + SLURM submission). Scans ALL
-# _iter* variants of ge_output_tag and selects top-N by lowest PAR2.
+# Promotes top-N offspring from a GE run as new leaders, kicks off the next
+# GE run (LLM stages + SLURM submission), waits for this run's SLURM jobs,
+# then collects PAR2 results and selects the top offspring. Scans ALL
+# _iter* variants of input_tag and selects top-N by lowest PAR2.
 #
 # Usage:
 #   ./run_bridge.sh <cc|nersc> <input_tag> <output_tag>
@@ -14,19 +15,23 @@
 # Arguments:
 #   cc|nersc    - Cluster to run on
 #   input_tag   - Tag to read evaluated offspring from (scans _iter1, _iter2, ... automatically)
-#   output_tag  - Tag for the next GE run's offspring (Phase 1: submit_only)
+#   output_tag  - Tag for the next GE run's offspring
 #
-# The intermediate leader pool is auto-derived as: {input_tag}_promoted_iter0
+# The intermediate leader pool is auto-derived as: {output_tag}_ge
 #
 # Hyperparameter overrides (env vars):
-#   TOP_K            - LLM combination proposals per minibatch (default: 5)
+#   TOP_K            - LLM combination proposals per minibatch (default: 10)
 #   MINIBATCH_SIZE   - Leaders per LLM proposal call (default: 10)
 #   RUBRIC_MIN       - Minimum proposal score to proceed (default: 6.0)
-#   RUBRIC_KEEP_TOP_N - Keep top-N proposals after score filter (default: 10)
-#   MODEL            - LLM model (default: gemini-3-flash-preview)
-# Note: PAR2_KEEP_TOP_N is used in run_ge_collect.sh (Phase 2), not here.
+#   RUBRIC_KEEP_TOP_N - Keep top-N proposals after score filter (default: 50)
+#   PAR2_KEEP_TOP_N  - Keep top-N offspring by PAR2 in Step 3 collection (default: 50)
+#   MODEL            - LLM model (default: default_model from path_config.yaml)
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/loop_common.sh
+source "${SCRIPT_DIR}/scripts/lib/loop_common.sh"
 
 if [ $# -lt 3 ]; then
     echo "Usage: $0 <cc|nersc> <input_tag> <output_tag>"
@@ -45,8 +50,7 @@ TOP_K="${TOP_K:-10}"
 MINIBATCH_SIZE="${MINIBATCH_SIZE:-10}"
 RUBRIC_MIN="${RUBRIC_MIN:-6.0}"
 RUBRIC_KEEP_TOP_N="${RUBRIC_KEEP_TOP_N:-50}"
-_CFG_MODEL=$(grep '^default_model:' path_config.yaml 2>/dev/null | sed 's/^default_model:[[:space:]]*//' | tr -d '"' || true)
-MODEL="${MODEL:-${_CFG_MODEL:-gemini-3-flash-preview}}"
+MODEL="${MODEL:-$(cfg_default_model)}"
 SHUFFLE_PASSES="${SHUFFLE_PASSES:-2}"
 PAR2_KEEP_TOP_N="${PAR2_KEEP_TOP_N:-50}"
 POLL_INTERVAL="${POLL_INTERVAL:-120}"
@@ -108,24 +112,18 @@ python "$GE_SCRIPT" \
     --shuffle_passes "$SHUFFLE_PASSES" \
     --model "$MODEL" \
     $NERSC_FLAG \
-    ${QUICK_EVAL:+--quick_eval} \
+    $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick_eval" ) \
     --n_api_threads "$N_API_THREADS" \
     --n_build_threads "$N_BUILD_THREADS"
 echo "[Step 1] Done."
 
-# Step 2: Poll SLURM until all user jobs finish
+# Step 2: Poll SLURM until this run's submitted jobs finish. The GE pipeline
+# records its SLURM array IDs under outputs/${OUTPUT_TAG}/ (for --evaluate runs
+# in evolution_summary.json's slurm_job_ids); poll_slurm_job_ids merges them
+# with submitted_job_ids.json/.jsonl so unrelated jobs of $USER are ignored.
 echo ""
-echo "[Step 2] Waiting for all SLURM jobs to complete..."
-echo "         (Note: polling all jobs for user $USER)"
-while true; do
-    RUNNING=$(squeue -u "$USER" -h 2>/dev/null | wc -l)
-    if [ "$RUNNING" -eq 0 ]; then
-        echo "  [Step 2] All SLURM jobs completed."
-        break
-    fi
-    echo "  [Step 2] $RUNNING jobs still running/pending, waiting ${POLL_INTERVAL}s..."
-    sleep "$POLL_INTERVAL"
-done
+echo "[Step 2] Waiting for this run's SLURM jobs to complete..."
+poll_slurm_job_ids "$OUTPUT_TAG" "$POLL_INTERVAL"
 
 # Step 3: Collect GE results and run PAR2 selection
 echo ""
