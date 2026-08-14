@@ -273,6 +273,11 @@ print(len(lines))
 
 if [ "$VERIFY_PROOFS" = "1" ]; then
     ensure_drat_trim_available
+    # SAT model checker (validates satisfying assignments, not just proofs);
+    # verify_iteration_proofs.py degrades SAT results to "unverified" without it.
+    if [ ! -x tools/checkmodel/checkmodel ]; then
+        make -s -C tools/checkmodel || echo "WARNING: checkmodel build failed; SAT models will be unverified" >&2
+    fi
 fi
 
 echo "============================================"

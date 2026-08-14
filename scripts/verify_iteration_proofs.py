@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Verify UNSAT proofs for successful solvers in one generation tag using drat-trim."""
+"""Verify solver answers for one generation tag.
+
+UNSAT answers are checked with drat-trim against the emitted proof.
+SAT answers are checked with tools/checkmodel, which replays the model
+printed in the solving log ("s SATISFIABLE" + "v" lines) against every
+clause of the CNF.  If the checkmodel binary is unavailable, SAT answers
+fall back to the historical marker-only classification but are reported
+as "unverified" instead of "valid".
+"""
 
 from __future__ import annotations
 
@@ -47,6 +55,12 @@ SIGNAL_MARKERS = (
     "raised signal ",
     "caught signal ",
 )
+
+# SAT model verification (tools/checkmodel/checkmodel.c).
+DEFAULT_CHECKMODEL_CMD = "tools/checkmodel/checkmodel"
+CHECKMODEL_UNAVAILABLE_MESSAGE = "checkmodel unavailable — SAT model NOT verified"
+TASK_KIND_UNSAT = "unsat_proof"
+TASK_KIND_SAT = "sat_model"
 
 
 @dataclass
@@ -189,6 +203,10 @@ class ProofTask:
     cnf_file: str
     cnf_path: str
     proof_path: str
+    # TASK_KIND_UNSAT: check proof_path with drat-trim.
+    # TASK_KIND_SAT: check the model in log_path with checkmodel.
+    kind: str = TASK_KIND_UNSAT
+    log_path: str = ""
 
 
 def gather_proof_tasks(
@@ -279,15 +297,18 @@ def gather_proof_tasks(
                     )
                     continue
 
-                valid_records.append(
-                    ProofCheckRecord(
+                # A SAT claim is only trusted after the printed model has
+                # been replayed against the CNF by checkmodel, so it becomes
+                # a verification task instead of an automatic "valid".
+                tasks.append(
+                    ProofTask(
                         algorithm_id=algorithm_id,
                         code_id=code_id,
                         cnf_file=cnf_file,
                         cnf_path=cnf_path,
                         proof_path=proof_path,
-                        status="valid",
-                        message="SAT log without check failure",
+                        kind=TASK_KIND_SAT,
+                        log_path=log_path,
                     )
                 )
                 continue
@@ -346,11 +367,115 @@ def gather_proof_tasks(
     return tasks, valid_records, invalid_records, timeout_records
 
 
+def _unverified_record(task: ProofTask) -> ProofCheckRecord:
+    return ProofCheckRecord(
+        algorithm_id=task.algorithm_id,
+        code_id=task.code_id,
+        cnf_file=task.cnf_file,
+        cnf_path=task.cnf_path,
+        proof_path=task.proof_path,
+        status="unverified",
+        message=CHECKMODEL_UNAVAILABLE_MESSAGE,
+    )
+
+
+def run_checkmodel_task(
+    task: ProofTask,
+    checkmodel_cmd: Optional[str],
+    check_timeout_sec: int,
+) -> ProofCheckRecord:
+    if not checkmodel_cmd:
+        # Historical marker-only fallback: the log already passed the
+        # SAT-checkfail/signal markers in gather_proof_tasks, but the model
+        # itself was never validated, so it must not be reported as "valid".
+        return _unverified_record(task)
+
+    if not os.path.exists(task.cnf_path):
+        return ProofCheckRecord(
+            algorithm_id=task.algorithm_id,
+            code_id=task.code_id,
+            cnf_file=task.cnf_file,
+            cnf_path=task.cnf_path,
+            proof_path=task.proof_path,
+            status="failed",
+            message="CNF file not found",
+        )
+
+    if not task.log_path or not os.path.exists(task.log_path):
+        return ProofCheckRecord(
+            algorithm_id=task.algorithm_id,
+            code_id=task.code_id,
+            cnf_file=task.cnf_file,
+            cnf_path=task.cnf_path,
+            proof_path=task.proof_path,
+            status="failed",
+            message="Solving log not found",
+        )
+
+    try:
+        proc = subprocess.run(
+            [checkmodel_cmd, task.cnf_path, task.log_path],
+            capture_output=True,
+            text=True,
+            timeout=check_timeout_sec,
+        )
+        out = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        if proc.returncode == 0 and "MODEL VERIFIED" in out:
+            return ProofCheckRecord(
+                algorithm_id=task.algorithm_id,
+                code_id=task.code_id,
+                cnf_file=task.cnf_file,
+                cnf_path=task.cnf_path,
+                proof_path=task.proof_path,
+                status="valid",
+                returncode=proc.returncode,
+                message="checkmodel verified model",
+            )
+
+        tail = out.strip()[-800:]
+        if proc.returncode == 1:
+            return ProofCheckRecord(
+                algorithm_id=task.algorithm_id,
+                code_id=task.code_id,
+                cnf_file=task.cnf_file,
+                cnf_path=task.cnf_path,
+                proof_path=task.proof_path,
+                status="invalid",
+                returncode=proc.returncode,
+                message=f"model failed: {tail or 'checkmodel reported MODEL FAILED'}",
+            )
+
+        return ProofCheckRecord(
+            algorithm_id=task.algorithm_id,
+            code_id=task.code_id,
+            cnf_file=task.cnf_file,
+            cnf_path=task.cnf_path,
+            proof_path=task.proof_path,
+            status="failed",
+            returncode=proc.returncode,
+            message=f"checkmodel error (exit {proc.returncode}): {tail}",
+        )
+    except subprocess.TimeoutExpired:
+        return ProofCheckRecord(
+            algorithm_id=task.algorithm_id,
+            code_id=task.code_id,
+            cnf_file=task.cnf_file,
+            cnf_path=task.cnf_path,
+            proof_path=task.proof_path,
+            status="timeout",
+            message=f"checkmodel timeout ({check_timeout_sec}s)",
+        )
+
+
 def run_proof_task(
     task: ProofTask,
     drat_trim_cmd: str,
     check_timeout_sec: int,
+    checkmodel_cmd: Optional[str] = None,
 ) -> ProofCheckRecord:
+    if task.kind == TASK_KIND_SAT:
+        return run_checkmodel_task(task, checkmodel_cmd, check_timeout_sec)
+
     if not os.path.exists(task.cnf_path):
         return ProofCheckRecord(
             algorithm_id=task.algorithm_id,
@@ -423,8 +548,9 @@ def verify_generation_proofs(
     drat_trim_cmd: str,
     check_timeout_sec: int,
     stop_on_first_fail: bool,
+    checkmodel_cmd: Optional[str] = None,
 ) -> tuple[int, int, int, List[ProofCheckRecord]]:
-    all_unsat_tasks, valid_records, invalid_records, timeout_records = gather_proof_tasks(
+    all_tasks, valid_records, invalid_records, timeout_records = gather_proof_tasks(
         generation_tag, benchmark_path
     )
     records: List[ProofCheckRecord] = (
@@ -435,13 +561,26 @@ def verify_generation_proofs(
     failed = len(invalid_records) + len(timeout_records)
     skipped = 0
 
-    for task in all_unsat_tasks:
-        record = run_proof_task(task, drat_trim_cmd, check_timeout_sec)
+    sat_task_count = sum(1 for task in all_tasks if task.kind == TASK_KIND_SAT)
+    if sat_task_count and not checkmodel_cmd:
+        print(
+            f"WARNING: {CHECKMODEL_UNAVAILABLE_MESSAGE} "
+            f"({sat_task_count} SAT log(s) will be reported as 'unverified')",
+            file=sys.stderr,
+        )
+
+    for task in all_tasks:
+        record = run_proof_task(
+            task, drat_trim_cmd, check_timeout_sec, checkmodel_cmd
+        )
         checked += 1
-        if record.status != "valid":
+        # "unverified" (checkmodel unavailable) preserves the historical
+        # marker-only outcome and therefore does not count as a failure.
+        record_failed = record.status not in ("valid", "unverified")
+        if record_failed:
             failed += 1
         records.append(record)
-        if stop_on_first_fail and record.status != "valid":
+        if stop_on_first_fail and record_failed:
             return checked, failed, skipped, records
 
     return checked, failed, skipped, records
@@ -502,6 +641,8 @@ def _task_to_dict(task: ProofTask) -> dict:
         "cnf_file": task.cnf_file,
         "cnf_path": task.cnf_path,
         "proof_path": task.proof_path,
+        "kind": task.kind,
+        "log_path": task.log_path,
     }
 
 
@@ -512,6 +653,8 @@ def _task_from_dict(data: dict) -> ProofTask:
         cnf_file=data["cnf_file"],
         cnf_path=data["cnf_path"],
         proof_path=data["proof_path"],
+        kind=data.get("kind", TASK_KIND_UNSAT),
+        log_path=data.get("log_path", ""),
     )
 
 
@@ -538,16 +681,34 @@ def submit_proof_verification_slurm(
     nersc: bool = False,
     slurm_constraint: Optional[str] = None,
     slurm_qos: Optional[str] = None,
+    checkmodel_cmd: Optional[str] = None,
 ) -> int:
     out_dir = get_generation_output_dir(generation_tag)
     tasks, valid_records, invalid_records, timeout_records = gather_proof_tasks(
         generation_tag, benchmark_path
     )
+
+    # SAT model tasks require the checkmodel binary. If it is unavailable,
+    # fall back to the historical marker-only classification for those logs,
+    # reported as "unverified" instead of "valid".
+    unverified_records: List[ProofCheckRecord] = []
+    if not checkmodel_cmd:
+        sat_tasks = [task for task in tasks if task.kind == TASK_KIND_SAT]
+        if sat_tasks:
+            print(
+                f"WARNING: {CHECKMODEL_UNAVAILABLE_MESSAGE} "
+                f"({len(sat_tasks)} SAT log(s) will be reported as 'unverified')",
+                file=sys.stderr,
+            )
+            unverified_records = [_unverified_record(task) for task in sat_tasks]
+            tasks = [task for task in tasks if task.kind != TASK_KIND_SAT]
+
     report_path = os.path.join(out_dir, "proof_verification.json")
     metadata_path = os.path.join(out_dir, "proof_verification_job.json")
     valid_records_path = os.path.join(out_dir, "proof_verification_valid.json")
     invalid_records_path = os.path.join(out_dir, "proof_verification_invalid.json")
     timeout_records_path = os.path.join(out_dir, "proof_verification_timeout.json")
+    unverified_records_path = os.path.join(out_dir, "proof_verification_unverified.json")
 
     with open(valid_records_path, "w") as f:
         json.dump([_record_to_dict(record) for record in valid_records], f, indent=2)
@@ -555,11 +716,15 @@ def submit_proof_verification_slurm(
         json.dump([_record_to_dict(record) for record in invalid_records], f, indent=2)
     with open(timeout_records_path, "w") as f:
         json.dump([_record_to_dict(record) for record in timeout_records], f, indent=2)
+    with open(unverified_records_path, "w") as f:
+        json.dump([_record_to_dict(record) for record in unverified_records], f, indent=2)
 
     if not tasks:
         with open(report_path, "w") as f:
             json.dump(
-                build_validation_report(valid_records + invalid_records + timeout_records),
+                build_validation_report(
+                    valid_records + invalid_records + timeout_records + unverified_records
+                ),
                 f,
                 indent=2,
             )
@@ -572,18 +737,22 @@ def submit_proof_verification_slurm(
                     "valid_count": len(valid_records),
                     "invalid_count": len(invalid_records),
                     "timeout_count": len(timeout_records),
+                    "unverified_count": len(unverified_records),
                     "valid_records_path": valid_records_path,
                     "invalid_records_path": invalid_records_path,
                     "timeout_records_path": timeout_records_path,
+                    "unverified_records_path": unverified_records_path,
+                    "checkmodel": checkmodel_cmd,
                     "report_path": report_path,
                 },
                 f,
                 indent=2,
             )
-        print(f"No UNSAT proof tasks found for {generation_tag}")
-        print(f"Recorded {len(valid_records)} valid SAT log(s)")
+        print(f"No proof/model verification tasks found for {generation_tag}")
+        print(f"Recorded {len(valid_records)} valid log(s)")
         print(f"Recorded {len(invalid_records)} invalid log(s)")
         print(f"Recorded {len(timeout_records)} timeout log(s)")
+        print(f"Recorded {len(unverified_records)} unverified SAT log(s)")
         print(f"Report written to: {report_path}")
         return 0
 
@@ -596,11 +765,27 @@ def submit_proof_verification_slurm(
         result_path = _task_result_path(parts_dir, task)
         if os.path.exists(result_path):
             with open(result_path, "r") as f:
-                reused_task_records.append(_record_from_dict(json.load(f)))
+                reused = _record_from_dict(json.load(f))
+            # A part produced while checkmodel was unavailable is only a
+            # marker-based placeholder; re-run it now that checkmodel exists.
+            if (
+                reused.status == "unverified"
+                and checkmodel_cmd
+                and task.kind == TASK_KIND_SAT
+            ):
+                pending_tasks.append(task)
+            else:
+                reused_task_records.append(reused)
         else:
             pending_tasks.append(task)
 
-    records = valid_records + invalid_records + timeout_records + reused_task_records
+    records = (
+        valid_records
+        + invalid_records
+        + timeout_records
+        + unverified_records
+        + reused_task_records
+    )
     with open(valid_records_path, "w") as f:
         json.dump(
             [_record_to_dict(record) for record in records if record.status == "valid"],
@@ -619,6 +804,16 @@ def submit_proof_verification_slurm(
             f,
             indent=2,
         )
+    with open(unverified_records_path, "w") as f:
+        json.dump(
+            [
+                _record_to_dict(record)
+                for record in records
+                if record.status == "unverified"
+            ],
+            f,
+            indent=2,
+        )
 
     if not pending_tasks:
         with open(report_path, "w") as f:
@@ -633,16 +828,21 @@ def submit_proof_verification_slurm(
                     "valid_count": sum(record.status == "valid" for record in records),
                     "invalid_count": sum(record.status == "invalid" for record in records),
                     "timeout_count": sum(record.status == "timeout" for record in records),
+                    "unverified_count": sum(
+                        record.status == "unverified" for record in records
+                    ),
                     "valid_records_path": valid_records_path,
                     "invalid_records_path": invalid_records_path,
                     "timeout_records_path": timeout_records_path,
+                    "unverified_records_path": unverified_records_path,
+                    "checkmodel": checkmodel_cmd,
                     "report_path": report_path,
                 },
                 f,
                 indent=2,
             )
-        print(f"No pending UNSAT proof tasks to submit for {generation_tag}")
-        print(f"Reused {len(reused_task_records)} existing UNSAT verification result(s)")
+        print(f"No pending verification tasks to submit for {generation_tag}")
+        print(f"Reused {len(reused_task_records)} existing verification result(s)")
         print(f"Report written to: {report_path}")
         return 0
 
@@ -701,6 +901,7 @@ PYTHONPATH=src "{python_bin}" scripts/verify_iteration_proofs.py \\
   --run-task-json-env TASK_JSON \\
   --task-output-dir "$PARTS_DIR" \\
   --drat_trim "{drat_trim_cmd}" \\
+  --checkmodel-cmd "{checkmodel_cmd or DEFAULT_CHECKMODEL_CMD}" \\
   --check_timeout "{check_timeout_sec}"
 """
     with open(array_script_path, "w") as f:
@@ -746,7 +947,8 @@ PYTHONPATH=src "{python_bin}" scripts/verify_iteration_proofs.py \\
         f"--task-output-dir {parts_dir} "
         f"--valid-records-path {valid_records_path} "
         f"--invalid-records-path {invalid_records_path} "
-        f"--timeout-records-path {timeout_records_path}"
+        f"--timeout-records-path {timeout_records_path} "
+        f"--unverified-records-path {unverified_records_path}"
     )
     collect_sbatch = slurm_single_wrapper(
         collect_cmd,
@@ -771,11 +973,20 @@ PYTHONPATH=src "{python_bin}" scripts/verify_iteration_proofs.py \\
                     "generation_tag": generation_tag,
                     "status": "submitted",
                     "task_count": len(pending_tasks),
-                    "total_unsat_task_count": len(tasks),
+                    "total_task_count": len(tasks),
+                    "total_unsat_task_count": sum(
+                        task.kind != TASK_KIND_SAT for task in tasks
+                    ),
+                    "total_sat_task_count": sum(
+                        task.kind == TASK_KIND_SAT for task in tasks
+                    ),
                     "reused_task_count": len(reused_task_records),
                     "valid_count": sum(record.status == "valid" for record in records),
                     "invalid_count": sum(record.status == "invalid" for record in records),
                     "timeout_count": sum(record.status == "timeout" for record in records),
+                    "unverified_count": sum(
+                        record.status == "unverified" for record in records
+                    ),
                     "array_job_id": array_job_id,
                     "collector_job_id": collect_job_id,
                     "tasks_path": tasks_path,
@@ -783,10 +994,12 @@ PYTHONPATH=src "{python_bin}" scripts/verify_iteration_proofs.py \\
                 "valid_records_path": valid_records_path,
                 "invalid_records_path": invalid_records_path,
                 "timeout_records_path": timeout_records_path,
+                "unverified_records_path": unverified_records_path,
                 "report_path": report_path,
                 "array_log_root": task_log_root,
                 "collector_log": collect_log,
                 "drat_trim": drat_trim_cmd,
+                "checkmodel": checkmodel_cmd,
                 "nersc": nersc,
                 "slurm_constraint": slurm_constraint,
                 "slurm_qos": slurm_qos,
@@ -796,7 +1009,7 @@ PYTHONPATH=src "{python_bin}" scripts/verify_iteration_proofs.py \\
         )
 
     print(
-        f"Submitted proof verification array job {array_job_id} with "
+        f"Submitted proof/model verification array job {array_job_id} with "
         f"{len(pending_tasks)} task(s); reused {len(reused_task_records)} existing result(s)"
     )
     print(f"Submitted proof verification collector job {collect_job_id}")
@@ -808,6 +1021,7 @@ def run_single_task_from_env(
     env_var: str,
     task_output_dir: str,
     drat_trim_cmd: str,
+    checkmodel_cmd: str,
     check_timeout_sec: int,
 ) -> int:
     task_json = os.environ.get(env_var)
@@ -815,7 +1029,25 @@ def run_single_task_from_env(
         print(f"ERROR: environment variable {env_var} is empty", file=sys.stderr)
         return 2
     task = _task_from_dict(json.loads(task_json))
-    record = run_proof_task(task, drat_trim_cmd, check_timeout_sec)
+
+    if task.kind == TASK_KIND_SAT:
+        checkmodel_path = resolve_checkmodel(checkmodel_cmd)
+        if checkmodel_path is None:
+            print(
+                f"WARNING: {CHECKMODEL_UNAVAILABLE_MESSAGE} "
+                f"(searched: {checkmodel_cmd})",
+                file=sys.stderr,
+            )
+        record = run_checkmodel_task(task, checkmodel_path, check_timeout_sec)
+    else:
+        drat_path = resolve_executable(drat_trim_cmd)
+        if drat_path is None:
+            print(
+                f"ERROR: drat-trim executable not found: {drat_trim_cmd}",
+                file=sys.stderr,
+            )
+            return 2
+        record = run_proof_task(task, drat_path, check_timeout_sec)
     os.makedirs(task_output_dir, exist_ok=True)
     output_path = _task_result_path(task_output_dir, task)
     with open(output_path, "w") as f:
@@ -831,6 +1063,7 @@ def collect_slurm_results(
     valid_records_path: Optional[str] = None,
     invalid_records_path: Optional[str] = None,
     timeout_records_path: Optional[str] = None,
+    unverified_records_path: Optional[str] = None,
 ) -> int:
     out_dir = get_generation_output_dir(generation_tag)
     report_path = os.path.join(out_dir, "proof_verification.json")
@@ -847,6 +1080,9 @@ def collect_slurm_results(
             records.extend(_record_from_dict(item) for item in json.load(f))
     if timeout_records_path and os.path.exists(timeout_records_path):
         with open(timeout_records_path, "r") as f:
+            records.extend(_record_from_dict(item) for item in json.load(f))
+    if unverified_records_path and os.path.exists(unverified_records_path):
+        with open(unverified_records_path, "r") as f:
             records.extend(_record_from_dict(item) for item in json.load(f))
 
     for task in tasks:
@@ -893,6 +1129,16 @@ def main() -> int:
         help="drat-trim executable (default: drat-trim)",
     )
     parser.add_argument(
+        "--checkmodel-cmd",
+        default=DEFAULT_CHECKMODEL_CMD,
+        help=(
+            "checkmodel executable used to verify SAT models "
+            f"(default: {DEFAULT_CHECKMODEL_CMD}, resolved against CWD and "
+            "the repository root; if unavailable SAT logs are reported as "
+            "'unverified')"
+        ),
+    )
+    parser.add_argument(
         "--check_timeout",
         type=int,
         default=7200,
@@ -911,6 +1157,7 @@ def main() -> int:
     parser.add_argument("--valid-records-path", help="Path to serialized valid SAT log records")
     parser.add_argument("--invalid-records-path", help="Path to serialized invalid log records")
     parser.add_argument("--timeout-records-path", help="Path to serialized timeout log records")
+    parser.add_argument("--unverified-records-path", help="Path to serialized unverified SAT log records")
     parser.add_argument("--slurm-account", default=None, help="SLURM account for submitted validation jobs (default: def-vganesh, or m4831 with --nersc)")
     parser.add_argument("--slurm-mem", default="8G", help="Memory per validation task")
     parser.add_argument("--slurm-time", default="01:00:00", help="Wall time per validation task")
@@ -921,20 +1168,16 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.run_task_json_env:
-        drat_path = resolve_executable(args.drat_trim)
-        if drat_path is None:
-            print(
-                f"ERROR: drat-trim executable not found: {args.drat_trim}",
-                file=sys.stderr,
-            )
-            return 2
         if not args.task_output_dir:
             print("ERROR: --task-output-dir is required with --run-task-json-env", file=sys.stderr)
             return 2
+        # Tool resolution happens inside per task kind: drat-trim for UNSAT
+        # proof tasks, checkmodel for SAT model tasks.
         return run_single_task_from_env(
             args.run_task_json_env,
             args.task_output_dir,
-            drat_path,
+            args.drat_trim,
+            args.checkmodel_cmd,
             args.check_timeout,
         )
 
@@ -952,6 +1195,7 @@ def main() -> int:
             args.valid_records_path,
             args.invalid_records_path,
             args.timeout_records_path,
+            args.unverified_records_path,
         )
 
     if not args.generation_tag:
@@ -969,6 +1213,17 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+
+    # SAT model verification is best-effort at resolution time: when the
+    # checkmodel binary cannot be found, SAT logs fall back to the historical
+    # marker-only classification and are reported as "unverified".
+    checkmodel_path = resolve_checkmodel(args.checkmodel_cmd)
+    if checkmodel_path is None:
+        print(
+            f"WARNING: {CHECKMODEL_UNAVAILABLE_MESSAGE} "
+            f"(searched: {args.checkmodel_cmd})",
+            file=sys.stderr,
+        )
 
     if args.submit_slurm:
         slurm_account = args.slurm_account or ("m4831" if args.nersc else "def-vganesh")
@@ -992,6 +1247,7 @@ def main() -> int:
             nersc=args.nersc,
             slurm_constraint=slurm_constraint,
             slurm_qos=slurm_qos,
+            checkmodel_cmd=checkmodel_path,
         )
 
     checked, failed, skipped, records = verify_generation_proofs(
@@ -1000,6 +1256,7 @@ def main() -> int:
         drat_trim_cmd=drat_path,
         check_timeout_sec=args.check_timeout,
         stop_on_first_fail=args.stop_on_first_fail,
+        checkmodel_cmd=checkmodel_path,
     )
 
     out_dir = get_generation_output_dir(args.generation_tag)
@@ -1008,9 +1265,11 @@ def main() -> int:
     with open(report_path, "w") as f:
         json.dump(report, f, indent=2)
 
+    unverified = sum(record.status == "unverified" for record in records)
     print(
         f"Proof verification summary for {args.generation_tag}: "
-        f"checked={checked}, failed={failed}, skipped={skipped}"
+        f"checked={checked}, failed={failed}, skipped={skipped}, "
+        f"unverified={unverified}"
     )
     print(f"Report written to: {report_path}")
 
@@ -1034,6 +1293,24 @@ def resolve_executable(cmd: str) -> Optional[str]:
             return candidate
         return None
     return shutil_which(cmd)
+
+
+def resolve_checkmodel(cmd: str) -> Optional[str]:
+    """Resolve the checkmodel binary like drat-trim, plus a repo-root fallback.
+
+    The default command is repo-relative (tools/checkmodel/checkmodel, built
+    via `make -C tools/checkmodel`), so callers running from another CWD still
+    find it.  Returns None when unavailable; callers then fall back to the
+    marker-only classification and report SAT logs as "unverified".
+    """
+    resolved = resolve_executable(cmd)
+    if resolved is not None:
+        return resolved
+    if not os.path.isabs(cmd):
+        candidate = REPO_ROOT / cmd
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 if __name__ == "__main__":
