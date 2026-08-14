@@ -242,10 +242,14 @@ class FunctionInjector:
         if not new_code.endswith("\n"):
             new_code += "\n"
 
-        # Replace the function
+        # Replace the function. Write via temp+rename: the target may be a
+        # hardlink into the base solver tree, and an in-place write would
+        # truncate the shared inode.
         new_lines = lines[:start_idx] + [new_code] + lines[end_idx:]
 
-        file_path.write_text("".join(new_lines))
+        tmp_path = file_path.with_name(file_path.name + ".inject.tmp")
+        tmp_path.write_text("".join(new_lines))
+        tmp_path.replace(file_path)
 
         logger.info(
             f"Replaced {func_name} in {file_path} "

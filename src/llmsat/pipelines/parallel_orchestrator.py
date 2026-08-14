@@ -81,7 +81,10 @@ logger = get_logger(__name__)
 
 # --- Concurrency constants ---
 MAX_API_CONCURRENT = 10  # Max in-flight Gemini API calls (shared across stages 1 & 2)
-MAX_BUILD_CONCURRENT = 3  # Max concurrent ./configure && make on login node
+# Max concurrent candidate builds. Incremental hardlink builds are ~1s each,
+# so this no longer needs to be throttled to 3; tune via env if the login
+# node is shared and loaded.
+MAX_BUILD_CONCURRENT = int(os.environ.get("LLMSAT_BUILD_CONCURRENCY", "8"))
 MAX_DB_CONCURRENT = 5     # Max concurrent DB connections
 
 _SENTINEL = object()  # Signals end of queue
