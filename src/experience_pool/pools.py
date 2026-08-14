@@ -1268,6 +1268,8 @@ class MutationExperiencePool(BaseExperiencePool):
         normalized = dict(payload_dict)
         normalized.setdefault("leader_algorithm_id", None)
         normalized.setdefault("member_algorithm_id", None)
+        normalized.setdefault("leader_raw_par2", None)
+        normalized.setdefault("member_raw_par2", None)
         return MutationExperienceRecord(**normalized)
 
     @staticmethod
@@ -1688,6 +1690,7 @@ class MutationExperiencePool(BaseExperiencePool):
                 "function_name": function_name if isinstance(function_name, str) else "",
                 "description": description,
                 "score": score,
+                "raw_par2": payload.get("raw_par2_score"),
                 "json_path": str(json_path),
             }
 
@@ -1831,6 +1834,8 @@ class MutationExperiencePool(BaseExperiencePool):
                         "member_algorithm_description": member_desc,
                         "step": member_step_str,
                         "member_par2": member_score_f,
+                        "leader_raw_par2": leader.get("raw_par2"),
+                        "member_raw_par2": payload.get("raw_par2_score"),
                         "relative_change": relative_change,
                     }
                 )
@@ -1854,6 +1859,8 @@ class MutationExperiencePool(BaseExperiencePool):
                         "member_algorithm_description": member_desc,
                         "step": member_step_str,
                         "member_par2": member_score_f,
+                        "leader_raw_par2": leader.get("raw_par2"),
+                        "member_raw_par2": payload.get("raw_par2_score"),
                         "relative_change": relative_change,
                     }
                 )
@@ -1919,6 +1926,8 @@ class MutationExperiencePool(BaseExperiencePool):
                     analysis=generated_analysis,
                     leader_algorithm_id=cand["leader_algorithm_id"],
                     member_algorithm_id=cand["member_algorithm_id"],
+                    leader_raw_par2=cand.get("leader_raw_par2"),
+                    member_raw_par2=cand.get("member_raw_par2"),
                 )
 
                 receipt = self.persist(record=record, outcome=outcome)

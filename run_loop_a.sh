@@ -280,6 +280,12 @@ if [ "$VERIFY_PROOFS" = "1" ]; then
     fi
 fi
 
+# Controlled retrieval: set TARGET_SUBCATEGORY=easy|hard|sat|unsat to steer
+# mutation-exemplar selection toward that subcategory (paper §3.2).
+if [ -n "${TARGET_SUBCATEGORY:-}" ]; then
+    export LLMSAT_TARGET_SUBCATEGORY="$TARGET_SUBCATEGORY"
+fi
+
 echo "============================================"
 echo "Loop A: Leader Refinement"
 echo "  Cluster:      $CLUSTER"

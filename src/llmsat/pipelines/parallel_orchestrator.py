@@ -338,10 +338,21 @@ class ParallelPipeline:
             f"Mutation Step: {step_text}"
         )
 
+        # Controlled retrieval (paper §3.2): steer exemplar selection toward a
+        # target subcategory by re-ranking similarity hits by subcategory PAR-2.
+        target_subcategory = os.environ.get("LLMSAT_TARGET_SUBCATEGORY") or None
+        if target_subcategory and target_subcategory not in ("easy", "hard", "sat", "unsat"):
+            logger.warning(
+                f"[exp_pool] invalid LLMSAT_TARGET_SUBCATEGORY={target_subcategory!r}; ignoring"
+            )
+            target_subcategory = None
+
         try:
             logger.info(
                 f"[exp_pool] Querying mutation pool for step {target_step} "
-                f"(leader_len={len(leader_algorithm)})"
+                f"(leader_len={len(leader_algorithm)}"
+                + (f", controlled: {target_subcategory}" if target_subcategory else "")
+                + ")"
             )
             res = self.exp_pool_manager.search_experience_pool(
                 pool_name="mutation",
@@ -350,6 +361,7 @@ class ParallelPipeline:
                 retrieve_bad_k=3,
                 sample_good_k=0,
                 sample_bad_k=0,
+                target_subcategory=target_subcategory,
             )
 
             good_hits = res.good.unique
@@ -370,6 +382,12 @@ class ParallelPipeline:
                 "search. Use them to guide your mutation: learn from the structure of good "
                 "mutations and avoid the failure modes of bad ones.",
             ]
+            if target_subcategory:
+                lines += [
+                    "",
+                    f"These examples were selected for their impact on **{target_subcategory}** "
+                    f"instances; prioritize improving PAR-2 on the {target_subcategory} subcategory.",
+                ]
 
             if good_hits:
                 lines += ["", "#### Good Mutations (what worked)", ""]

@@ -1472,8 +1472,18 @@ def main():
                         help="Use full evaluation mode")
     parser.add_argument("--nersc", action="store_true",
                         help="Use NERSC machine for evaluation instead of Compute Canada")
+    parser.add_argument("--target-subcategory", choices=["easy", "hard", "sat", "unsat"],
+                        default=None,
+                        help="Controlled retrieval: re-rank mutation-pool exemplars by "
+                             "PAR-2 on this subcategory to steer generation toward it")
 
     args = parser.parse_args()
+
+    if args.target_subcategory:
+        # Consumed by ParallelPipeline._build_experience_section; env-based so
+        # every downstream mode (streaming init/mutants) sees it without
+        # threading a parameter through each call chain.
+        os.environ["LLMSAT_TARGET_SUBCATEGORY"] = args.target_subcategory
 
     if args.mutants_only:
         if not args.source_tag:

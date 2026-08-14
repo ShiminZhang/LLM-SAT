@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
 
 PoolName = Literal["algorithm", "mutation", "combination"]
@@ -48,6 +48,10 @@ class MutationExperienceRecord:
         member_algorithm_description: Mutated member algorithm description.
         step: Mutation step label that identifies which step produced the member.
         analysis: Text explanation of why the mutation is better or worse.
+        leader_raw_par2: Leader PAR-2 breakdown [easy, hard, sat, unsat, all]
+            at record time (None for records persisted before this field existed).
+        member_raw_par2: Member PAR-2 breakdown [easy, hard, sat, unsat, all];
+            used for subcategory-controlled retrieval re-ranking.
     """
 
     leader_algorithm_description: str
@@ -56,6 +60,8 @@ class MutationExperienceRecord:
     analysis: str
     leader_algorithm_id: Optional[str] = None
     member_algorithm_id: Optional[str] = None
+    leader_raw_par2: Optional[List[float]] = None
+    member_raw_par2: Optional[List[float]] = None
 
 
 @dataclass(frozen=True)
