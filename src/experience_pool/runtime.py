@@ -13,16 +13,16 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-import torch
-import torch.nn.functional as F
-from torch import Tensor
-from transformers import AutoModel, AutoTokenizer
+
+# torch/transformers are imported lazily inside EmbeddingService: they take
+# minutes to import on this cluster and are only needed when embeddings are
+# actually computed, not for pure record/re-ranking logic or tests.
 
 from .layout import id_map_file_path, index_file_path, records_file_path
 from .types import ExperienceRecord, OutcomeLabel, PoolName
 
 
-def _last_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tensor:
+def _last_token_pool(last_hidden_states: "Tensor", attention_mask: "Tensor") -> "Tensor":
     """Compute sentence embeddings using Qwen3 last-token pooling.
 
     Args:
@@ -37,6 +37,8 @@ def _last_token_pool(last_hidden_states: Tensor, attention_mask: Tensor) -> Tens
         - when inputs are left-padded, use the final token embedding directly
         - otherwise, gather the embedding at each sequence's final non-padding token
     """
+
+    import torch
 
     left_padding = (attention_mask[:, -1].sum() == attention_mask.shape[0])
     if left_padding:
@@ -69,6 +71,9 @@ class EmbeddingService:
             device: Optional torch device override (`cpu`, `cuda`, etc.).
         """
 
+        import torch
+        from transformers import AutoModel, AutoTokenizer
+
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         # Qwen3 embedding guidance recommends left-padding when using last-token pooling.
@@ -77,7 +82,6 @@ class EmbeddingService:
         self.model.eval()
         self.model.to(self.device)
 
-    @torch.inference_mode()
     def encode(self, texts: List[str], max_length: int = 8192) -> np.ndarray:
         """Encode text into L2-normalized float32 embeddings.
 
@@ -89,9 +93,16 @@ class EmbeddingService:
             np.ndarray: Array of shape `[len(texts), embedding_dim]`, dtype float32.
         """
 
+        import torch
+        import torch.nn.functional as F
+
         if not texts:
             return np.empty((0, self.embedding_dim), dtype=np.float32)
 
+        with torch.inference_mode():
+            return self._encode_impl(torch, F, texts, max_length)
+
+    def _encode_impl(self, torch, F, texts: List[str], max_length: int) -> np.ndarray:
         encoded = self.tokenizer(
             texts,
             padding=True,
