@@ -200,7 +200,7 @@ def main():
     except KeyError as e:
         if "DB_PASS" in str(e):
             print("\nError: DB_PASS environment variable not set!")
-            print("Run: export DB_PASS=\"Damn123,\"")
+            print("Run: export DB_PASS=<team database password> (or set it in .env)")
             print("Or: source export_aws_db_pw.sh")
             sys.exit(1)
         else:

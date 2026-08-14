@@ -73,6 +73,8 @@ def wrap_command_to_slurm_array(
     script_path: str,
     array_range: str,
     account: str = "m4831",
+    # mem is accepted for interface parity with utils.py but intentionally NOT
+    # passed to sbatch on NERSC (removed in d34e2c63; Perlmutter allocates by core)
     mem: str = "4G",
     time: str = "01:30:00",
     nodes: int = 1,

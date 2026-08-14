@@ -198,7 +198,7 @@ for raw_line in par2_path.read_text().splitlines():
     if not match:
         continue
 
-   resolved = resolve_pair(
+    resolved = resolve_pair(
         match.group("algorithm_id"),
         match.group("code_id"),
         "leaders" if match.group("role") == "L" else "members",
@@ -325,7 +325,7 @@ algorithms = []
 for algorithm_id, code_ids in grouped.items():
     algorithm = get_algorithm_result(algorithm_id)
     if algorithm is None:
-       print(f"WARNING: missing algorithm result for {algorithm_id}, skipping")
+        print(f"WARNING: missing algorithm result for {algorithm_id}, skipping")
         continue
     unique_code_ids = list(OrderedDict.fromkeys(code_ids))
     algorithms.append(replace(algorithm, code_id_list=unique_code_ids))

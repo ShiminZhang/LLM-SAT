@@ -2842,6 +2842,7 @@ def run_evolution(
         "generation_tag": generation_tag,
         "output_tag": output_tag,
         "timestamp": datetime.now().isoformat(),
+        "iterations": [],
     }
 
     # ------------------------------------------------------------------

@@ -164,7 +164,7 @@ def do_submit(alg_id, code_id, seed, quick_eval, dry_run):
 
 
 def do_collect(alg_id, code_id, seed, quick_eval):
-    penalty = QUICK_PAR2_PENALTY if quick_eval else PAR2_PENALTY
+    penalty = QUICK_EVAL_PAR2_PENALTY if quick_eval else PAR2_PENALTY
     rdir = result_dir(alg_id, code_id, seed, quick_eval)
     mode = "quick" if quick_eval else "full"
 

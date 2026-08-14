@@ -60,10 +60,6 @@ def get_code_result_of_status(status: CodeStatus) -> List[CodeResult]:
             if row is None:
                 logger.warning(f"Row is None for status {status}")
                 continue
-            if len(row) != 7:
-                logger.warning(f"Row has {len(row)} columns")
-                logger.warning(f"Row: {row}")
-                continue
             try:
                 code_result = ToCodeResult(row)
             except Exception as e:

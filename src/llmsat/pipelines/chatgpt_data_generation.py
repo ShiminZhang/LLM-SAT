@@ -421,7 +421,8 @@ def generate_data(designer_prompt_path: str, code_prompt_template_path: str, gen
     batch_input_path = os.path.join(get_generation_output_dir(generation_tag), "designer_batch_input.txt")
     batch_id_map = {}
     batch_id_map["algorithm_batch_id"] = None
-    if use_cache and os.path.exists(algorithms_output_path):
+    algorithms_output_path = None
+    if use_cache and algorithms_output_path and os.path.exists(algorithms_output_path):
         pass
     else:
         # algorithm_batch_id = "batch_6921363d7c8481909540f10ab2723deb"
