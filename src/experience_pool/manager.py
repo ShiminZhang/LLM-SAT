@@ -29,45 +29,6 @@ from .types import (
 )
 
 
-# Index into raw_par2 arrays [easy, hard, sat, unsat, all] — same order as
-# AlgorithmResult.raw_par2_score.
-SUBCATEGORY_INDEX = {"easy": 0, "hard": 1, "sat": 2, "unsat": 3, "all": 4}
-
-
-def _subcategory_par2(hit: RetrievedExperience, subcat_idx: int) -> float | None:
-    """Member PAR-2 on the target subcategory, or None when unavailable."""
-    arr = getattr(hit.payload, "member_raw_par2", None)
-    if isinstance(arr, (list, tuple)) and len(arr) == 5:
-        v = arr[subcat_idx]
-        if isinstance(v, (int, float)) and v == v:
-            return float(v)
-    return None
-
-
-def _rerank_by_subcategory(
-    hits: List[RetrievedExperience],
-    outcome: OutcomeLabel,
-    target_subcategory: str,
-) -> List[RetrievedExperience]:
-    """Controlled retrieval: re-rank similarity hits by subcategory PAR-2.
-
-    GOOD exemplars sort ascending (strongest subcategory performance first);
-    BAD exemplars sort descending (worst regressions first, the most
-    instructive failures). Records without subcategory scores (persisted
-    before the schema carried them) keep their similarity order at the end.
-    The sort is stable, so ties preserve similarity order.
-    """
-    idx = SUBCATEGORY_INDEX[target_subcategory]
-
-    def key(hit: RetrievedExperience):
-        v = _subcategory_par2(hit, idx)
-        if v is None:
-            return (1, 0.0)
-        return (0, v if outcome == OutcomeLabel.GOOD else -v)
-
-    return sorted(hits, key=key)
-
-
 def _dedupe_hits_by_record_id(hits: List[RetrievedExperience]) -> List[RetrievedExperience]:
     """Keep first occurrence per record_id while preserving order."""
 
@@ -88,28 +49,12 @@ def _build_outcome_section(
     outcome: OutcomeLabel,
     retrieve_k: int,
     sample_k: int,
-    target_subcategory: str | None = None,
 ) -> OutcomeExperienceSearchSection:
-    """Build one GOOD/BAD section for unified pool search.
-
-    When target_subcategory is set, retrieval overfetches by similarity and
-    re-ranks by member PAR-2 on that subcategory before cutting to retrieve_k
-    (controlled retrieval).
-    """
+    """Build one GOOD/BAD section for unified pool search."""
 
     pool = manager.get_pool(pool_name)
     safe_retrieve_k = max(0, retrieve_k)
     safe_sample_k = max(0, sample_k)
-    if target_subcategory is not None and target_subcategory not in SUBCATEGORY_INDEX:
-        raise ValueError(
-            f"Unknown target_subcategory '{target_subcategory}'; "
-            f"expected one of {sorted(SUBCATEGORY_INDEX)}"
-        )
-    fetch_k = (
-        max(safe_retrieve_k * 3, 10)
-        if target_subcategory is not None and safe_retrieve_k > 0
-        else safe_retrieve_k
-    )
 
     # Explicit opt-out: if caller requests zero retrieve and zero sample for an
     # outcome, return an empty section silently (no warning even if unsupported).
@@ -161,14 +106,10 @@ def _build_outcome_section(
                 retrieved = manager.retrieve(
                     pool_name=pool_name,
                     query_text=query_text,
-                    top_k=fetch_k,
+                    top_k=safe_retrieve_k,
                     outcome=outcome,
                     balanced=False,
                 )
-                if target_subcategory is not None and retrieved:
-                    retrieved = _rerank_by_subcategory(
-                        retrieved, outcome, target_subcategory
-                    )[:safe_retrieve_k]
         except Exception as exc:  # noqa: BLE001
             msg = (
                 "[search_experience_pool][WARNING] retrieve failed for "
@@ -216,7 +157,6 @@ def search_experience_pool(
     retrieve_bad_k: int,
     sample_good_k: int,
     sample_bad_k: int,
-    target_subcategory: str | None = None,
 ) -> ExperiencePoolSearchResult:
     """Unified external API to retrieve+sample experiences for one pool.
 
@@ -228,9 +168,6 @@ def search_experience_pool(
         retrieve_bad_k: Number of items to retrieve from BAD partition.
         sample_good_k: Number of items to randomly sample from GOOD partition.
         sample_bad_k: Number of items to randomly sample from BAD partition.
-        target_subcategory: Optional controlled-retrieval target
-            ("easy" | "hard" | "sat" | "unsat"): overfetch by similarity,
-            re-rank by member PAR-2 on that subcategory, cut to k.
 
     Returns:
         ExperiencePoolSearchResult: Structured per-outcome and combined results.
@@ -243,7 +180,6 @@ def search_experience_pool(
         outcome=OutcomeLabel.GOOD,
         retrieve_k=retrieve_good_k,
         sample_k=sample_good_k,
-        target_subcategory=target_subcategory,
     )
     bad = _build_outcome_section(
         manager=manager,
@@ -252,7 +188,6 @@ def search_experience_pool(
         outcome=OutcomeLabel.BAD,
         retrieve_k=retrieve_bad_k,
         sample_k=sample_bad_k,
-        target_subcategory=target_subcategory,
     )
 
     all_unique: List[RetrievedExperience] = []
@@ -400,7 +335,6 @@ class ExperiencePoolManager:
         retrieve_bad_k: int,
         sample_good_k: int,
         sample_bad_k: int,
-        target_subcategory: str | None = None,
     ) -> ExperiencePoolSearchResult:
         """Unified external API to retrieve+sample GOOD/BAD experiences.
 
@@ -416,7 +350,6 @@ class ExperiencePoolManager:
             retrieve_bad_k=retrieve_bad_k,
             sample_good_k=sample_good_k,
             sample_bad_k=sample_bad_k,
-            target_subcategory=target_subcategory,
         )
 
     def update(self, pool_name: PoolName | None = None, *args, **kwargs):

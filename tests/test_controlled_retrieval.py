@@ -1,6 +1,9 @@
-"""Tests for subcategory-controlled retrieval (paper §3.2).
+"""Tests for subcategory-controlled retrieval (converged implementation).
 
-Pure-logic tests: no FAISS index or embedding model is loaded.
+After merging the two parallel implementations (upstream's delta-based
+orchestrator rerank + this branch's env/CLI ergonomics), the mechanism is:
+overfetch by similarity, re-rank by leader−member PAR-2 delta on the target
+category, keep top-k. Pure-logic tests: no FAISS/embedding model loaded.
 """
 
 import sys
@@ -10,19 +13,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import pytest
 
-from experience_pool.manager import (
-    SUBCATEGORY_INDEX,
-    _rerank_by_subcategory,
-    _subcategory_par2,
-)
+from experience_pool.pools import _par2_from_raw_list
 from experience_pool.types import (
     MutationExperienceRecord,
     OutcomeLabel,
+    Par2Scores,
     RetrievedExperience,
+)
+from llmsat.pipelines.parallel_orchestrator import (
+    _parse_par2_filter_env,
+    _rerank_by_par2_delta,
 )
 
 
-def _hit(record_id, member_raw_par2, score=0.5):
+def _hit(record_id, leader_par2=None, member_par2=None, score=0.5):
     return RetrievedExperience(
         record_id=record_id,
         pool_name="mutation",
@@ -33,58 +37,114 @@ def _hit(record_id, member_raw_par2, score=0.5):
             member_algorithm_description=f"member {record_id}",
             step="Step 1: x",
             analysis="a",
-            member_raw_par2=member_raw_par2,
+            leader_par2=leader_par2,
+            member_par2=member_par2,
         ),
     )
 
 
-def test_subcategory_index_order_matches_raw_par2_convention():
-    # AlgorithmResult.raw_par2_score is [easy, hard, sat, unsat, all]
-    # (see evaluation.py collect_results); the index map must agree.
-    assert SUBCATEGORY_INDEX == {"easy": 0, "hard": 1, "sat": 2, "unsat": 3, "all": 4}
+def _scores(**kw):
+    base = dict(sat=None, unsat=None, hard=None, easy=None, overall=None)
+    base.update(kw)
+    return Par2Scores(**base)
 
 
-def test_good_sorts_ascending_by_target_subcategory():
+# --- env parsing -----------------------------------------------------------
+
+def test_boolean_style_env(monkeypatch):
+    for var in ("SAT", "UNSAT", "HARD", "EASY", "TARGET_SUBCATEGORY", "LLMSAT_TARGET_SUBCATEGORY"):
+        monkeypatch.delenv(var, raising=False)
+    assert _parse_par2_filter_env() is None
+    monkeypatch.setenv("HARD", "1")
+    assert _parse_par2_filter_env() == "hard"
+
+
+def test_single_var_style_env(monkeypatch):
+    for var in ("SAT", "UNSAT", "HARD", "EASY", "LLMSAT_TARGET_SUBCATEGORY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("TARGET_SUBCATEGORY", "unsat")
+    assert _parse_par2_filter_env() == "unsat"
+    monkeypatch.delenv("TARGET_SUBCATEGORY")
+    monkeypatch.setenv("LLMSAT_TARGET_SUBCATEGORY", "EASY")
+    assert _parse_par2_filter_env() == "easy"
+
+
+def test_agreeing_styles_are_fine_conflicts_raise(monkeypatch):
+    for var in ("SAT", "UNSAT", "HARD", "EASY", "LLMSAT_TARGET_SUBCATEGORY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("SAT", "1")
+    monkeypatch.setenv("TARGET_SUBCATEGORY", "sat")
+    assert _parse_par2_filter_env() == "sat"
+    monkeypatch.setenv("TARGET_SUBCATEGORY", "hard")
+    with pytest.raises(ValueError, match="conflicting"):
+        _parse_par2_filter_env()
+
+
+def test_invalid_single_var_raises(monkeypatch):
+    for var in ("SAT", "UNSAT", "HARD", "EASY", "LLMSAT_TARGET_SUBCATEGORY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("TARGET_SUBCATEGORY", "medium")
+    with pytest.raises(ValueError, match="sat|unsat|hard|easy"):
+        _parse_par2_filter_env()
+
+
+# --- delta rerank ----------------------------------------------------------
+
+def test_good_ranks_strongest_improvement_first():
     hits = [
-        _hit("worse_hard", [100, 900, 500, 500, 500]),
-        _hit("best_hard", [400, 100, 500, 500, 500]),
-        _hit("mid_hard", [200, 400, 500, 500, 500]),
+        _hit("small_gain", _scores(hard=500), _scores(hard=450)),   # delta 50
+        _hit("big_gain", _scores(hard=900), _scores(hard=300)),     # delta 600
+        _hit("regression", _scores(hard=400), _scores(hard=500)),   # delta -100
     ]
-    ranked = _rerank_by_subcategory(hits, OutcomeLabel.GOOD, "hard")
-    assert [h.record_id for h in ranked] == ["best_hard", "mid_hard", "worse_hard"]
-    # same hits ranked on "easy" give a different order — the steering is real
-    ranked_easy = _rerank_by_subcategory(hits, OutcomeLabel.GOOD, "easy")
-    assert [h.record_id for h in ranked_easy] == ["worse_hard", "mid_hard", "best_hard"]
+    scored, dropped = _rerank_by_par2_delta(hits, "hard", descending=True)
+    assert dropped == 0
+    assert [h.record_id for _, h in scored] == ["big_gain", "small_gain", "regression"]
 
 
-def test_bad_sorts_descending_worst_first():
+def test_bad_ranks_worst_regression_first():
     hits = [
-        _hit("mild_regression", [0, 0, 300, 0, 0]),
-        _hit("severe_regression", [0, 0, 1200, 0, 0]),
+        _hit("mild", _scores(sat=300), _scores(sat=350)),     # delta -50
+        _hit("severe", _scores(sat=300), _scores(sat=900)),   # delta -600
     ]
-    ranked = _rerank_by_subcategory(hits, OutcomeLabel.BAD, "sat")
-    assert [h.record_id for h in ranked] == ["severe_regression", "mild_regression"]
+    scored, _ = _rerank_by_par2_delta(hits, "sat", descending=False)
+    assert [h.record_id for _, h in scored] == ["severe", "mild"]
 
 
-def test_records_without_scores_keep_similarity_order_at_end():
+def test_category_changes_ordering():
     hits = [
-        _hit("legacy_a", None, score=0.9),
-        _hit("scored", [10, 10, 10, 10, 10], score=0.1),
-        _hit("legacy_b", None, score=0.8),
+        _hit("hard_specialist", _scores(hard=900, easy=100), _scores(hard=200, easy=100)),
+        _hit("easy_specialist", _scores(hard=500, easy=800), _scores(hard=500, easy=100)),
     ]
-    ranked = _rerank_by_subcategory(hits, OutcomeLabel.GOOD, "unsat")
-    assert [h.record_id for h in ranked] == ["scored", "legacy_a", "legacy_b"]
+    by_hard, _ = _rerank_by_par2_delta(hits, "hard", descending=True)
+    by_easy, _ = _rerank_by_par2_delta(hits, "easy", descending=True)
+    assert by_hard[0][1].record_id == "hard_specialist"
+    assert by_easy[0][1].record_id == "easy_specialist"
 
 
-def test_malformed_arrays_treated_as_unscored():
-    assert _subcategory_par2(_hit("short", [1, 2, 3]), 0) is None
-    assert _subcategory_par2(_hit("nan", [float("nan")] * 5), 0) is None
-    assert _subcategory_par2(_hit("none_entry", [None, 2, 3, 4, 5]), 0) is None
-    assert _subcategory_par2(_hit("ok", [1, 2, 3, 4, 5]), 3) == 4.0
+def test_missing_scores_are_dropped_and_counted():
+    hits = [
+        _hit("legacy_no_scores"),                                       # both None
+        _hit("half", _scores(unsat=100), None),                         # member missing
+        _hit("cat_missing", _scores(unsat=None), _scores(unsat=50)),    # category None
+        _hit("ok", _scores(unsat=500), _scores(unsat=100)),
+    ]
+    scored, dropped = _rerank_by_par2_delta(hits, "unsat", descending=True)
+    assert dropped == 3
+    assert [h.record_id for _, h in scored] == ["ok"]
+
+
+# --- storage conversion ----------------------------------------------------
+
+def test_par2_from_raw_list_field_mapping():
+    # raw_par2_score order is [easy, hard, sat, unsat, all]
+    p = _par2_from_raw_list([1.0, 2.0, 3.0, 4.0, 5.0])
+    assert (p.easy, p.hard, p.sat, p.unsat, p.overall) == (1.0, 2.0, 3.0, 4.0, 5.0)
+    assert _par2_from_raw_list(None) is None
+    assert _par2_from_raw_list([1, 2, 3]) is None
+    assert _par2_from_raw_list([1.0, None, 3.0, 4.0, 5.0]).hard is None
 
 
 def test_old_persisted_payloads_still_deserialize():
-    # Records persisted before the schema carried PAR-2 arrays must load.
     old_payload = {
         "leader_algorithm_description": "L",
         "member_algorithm_description": "M",
@@ -92,9 +152,4 @@ def test_old_persisted_payloads_still_deserialize():
         "analysis": "improved",
     }
     rec = MutationExperienceRecord(**old_payload)
-    assert rec.leader_raw_par2 is None and rec.member_raw_par2 is None
-
-
-def test_unknown_subcategory_raises():
-    with pytest.raises(KeyError):
-        _rerank_by_subcategory([_hit("x", [1, 2, 3, 4, 5])], OutcomeLabel.GOOD, "medium")
+    assert rec.leader_par2 is None and rec.member_par2 is None and rec.extra == {}

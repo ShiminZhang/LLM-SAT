@@ -9,6 +9,118 @@ Use `ExperiencePoolManager` as the single entry point.
 
 ---
 
+## Disabling the pools (env-var opt-out)
+
+The mutation pool and combination pool can each be turned off at runtime via
+environment variables, so you can A/B-test runs with and without retrieval
+augmentation. Defaults are **enabled**; set the var to `0` to disable.
+
+| Variable        | Effect when set to `0`                                                                                                                                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MUTATION_POOL` | Skips mutation-pool retrieval in `parallel_orchestrator` (the `{experience_pool_section}` prompt placeholder is filled with `None`) and skips the mutation-pool update step in `scripts/update_experience_pool.py`.                                   |
+| `COMB_POOL`     | Skips combination-pool retrieval in `genetic_evolution` (the experience block in the combination-proposal prompt is filled with `None`) and skips the combination-pool update step in `scripts/update_combination_experience_pool.py`.                |
+
+The variable is parsed permissively: `0` means off; **anything else** (unset,
+empty, `1`, `true`, …) means on. The variables are read inside the Python
+processes, so they propagate naturally from the shell to all child invocations.
+
+**Examples:**
+
+```bash
+# Run Loop A without the mutation experience pool (cc or nersc)
+MUTATION_POOL=0 bash run_loop_a.sh cc gemini_trial5 3
+
+# Run the bridge step without the combination experience pool
+COMB_POOL=0 bash run_bridge.sh nersc gemini_trial5_gen1_v1 gemini_trial5_ge1_gen1
+
+# Disable both pools for a fully zero-shot run
+MUTATION_POOL=0 COMB_POOL=0 bash run_loop_a.sh nersc gemini_trial5 3 --init
+```
+
+When a pool is disabled, retrieval is skipped entirely (no FAISS/embedding
+work) and the corresponding update script exits early with a log line
+indicating it was skipped. The literal `None` substituted into the prompt
+makes the ablation visible in any saved prompt dumps.
+
+---
+
+## Mutation pool: controllable retrieval by PAR2 subcategory
+
+Mutation records carry fine-grained PAR2 scores (`sat`, `unsat`, `hard`,
+`easy`, `overall`). By default, retrieval ranks by semantic similarity and
+returns hits regardless of which subcategory each mutation actually
+improved — a "good" mutation may have improved overall PAR2 while
+*regressing* on, say, SAT instances.
+
+To bias retrieval toward a specific subcategory, set **exactly one** of
+`SAT`, `UNSAT`, `HARD`, `EASY` to `1`. When one is set, the orchestrator
+**over-retrieves** from each partition and then **reranks** the hits by
+that subcategory's PAR2 delta:
+
+```
+delta = leader_par2[cat] − member_par2[cat]
+```
+
+Higher PAR2 means worse, so a larger `delta` indicates a stronger
+improvement on `cat`.
+
+The reranking is applied **independently** to each partition, after the
+similarity search returns:
+
+- **GOOD section**: surviving hits from the GOOD partition are sorted by
+  `delta` **descending**; the top `FINAL_K` are kept (strongest
+  improvers on `cat`).
+- **BAD section**: surviving hits from the BAD partition are sorted by
+  `delta` **ascending**; the top `FINAL_K` are kept (strongest
+  regressors on `cat`, i.e. most-negative delta).
+
+| Variable | When set to `1` |
+| -------- | ----------------------------------------------------------------------------------------- |
+| `SAT`    | Rerank both partitions by `leader.sat − member.sat`. GOOD: top of descending. BAD: top of ascending. |
+| `UNSAT`  | Same, on `unsat`.                                                                         |
+| `HARD`   | Same, on `hard`.                                                                          |
+| `EASY`   | Same, on `easy`.                                                                          |
+
+Defaults (in `src/llmsat/pipelines/parallel_orchestrator.py`):
+
+- `MUTATION_RETRIEVE_FINAL_K = 3` — examples returned per side after rerank.
+- `MUTATION_RETRIEVE_OVERFETCH_K = 10` — semantic hits requested per side
+  when reranking is active. Over-fetching gives the rerank room to
+  surface strong-on-`cat` candidates that similarity alone would have
+  ranked outside the top 3.
+
+When **none** of the four env vars is set, retrieval is unchanged: a
+single semantic search returns `FINAL_K` hits per partition, in
+similarity order, with no reranking and no over-fetch.
+
+Hits with missing PAR2 sub-scores (either `leader_par2` or `member_par2`
+is `None`, or the chosen sub-score is `None`) are dropped before
+reranking — they cannot be ranked. Counts of dropped hits and the
+delta range of the kept hits are logged. Applies only to the
+**mutation pool** and works for both the `cc` and `nersc` pipelines
+(both go through `parallel_orchestrator`).
+
+Setting more than one of the four to `1` raises a `ValueError` at
+orchestrator init.
+
+**Examples:**
+
+```bash
+# Focus retrieval on mutations that most improved SAT instances
+SAT=1 bash run_loop_a.sh cc gemini_trial5 3
+
+# Same, on NERSC
+SAT=1 bash run_loop_a.sh nersc gemini_trial5 3 --init
+
+# Combine with pool disable: ablation, no retrieval at all
+MUTATION_POOL=0 bash run_loop_a.sh cc gemini_trial5 3
+
+# Invalid: raises ValueError before any work begins
+SAT=1 UNSAT=1 bash run_loop_a.sh cc gemini_trial5 3
+```
+
+---
+
 ## 1. Initialization
 
 To start using any of the pools, you first need to initialize the `ExperiencePoolManager`.

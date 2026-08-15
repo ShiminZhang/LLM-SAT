@@ -351,6 +351,7 @@ def main():
             if algorithm_result and algorithm_result.code_id_list:
                 for code_id in algorithm_result.code_id_list:
                     evaluation_pipeline.collect_results(algorithm_id, code_id, force_recollect=True)
+        evaluation_pipeline.print_iteration_debug_count()
         return
 
     if args.run_all:

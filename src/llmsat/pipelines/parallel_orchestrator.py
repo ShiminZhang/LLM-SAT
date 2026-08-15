@@ -92,6 +92,78 @@ _SENTINEL = object()  # Signals end of queue
 
 NERSC_SLURM_THRESHOLD = 128  # solvers × CNFs before NERSC batch submission
 
+# Mutation-pool controllable retrieval: when a PAR2 category (SAT/UNSAT/HARD/
+# EASY) is selected, we over-retrieve and rerank by per-category delta instead
+# of strictly filtering. See src/experience_pool/README.md.
+MUTATION_RETRIEVE_FINAL_K = 3       # final # of in-context examples per side
+MUTATION_RETRIEVE_OVERFETCH_K = 10  # # to retrieve when reranking is active
+
+
+def _parse_par2_filter_env() -> Optional[str]:
+    """Return the controlled-retrieval category from env, or None.
+
+    Two equivalent spellings are accepted:
+      - boolean style: exactly one of SAT/UNSAT/HARD/EASY set to "1"
+      - single-var style: TARGET_SUBCATEGORY (or LLMSAT_TARGET_SUBCATEGORY)
+        set to sat|unsat|hard|easy
+    Conflicting selections raise ValueError.
+    """
+    flags = {
+        "sat":   os.environ.get("SAT",   "0").strip(),
+        "unsat": os.environ.get("UNSAT", "0").strip(),
+        "hard":  os.environ.get("HARD",  "0").strip(),
+        "easy":  os.environ.get("EASY",  "0").strip(),
+    }
+    selected = {name for name, val in flags.items() if val == "1"}
+
+    single = (
+        os.environ.get("TARGET_SUBCATEGORY")
+        or os.environ.get("LLMSAT_TARGET_SUBCATEGORY")
+        or ""
+    ).strip().lower()
+    if single:
+        if single not in flags:
+            raise ValueError(
+                f"TARGET_SUBCATEGORY must be one of sat|unsat|hard|easy, got {single!r}"
+            )
+        selected.add(single)
+
+    if len(selected) > 1:
+        raise ValueError(
+            "Mutation pool PAR2 rerank: conflicting category selections "
+            f"{sorted(selected)} (use one of SAT/UNSAT/HARD/EASY=1 or TARGET_SUBCATEGORY)"
+        )
+    return next(iter(selected)) if selected else None
+
+
+def _rerank_by_par2_delta(hits, category: str, *, descending: bool):
+    """Sort hits by delta = leader_par2[category] - member_par2[category].
+
+    Higher PAR2 = worse, so larger delta = stronger improvement.
+    Descending=True puts the strongest improvers first (GOOD);
+    descending=False puts the strongest regressors first (BAD).
+    Hits with missing PAR2 sub-scores are dropped.
+    Returns (scored, dropped) where scored is a list of (delta, hit).
+    """
+    scored = []
+    dropped = 0
+    for hit in hits:
+        rec = hit.payload  # MutationExperienceRecord
+        leader = (
+            getattr(rec.leader_par2, category, None)
+            if rec.leader_par2 is not None else None
+        )
+        member = (
+            getattr(rec.member_par2, category, None)
+            if rec.member_par2 is not None else None
+        )
+        if leader is None or member is None:
+            dropped += 1
+            continue
+        scored.append((leader - member, hit))
+    scored.sort(key=lambda x: x[0], reverse=descending)
+    return scored, dropped
+
 
 class _SlurmTaskAccumulator:
     """
@@ -268,7 +340,24 @@ class ParallelPipeline:
 
         # Experience pool (optional — degrades gracefully if unavailable)
         self.exp_pool_manager = None
-        if _EXPERIENCE_POOL_AVAILABLE and EXPERIENCE_POOL_DATA_ROOT is not None:
+        self._mutation_pool_disabled = (
+            os.environ.get("MUTATION_POOL", "1").strip() == "0"
+        )
+        self._par2_filter_category = _parse_par2_filter_env()
+        if self._par2_filter_category is not None:
+            logger.info(
+                f"[parallel] Mutation pool PAR2 rerank active on "
+                f"'{self._par2_filter_category}': over-retrieve "
+                f"{MUTATION_RETRIEVE_OVERFETCH_K} per side, then keep top "
+                f"{MUTATION_RETRIEVE_FINAL_K} good (largest "
+                f"leader-member delta) and bottom {MUTATION_RETRIEVE_FINAL_K} "
+                f"bad (smallest delta)"
+            )
+        if self._mutation_pool_disabled:
+            logger.info(
+                "[parallel] MUTATION_POOL=0 — mutation experience pool disabled by env var"
+            )
+        elif _EXPERIENCE_POOL_AVAILABLE and EXPERIENCE_POOL_DATA_ROOT is not None:
             try:
                 self.exp_pool_manager = _ExperiencePoolManager(
                     data_root=EXPERIENCE_POOL_DATA_ROOT
@@ -334,9 +423,13 @@ class ParallelPipeline:
     def _build_experience_section(self, leader_algorithm: str, target_step: int) -> str:
         """Query mutation pool and return a formatted section for prompt injection.
 
-        Returns "" when pool is disabled, empty, or any error occurs — so the
-        prompt degrades cleanly to zero-shot.
+        Returns "None" when MUTATION_POOL=0 (explicit env-var opt-out, makes the
+        ablation visible in saved prompts). Returns "" when the pool is unavailable
+        for other reasons (no manager, no hits, errors) — so the prompt degrades
+        cleanly to zero-shot in those cases.
         """
+        if self._mutation_pool_disabled:
+            return "None"
         if self.exp_pool_manager is None:
             return ""
 
@@ -346,30 +439,27 @@ class ParallelPipeline:
             f"Mutation Step: {step_text}"
         )
 
-        # Controlled retrieval (paper §3.2): steer exemplar selection toward a
-        # target subcategory by re-ranking similarity hits by subcategory PAR-2.
-        target_subcategory = os.environ.get("LLMSAT_TARGET_SUBCATEGORY") or None
-        if target_subcategory and target_subcategory not in ("easy", "hard", "sat", "unsat"):
-            logger.warning(
-                f"[exp_pool] invalid LLMSAT_TARGET_SUBCATEGORY={target_subcategory!r}; ignoring"
-            )
-            target_subcategory = None
-
         try:
+            cat = self._par2_filter_category
+            rerank_active = cat is not None
+            retrieve_k = (
+                MUTATION_RETRIEVE_OVERFETCH_K
+                if rerank_active
+                else MUTATION_RETRIEVE_FINAL_K
+            )
             logger.info(
                 f"[exp_pool] Querying mutation pool for step {target_step} "
-                f"(leader_len={len(leader_algorithm)}"
-                + (f", controlled: {target_subcategory}" if target_subcategory else "")
+                f"(leader_len={len(leader_algorithm)}, retrieve_k={retrieve_k}"
+                + (f", controlled: {cat}" if rerank_active else "")
                 + ")"
             )
             res = self.exp_pool_manager.search_experience_pool(
                 pool_name="mutation",
                 query_text=query,
-                retrieve_good_k=3,
-                retrieve_bad_k=3,
+                retrieve_good_k=retrieve_k,
+                retrieve_bad_k=retrieve_k,
                 sample_good_k=0,
                 sample_bad_k=0,
-                target_subcategory=target_subcategory,
             )
 
             good_hits = res.good.unique
@@ -379,6 +469,28 @@ class ParallelPipeline:
                 f"[exp_pool] Retrieved {len(good_hits)} good, "
                 f"{len(bad_hits)} bad mutation examples (step {target_step})"
             )
+
+            if rerank_active:
+                good_scored, good_dropped = _rerank_by_par2_delta(good_hits, cat, descending=True)
+                bad_scored, bad_dropped = _rerank_by_par2_delta(bad_hits, cat, descending=False)
+                good_top = good_scored[:MUTATION_RETRIEVE_FINAL_K]
+                bad_top = bad_scored[:MUTATION_RETRIEVE_FINAL_K]
+                good_hits = [h for _, h in good_top]
+                bad_hits = [h for _, h in bad_top]
+
+                good_delta_str = (
+                    f"max={good_top[0][0]:.3f}, min={good_top[-1][0]:.3f}"
+                    if good_top else "n/a"
+                )
+                bad_delta_str = (
+                    f"min={bad_top[0][0]:.3f}, max={bad_top[-1][0]:.3f}"
+                    if bad_top else "n/a"
+                )
+                logger.info(
+                    f"[exp_pool] PAR2 rerank='{cat}': dropped {good_dropped} good, "
+                    f"{bad_dropped} bad (missing data); kept top {len(good_hits)} good "
+                    f"({good_delta_str}), bottom {len(bad_hits)} bad ({bad_delta_str})"
+                )
 
             if not good_hits and not bad_hits:
                 return ""
@@ -390,11 +502,11 @@ class ParallelPipeline:
                 "search. Use them to guide your mutation: learn from the structure of good "
                 "mutations and avoid the failure modes of bad ones.",
             ]
-            if target_subcategory:
+            if rerank_active:
                 lines += [
                     "",
-                    f"These examples were selected for their impact on **{target_subcategory}** "
-                    f"instances; prioritize improving PAR-2 on the {target_subcategory} subcategory.",
+                    f"These examples were selected for their impact on **{cat}** "
+                    f"instances; prioritize improving PAR-2 on the {cat} subcategory.",
                 ]
 
             if good_hits:
