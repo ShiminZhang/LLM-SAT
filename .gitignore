@@ -15,6 +15,8 @@ __pycache__/
 .env
 path_config.yaml
 *_.sh
+# personal per-user working notes (see AGENTS.md header)
+AGENTS.md
 
 # vendored SDK / heavyweight local artifacts (never commit)
 google-cloud-sdk/
