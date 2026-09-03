@@ -1,0 +1,47 @@
+You are implementing one proposed heuristic in Kissat. Output a complete C
+function with this exact signature:
+
+int kissat_decide_phase (kissat *solver, unsigned idx)
+
+Only the function body is injected into src/decide.c. Do not add includes,
+file-scope declarations, helper functions, struct fields, or unavailable APIs.
+The result must always be exactly -1 or 1. Use only existing local state such
+as solver->stable, solver->level, solver->vars, solver->unassigned,
+solver->ticks, solver->phases.saved[idx], solver->phases.target[idx],
+solver->phases.best[idx], solver->statistics fields, GET_OPTION(...), and the
+macros already available in decide.c. Avoid division by zero, invalid shifts,
+undefined overflow, and out-of-range array access.
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Return only the complete FUNCTION_NAME_PLACEHOLDER function wrapped in code tags:
+
+<code>
+int kissat_decide_phase (kissat *solver, unsigned idx) {
+  /* implementation */
+}
+</code>
+
+### Baseline Reference
+
+int kissat_decide_phase (kissat *solver, unsigned idx) {
+  bool force = GET_OPTION (forcephase);
+  value *target = (!force && GET_OPTION (target) &&
+                   (solver->stable || GET_OPTION (target) > 1))
+                      ? solver->phases.target + idx : 0;
+  value *saved = (!force && GET_OPTION (phasesaving))
+                     ? solver->phases.saved + idx : 0;
+  value res = 0;
+  if (!solver->stable) {
+    switch ((solver->statistics.switched >> 1) & 7) {
+    case 1: res = INITIAL_PHASE; break;
+    case 3: res = -INITIAL_PHASE; break;
+    }
+  }
+  if (!res && target && (res = *target)) INC (target_decisions);
+  if (!res && saved && (res = *saved)) INC (saved_decisions);
+  if (!res) { res = INITIAL_PHASE; INC (initial_decisions); }
+  return res < 0 ? -1 : 1;
+}

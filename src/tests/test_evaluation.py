@@ -1,39 +1,41 @@
-from llmsat.llmsat import AlgorithmResult, AlgorithmStatus, NOT_INITIALIZED, CodeResult, CodeStatus
-from datetime import datetime
-from llmsat.evaluation.coder import Coder, CoderConfig
+"""Small, dependency-free tests for evaluation records."""
 
-from huggingface_hub import login
-from llmsat.utils.aws import update_algorithm_result, update_code_result
-from llmsat.pipelines.evaluation import EvaluationPipeline
-def main():
-    # fake algorithm result
-    algorithm_result = AlgorithmResult(
-        id="1",
-        # whatever the algorithm is
-        algorithm="kissat_restarting_policy",
-        status=AlgorithmStatus.Generated,
-        last_updated=datetime.now(),
-        prompt="",
-        par2=NOT_INITIALIZED, 
-        error_rate=NOT_INITIALIZED,
-        code_id_list=[],
-        other_metrics={}
-    )
-    update_algorithm_result(algorithm_result)
-    # fake code result
-    code_result = CodeResult(
-        id="2",
-        algorithm_id="1",
-        code="return false;",
-        status=CodeStatus.Generated,
-        par2=None,
-        last_updated=datetime.now(),
-        build_success=None
-    )
-    update_code_result(code_result)
-    evaluation_pipeline = EvaluationPipeline()
-    evaluation_pipeline.run_all_solvers("1")
+import unittest
+
+from llmsat.llmsat import (
+    AlgorithmResult,
+    AlgorithmStatus,
+    CodeResult,
+    CodeStatus,
+    Role,
+)
+
+
+class TestEvaluationRecords(unittest.TestCase):
+    def test_current_algorithm_and_code_schema(self) -> None:
+        algorithm = AlgorithmResult(
+            id="algorithm-1",
+            function_name="kissat_restarting",
+            description="Return whether the restart preconditions are met.",
+            role=Role.LEADER,
+            status=AlgorithmStatus.Generated,
+            last_updated="2026-09-03T00:00:00",
+            code_id_list=[],
+        )
+        code = CodeResult(
+            id="code-1",
+            algorithm_id=algorithm.id,
+            code="return false;",
+            status=CodeStatus.Generated,
+            par2=None,
+            last_updated="2026-09-03T00:00:00",
+            build_success=False,
+        )
+
+        self.assertEqual(algorithm.function_name, "kissat_restarting")
+        self.assertEqual(algorithm.role, Role.LEADER)
+        self.assertEqual(code.algorithm_id, algorithm.id)
 
 
 if __name__ == "__main__":
-    main()
+    unittest.main()

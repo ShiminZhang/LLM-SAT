@@ -10,8 +10,8 @@ from llmsat.utils.gemini_helper import (
     block_until_completion as helper_block_until_completion,
     download_batch_outputs as helper_download_batch_outputs,
     wait_for_all_batches,
-    get_response_from_gemini,
 )
+from llmsat.utils.chatgpt_helper import get_llm_response
 from llmsat.utils.paths import get_algorithm_dir, get_batch_output_dir, get_generation_output_dir
 from llmsat.utils.aws import (
     get_ids_from_router_table,
@@ -408,7 +408,7 @@ def _generate_team_data_sync(
     _t0 = time.time()
     for i in range(n_leaders):
         logger.info(f"[sync] Leader {i+1}/{n_leaders} (temp={temperatures[i]:.2f})")
-        raw_text = get_response_from_gemini(
+        raw_text = get_llm_response(
             designer_prompt,
             system_message=system_message,
             model=model,
@@ -469,7 +469,7 @@ def _generate_team_data_sync(
             prompt = variant_prompt_template.replace("{leader_algorithm}", leader_algorithm)
             prompt = prompt.replace("{target_step_num}", str(target_step))
 
-            raw_text = get_response_from_gemini(
+            raw_text = get_llm_response(
                 prompt, system_message=system_message, model=model
             )
             member_desc, _, member_reason = parse_algorithm_response({"text": raw_text})
@@ -513,7 +513,7 @@ def _generate_team_data_sync(
         algorithm_result = get_algorithm_result(algorithm_id)
         code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description, algorithm_result.function_name)
 
-        raw_text = get_response_from_gemini(
+        raw_text = get_llm_response(
             code_prompt, system_message=system_message, model=model
         )
         code_str = parse_code_response({"text": raw_text})
@@ -938,9 +938,11 @@ def _generate_mutants_sync(
         num_steps = count_steps(leader_algorithm)
         if num_steps == 0:
             logger.warning(
-                f"Leader {leader_id[:8]}... has no step markers, skipping"
+                f"Leader {leader_id[:8]}... has no step markers; "
+                "treating the complete description as Step 1"
             )
-            continue
+            leader_algorithm = f"Step 1: {leader_algorithm}"
+            num_steps = 1
 
         needed = m_variants_per_leader - existing_count
         if num_steps < m_variants_per_leader:
@@ -968,7 +970,7 @@ def _generate_mutants_sync(
             prompt = variant_prompt_template.replace("{leader_algorithm}", leader_algorithm)
             prompt = prompt.replace("{target_step_num}", str(target_step))
 
-            raw_text = get_response_from_gemini(
+            raw_text = get_llm_response(
                 prompt, system_message=system_message, model=model
             )
             member_desc, _, member_reason = parse_algorithm_response({"text": raw_text})
@@ -1008,7 +1010,7 @@ def _generate_mutants_sync(
         algorithm_result = get_algorithm_result(mid)
         code_prompt = generate_code_prompt(code_prompt_template, algorithm_result.description, algorithm_result.function_name)
 
-        raw_text = get_response_from_gemini(
+        raw_text = get_llm_response(
             code_prompt, system_message=system_message, model=model
         )
         code_str = parse_code_response({"text": raw_text})

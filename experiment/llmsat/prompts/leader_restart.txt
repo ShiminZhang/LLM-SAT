@@ -1,0 +1,20 @@
+You are designing a novel, diverse heuristic for Kissat that optimizes PAR2
+performance on the cryptography-ascon benchmark family.
+
+Design a conceptual algorithm, not code, for exactly this target function:
+
+kissat_restarting
+
+The function decides whether Kissat restarts at the current search state and
+must return a bool. Give concrete mechanisms, thresholds, and a clear logic
+flow while staying implementable using state already available in restart.c.
+
+Return JSON only:
+{
+  "name": "Brief algorithm name (<=6 words)",
+  "algorithm": "Complete description using Step 1:, Step 2:, ...",
+  "reason": "Why it should improve ASCON runtime",
+  "target_function": "kissat_restarting"
+}
+
+The target_function value must be exactly kissat_restarting.

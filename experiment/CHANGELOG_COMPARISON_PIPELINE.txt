@@ -1,0 +1,114 @@
+Comparison pipeline changelist
+==============================
+
+Scope
+-----
+This change adds a reproducible, runtime-only comparison pipeline for evolving
+Kissat's decide and restarting heuristics with OpenEvolve, ShinkaEvolve, and
+LLM-SAT. It supports the complete cryptography-ascon family (26 CNFs) and the
+SAT Competition 2025 edge-matching family (2 CNFs).
+
+Shared evaluation protocol
+--------------------------
+The comparison runners source experiment/common/protocol.sh. Unless explicitly
+overridden, every pipeline uses:
+
+  model                         gpt-5.6-luna
+  reasoning effort              medium
+  fitness                       mean PAR2 CPU runtime only
+  instance timeout              1200 CPU seconds
+  timeout/error PAR2 penalty    2400 seconds
+  candidate allocation          8 CPU cores, 32 GiB
+  candidate job walltime        10 hours
+  CPU constraint                genoa
+  concurrent candidate jobs     4
+  retained proof files          no
+
+Each solver candidate is evaluated in one Slurm job. That job uses its eight
+cores to run independent, single-threaded benchmark instances concurrently.
+The pipeline does not put one CNF in each Slurm job.
+
+Budget semantics
+----------------
+Budgets count generated solver candidates; the fixed starting solver is not an
+offspring.
+
+* OpenEvolve receives --iterations equal to the requested offspring budget.
+* ShinkaEvolve receives budget + 1 generations because generation 0 is the
+  fixed baseline. Its database contains five generation-0 rows (one per
+  island); this is one evaluated program copied between islands, not four
+  additional candidates. Validation checks distinct generations 0..budget.
+* LLM-SAT produces exactly the requested number of generated candidates. The
+  initial population contains 30 candidates and later iterations contain 15,
+  with the final iteration shortened to the remaining budget. Budget 100 uses
+  5 iterations; budget 500 uses 32.
+
+Pipeline changes
+----------------
+* Added configurable decide/restarting targets and benchmark directories to
+  all three pipelines.
+* Switched OpenEvolve requests to the OpenAI Responses API and aligned the
+  model and reasoning effort with LLM-SAT and ShinkaEvolve. The runner resolves
+  those two settings into a per-run config snapshot before OpenEvolve starts.
+* Added one-candidate-per-job OpenEvolve evaluation with bounded submission,
+  scheduler retry, durable protocol-aware caching, and restart recovery.
+* Added resumable LLM-SAT candidate evaluation. On retry, it submits only
+  missing candidate/instance tasks and preserves completed measurements.
+* Replaced the mandatory remote PostgreSQL dependency with a file-backed local
+  result cache by default. Cache writes are atomic and read-modify-write updates
+  use process/thread locks so parallel generation cannot lose router entries.
+* Added exact LLM-SAT candidate-budget enforcement and a plan-only mode.
+* Added ShinkaEvolve adapters for both target functions and recorded each
+  stage's complete protocol in stage_config.json.
+* Added queue-idle waiting by default, with ALLOW_QUEUE_CONTENTION=1 for the
+  explicitly requested immediate-start mode.
+* Added automatic pruning of copied LLM-SAT solver build trees after durable
+  score artifacts have been written.
+* Fixed Bash's reserved GROUPS variable accidentally reducing the LLM-SAT
+  iteration calculation.
+* Fixed ShinkaEvolve target propagation and the edge-matching restart prompt
+  path.
+
+Benchmark provenance
+--------------------
+Downloaded CNFs are deliberately ignored by Git. The edge-matching manifest in
+experiment/benchmarks/edge-matching.tsv records exact Global Benchmark
+Database URLs and SHA-256 checksums. Run:
+
+  bash scripts/fetch_comparison_benchmarks.sh edge-matching
+
+to download missing files and verify both existing and newly downloaded CNFs.
+
+Generated data excluded from the changeset
+------------------------------------------
+Campaign logs, suite results, OpenEvolve work/cache directories, Shinka run
+databases, copied solver trees, Slurm output, proof files, downloaded CNFs,
+PID files, and one-off recovery scripts are runtime artifacts and are not part
+of the source changeset.
+
+Verification
+------------
+Run these from the repository root before committing:
+
+  bash -n experiment/common/protocol.sh experiment/llmsat/run_candidates.sh \
+    experiment/run_baseline_comparison.sh \
+    experiment/run_openevolve_comparison.sh \
+    experiment/run_requested_comparisons.sh \
+    experiment/shinka/run_shinka.sh scripts/fetch_comparison_benchmarks.sh
+  python3 -m unittest experiment/llmsat/test_run_candidates.py
+  python3 -m unittest src/tests/test_aws_local_cache.py
+  python3 -m unittest src/tests/test_chatgpt_helper.py
+  python3 -m unittest src/tests/test_evaluation_submission.py
+  python3 -m unittest discover -s src/tests -p 'test_*.py'
+  (cd experiment/openevolve && python3 -m unittest \
+    test_evaluator.py test_render_config.py)
+  python3 experiment/shinka/test_evaluator.py
+  python3 -m py_compile experiment/openevolve/evaluator.py \
+    experiment/shinka/evaluate.py experiment/shinka/run_evo.py \
+    src/llmsat/pipelines/evaluation.py
+  bash scripts/fetch_comparison_benchmarks.sh edge-matching
+
+Commit boundary
+---------------
+The remote worktree contains older, unrelated edits. Use the explicit path
+list in the push-preparation report; do not use `git add -A` or `git add .`.

@@ -59,12 +59,27 @@ This file is gitignored. All scripts and Python modules read paths from here, so
 Create a `.env` file in the project root:
 
 ```
-DB_PASS="<postgres password>"
 OPENAI_API_KEY="<openai key>"
-GOOGLE_API_KEY="<google/gemini key>"
+
+# Gemini uses Vertex AI rather than an API key:
+GOOGLE_PROJECT_ID="<google cloud project id>"
+GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/to/service-account.json"
 ```
 
-`DB_PASS` is for the shared PostgreSQL database that stores algorithms, code, and scores. `OPENAI_API_KEY` is used by the genetic evolution pipeline. `GOOGLE_API_KEY` is used by data generation (Gemini batch API).
+Select the provider with `default_model` in `path_config.yaml`. Model names
+starting with `gemini` use Vertex AI; all other model names use OpenAI.
+`OPENAI_BASE_URL`, `OPENAI_MODEL`, and `GEMINI_MODEL` can optionally override
+their corresponding defaults.
+
+Algorithms, generated code, scores, and generation routing are stored locally in
+`data/cache/local_results/` by default. To place the cache elsewhere, set:
+
+```bash
+export LLMSAT_LOCAL_CACHE_ROOT=/path/to/local_results
+```
+
+The legacy RDS backend is disabled by default. It can only be selected explicitly
+with `LLMSAT_USE_LOCAL_CACHE=0` and a valid `DB_PASS`.
 
 ### 4. Base solver
 
@@ -98,17 +113,32 @@ This enables normalized PAR2 scores (1.0 = same as baseline, lower is better).
 
 ### 6. Benchmarks
 
-Place `track_main_2025.uri` in the repo root (the SAT Competition 2025 URI list), then:
+The default full-evaluation benchmark is the `cryptography-ascon` family:
 
-```bash
-bash scripts/download_satcomp2025.sh
+```text
+data/benchmarks/formula-families/cryptography-ascon/*.cnf
 ```
 
-Downloads and extracts ~400 CNF files to `data/benchmarks/satcomp2025/`.
+Comparison runners set `LLMSAT_BENCHMARK_DIR` explicitly, so a suite records
+and evaluates one complete family. The edge-matching comparison family can be
+reproduced from its checksummed manifest with:
+
+```bash
+bash scripts/fetch_comparison_benchmarks.sh edge-matching
+```
+
+`QUICK_EVAL=1` remains available for development smoke tests using the tracked
+50-instance pigeon-hole subset; comparison campaigns always use `QUICK_EVAL=0`.
+
+The previous SAT Competition 2025 main-track downloader remains available as
+`scripts/download_satcomp2025.sh`, but its output is no longer the default.
 
 ### 7. Function registry
 
-The file `solvers/base/function_registry.yaml` tells the evaluation pipeline which C function to replace and where it lives in the source. It currently targets `kissat_restarting` and `restart_mab` in `src/restart.c`:
+The file `solvers/base/function_registry.yaml` tells the evaluation pipeline
+which C function to replace and where it lives in the source. The comparison
+targets are `kissat_decide_phase` in `src/decide.c` and `kissat_restarting` in
+`src/restart.c`.
 
 ```yaml
 functions:
@@ -116,7 +146,12 @@ functions:
     file: "src/restart.c"
     start_line: 15
     end_line: 38
-    signature: "bool kissat_restarting(kissat *solver)"
+    signature: "bool kissat_restarting (kissat *solver)"
+  kissat_decide_phase:
+    file: "src/decide.c"
+    start_line: 164
+    end_line: 216
+    signature: "int kissat_decide_phase (kissat *solver, unsigned idx)"
 ```
 
 To target a different function, use `configure_target.py`:
@@ -309,7 +344,7 @@ M_VARIANTS=3 ./run_loop_a.sh cc experiment1_gen1 3
 
 The PAR2 score is the average solving time across all benchmark instances. Unsolved instances (timeout, crash, OOM) receive a penalty of 2× the timeout:
 - Quick eval (`--quick-eval`): 50 CNFs, 600s timeout → 1200s penalty
-- Full eval: 400 CNFs, 5000s timeout → 10000s penalty
+- Comparison eval: complete selected family, 1200s timeout → 2400s penalty
 
 ---
 
@@ -338,7 +373,7 @@ To run validation only:
 python scripts/verify_iteration_proofs.py \
     --submit-slurm \
     --generation_tag "$generation_tag" \
-    --benchmark_path data/benchmarks/satcomp2025 \
+    --benchmark_path data/benchmarks/formula-families/cryptography-ascon \
     --drat_trim "$DRAT_TRIM_CMD" \
     --check_timeout "$PROOF_CHECK_TIMEOUT" \
     --slurm-mem "$PROOF_VERIFY_MEM" \

@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from pathlib import Path
@@ -9,7 +10,13 @@ NOT_INITIALIZED = "NOT_INITIALIZED"
 from llmsat.config import BASE_SOLVER_PATH, PYTHON_ACTIVATE_PATH, BASELINE_PAR2
 PYENV_PATH = PYTHON_ACTIVATE_PATH  # backwards-compat alias
 RECOVERED_ALGORITHM = "recovered_algorithm"
-SAT2025_BENCHMARK_PATH = "data/benchmarks/satcomp2025"
+# Kept under the historical name for compatibility with existing imports.
+# Experiment suites can pin another complete formula family without rewriting
+# evaluation code; the default remains the full cryptography-ascon family.
+SAT2025_BENCHMARK_PATH = os.environ.get(
+    "LLMSAT_BENCHMARK_DIR",
+    "data/benchmarks/formula-families/cryptography-ascon",
+)
 CHATGPT_DATA_GENERATION_TABLE = "chatgpt_datagen"
 
 

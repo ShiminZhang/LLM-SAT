@@ -1,0 +1,17 @@
+# Runtime state produced by comparison campaigns.
+campaigns/
+comparison_runs/
+comparison_work/
+suites/
+
+# Per-pipeline historical outputs and evaluator build caches.
+**/runs/
+**/work/
+**/__pycache__/
+
+# Separate holdout study, including its nested upstream repository and tools.
+ascon_holdout_10/
+
+# Controller state and scheduler output are not source artifacts.
+*.pid
+slurm-*.out

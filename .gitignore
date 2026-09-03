@@ -7,8 +7,10 @@ data/benchmarks/*
 !data/benchmarks/instance_categories.json
 !data/benchmarks/satcomp2025_quick50.txt
 !data/benchmarks/satcomp2025_quick100.txt
+!data/benchmarks/pigeonhole_quick50.txt
 data/results/
 !data/results/baseline/baseline_solving_times.json
+data/cache/
 logs/
 *.pyc
 __pycache__/
@@ -38,6 +40,7 @@ src/experience_pool/data/*
 !src/experience_pool/data/.gitkeep
 # other files
 .venv/
+ae/
 dumb_runner.sh
 solvers/*
 !solvers/AE_kissat2025_MAB/

@@ -1,0 +1,81 @@
+# OpenEvolve decide comparison on cryptography-ascon. The comparison runner
+# overrides max_iterations with the requested offspring budget.
+max_iterations: 100
+checkpoint_interval: 1
+log_level: "INFO"
+random_seed: null
+
+diff_based_evolution: true
+max_code_length: 12000
+file_suffix: ".c"
+
+llm:
+  api_base: "https://api.openai.com/v1"
+  api_key: ${OPENAI_API_KEY}
+  # Use the Responses API consistently across comparison pipelines.
+  api_mode: "responses"
+  models:
+    - name: ${COMPARISON_MODEL}
+      weight: 1.0
+      max_tokens: 16384
+      timeout: 600
+      reasoning_effort: ${COMPARISON_REASONING_EFFORT}
+  retries: 3
+  retry_delay: 10
+
+prompt:
+  system_message: |
+    You are evolving exactly one function in the Kissat SAT solver:
+
+      int kissat_decide_phase(kissat *solver, unsigned idx)
+
+    The function selects the positive or negative decision phase for variable idx
+    and must always return exactly -1 or 1. Improve solver runtime on the supplied
+    cryptography-ascon benchmark family. Only edit code between the EVOLVE-BLOCK markers.
+
+    The candidate is inserted directly into the existing src/decide.c. Keep the
+    function name, return type, and parameters unchanged. Do not add includes,
+    helper functions, new struct fields, external state, or calls to APIs that are
+    not already available in the surrounding Kissat source. You may use existing
+    solver fields, Kissat macros, target phases, saved phases, solver statistics,
+    idx, arithmetic, and local variables. The implementation must remain valid C,
+    deterministic, and safe for every variable index. Avoid division by zero,
+    invalid shifts, overflow-dependent behavior, and returning zero.
+
+    Fitness is based only on measured CPU runtime with PAR2 timeout penalties.
+    Compilation and runtime diagnostics from failed candidates are supplied as
+    artifacts; use them to produce a compilable successor.
+  num_top_programs: 3
+  num_diverse_programs: 2
+  include_artifacts: true
+  max_artifact_bytes: 16384
+
+database:
+  in_memory: true
+  log_prompts: true
+  population_size: 100
+  archive_size: 30
+  num_islands: 5
+  migration_interval: 10
+  migration_rate: 0.1
+  elite_selection_ratio: 0.1
+  exploration_ratio: 0.2
+  exploitation_ratio: 0.7
+  feature_dimensions:
+    - "complexity"
+    - "diversity"
+  feature_bins: 10
+
+evaluator:
+  timeout: 21600
+  max_retries: 0
+  cascade_evaluation: false
+  parallel_evaluations: ${COMPARISON_MAX_CANDIDATE_JOBS}
+  use_llm_feedback: false
+
+evolution_trace:
+  enabled: true
+  format: "jsonl"
+  include_code: true
+  include_prompts: true
+  buffer_size: 1

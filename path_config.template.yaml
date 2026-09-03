@@ -8,4 +8,4 @@
 base_solver: "/CHANGE_ME/solvers/base"
 python_activate: "~/general/bin/activate"
 baseline_par2: null  # Set after running baseline evaluation
-default_model: "gemini-3-flash-preview"
+default_model: "gpt-5.6-luna"

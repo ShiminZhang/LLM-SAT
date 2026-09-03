@@ -27,9 +27,24 @@
 #
 # Init mode env vars:
 #   N_LEADERS        - Number of leaders to generate (default: 5)
+#   INIT_M_VARIANTS  - Members per leader in the initial population
+#                      (default: M_VARIANTS)
+#   CANDIDATE_BUDGET - Exact number of LLM-generated algorithms, including
+#                      init leaders/members and later mutants (0 disables)
 #   DESIGNER_PROMPT  - Path to leader prompt (default: data/prompts/leader_prompt_testing.txt)
+#   VARIANT_PROMPT   - Path to mutation prompt (default: data/prompts/variant_prompt.txt)
+#   CODER_PROMPT     - Path to target-specific coder prompt
+#                      (default: data/prompts/coder_prompt_testing.txt)
+#   RESUME_EVAL      - auto: reuse solver binaries when an evaluation checkpoint exists
+#                      1: always reuse binaries; 0: always rebuild (default: auto)
 
 set -euo pipefail
+
+# Make all relative paths and Python imports independent of the caller's cwd
+# and shell environment.
+PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+cd "$PROJECT_ROOT"
+export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
 DATAGEN_MAX_RETRIES="${DATAGEN_MAX_RETRIES:-10}"
 DATAGEN_RETRY_DELAY="${DATAGEN_RETRY_DELAY:-60}"
@@ -55,6 +70,23 @@ run_datagen_with_retry() {
         echo "  [datagen] Failed, retrying in ${DATAGEN_RETRY_DELAY}s..."
         sleep "$DATAGEN_RETRY_DELAY"
     done
+}
+
+evaluation_checkpoint_complete() {
+    local generation_tag="$1"
+    python3 - "$generation_tag" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path("outputs") / sys.argv[1] / "evaluation_submission_state.json"
+try:
+    state = json.loads(path.read_text())
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(1)
+batches = state.get("batches", [])
+raise SystemExit(0 if batches and all(b.get("status") == "completed" for b in batches) else 1)
+PY
 }
 
 if [ $# -lt 3 ]; then
@@ -86,7 +118,7 @@ DATAGEN_SCRIPT="src/llmsat/pipelines/gemini_data_generation.py"
 case "$CLUSTER" in
     cc)
         EVAL_SCRIPT="src/llmsat/pipelines/evaluation.py"
-        module load cuda/12.2 faiss/1.8.0 2>/dev/null || true
+        source scripts/activate_rorqual.sh
         ;;
     nb)
         EVAL_SCRIPT="src/llmsat/pipelines/evaluation_nb.py"
@@ -102,11 +134,18 @@ esac
 NERSC_FLAG=$([ "$CLUSTER" = "nersc" ] && echo "--nersc" || echo "")
 POLL_INTERVAL="${POLL_INTERVAL:-120}"  # seconds between squeue checks
 M_VARIANTS="${M_VARIANTS:-3}"
+INIT_M_VARIANTS="${INIT_M_VARIANTS:-$M_VARIANTS}"
+N_LEADERS_VALUE="${N_LEADERS:-5}"
+CANDIDATE_BUDGET="${CANDIDATE_BUDGET:-0}"
+DESIGNER_PROMPT_VALUE="${DESIGNER_PROMPT:-data/prompts/leader_prompt_testing.txt}"
+VARIANT_PROMPT_VALUE="${VARIANT_PROMPT:-data/prompts/variant_prompt.txt}"
+CODER_PROMPT_VALUE="${CODER_PROMPT:-data/prompts/coder_prompt_testing.txt}"
 _CFG_MODEL=$(grep '^default_model:' path_config.yaml 2>/dev/null | sed 's/^default_model:[[:space:]]*//' | tr -d '"' || true)
-MODEL="${MODEL:-${_CFG_MODEL:-gemini-3-flash-preview}}"
+MODEL="${MODEL:-${_CFG_MODEL:-gpt-5.6-luna}}"
 PARALLEL="${PARALLEL:-0}"
-QUICK_EVAL="${QUICK_EVAL:-1}"
-VERIFY_PROOFS="${VERIFY_PROOFS:-1}"
+QUICK_EVAL="${QUICK_EVAL:-0}"
+VERIFY_PROOFS="${VERIFY_PROOFS:-0}"
+RESUME_EVAL="${RESUME_EVAL:-auto}"
 DRAT_TRIM_CMD="${DRAT_TRIM_CMD:-external/drat-trim/drat-trim}"
 PROOF_CHECK_TIMEOUT="${PROOF_CHECK_TIMEOUT:-7200}"
 PROOF_VERIFY_TIME="${PROOF_VERIFY_TIME:-01:00:00}"
@@ -118,6 +157,42 @@ if [ "$CLUSTER" = "nersc" ]; then
     PROOF_VERIFY_CONSTRAINT="${PROOF_VERIFY_CONSTRAINT:-cpu}"
 else
     PROOF_VERIFY_ACCOUNT="${PROOF_VERIFY_ACCOUNT:-def-vganesh}"
+fi
+
+for value_name in N_ITERATIONS M_VARIANTS INIT_M_VARIANTS N_LEADERS_VALUE CANDIDATE_BUDGET; do
+    value="${!value_name}"
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: $value_name must be a non-negative integer, got '$value'" >&2
+        exit 2
+    fi
+done
+if [ "$M_VARIANTS" -eq 0 ] || [ "$INIT_M_VARIANTS" -eq 0 ] || [ "$N_LEADERS_VALUE" -eq 0 ]; then
+    echo "ERROR: M_VARIANTS, INIT_M_VARIANTS, and N_LEADERS must be positive" >&2
+    exit 2
+fi
+
+REQUIRED_ITERATIONS="$N_ITERATIONS"
+if [ "$CANDIDATE_BUDGET" -gt 0 ]; then
+    if [ "$INIT" != true ]; then
+        echo "ERROR: CANDIDATE_BUDGET currently requires --init so the initial population is countable" >&2
+        exit 2
+    fi
+    INIT_CANDIDATES=$((N_LEADERS_VALUE * (INIT_M_VARIANTS + 1)))
+    if [ "$CANDIDATE_BUDGET" -lt "$INIT_CANDIDATES" ]; then
+        echo "ERROR: CANDIDATE_BUDGET=$CANDIDATE_BUDGET is smaller than the $INIT_CANDIDATES-candidate initial population" >&2
+        exit 2
+    fi
+    REMAINING_CANDIDATES=$((CANDIDATE_BUDGET - INIT_CANDIDATES))
+    if [ $((REMAINING_CANDIDATES % N_LEADERS_VALUE)) -ne 0 ]; then
+        echo "ERROR: post-init budget must be divisible by N_LEADERS=$N_LEADERS_VALUE to preserve equal team sizes" >&2
+        exit 2
+    fi
+    REMAINING_GROUPS=$((REMAINING_CANDIDATES / N_LEADERS_VALUE))
+    REQUIRED_ITERATIONS=$(((REMAINING_GROUPS + M_VARIANTS - 1) / M_VARIANTS))
+    if [ "$N_ITERATIONS" -ne "$REQUIRED_ITERATIONS" ]; then
+        echo "ERROR: CANDIDATE_BUDGET=$CANDIDATE_BUDGET requires n_iterations=$REQUIRED_ITERATIONS with current N_LEADERS/M_VARIANTS; got $N_ITERATIONS" >&2
+        exit 2
+    fi
 fi
 
 resolve_drat_trim() {
@@ -184,7 +259,7 @@ submit_proof_verification_job() {
     python scripts/verify_iteration_proofs.py \
         --submit-slurm \
         --generation_tag "$generation_tag" \
-        --benchmark_path data/benchmarks/satcomp2025 \
+        --benchmark_path data/benchmarks/formula-families/cryptography-ascon \
         --drat_trim "$DRAT_TRIM_CMD" \
         --check_timeout "$PROOF_CHECK_TIMEOUT" \
         "${slurm_args[@]}"
@@ -272,6 +347,8 @@ echo "  Iterations:   $N_ITERATIONS"
 echo "  Source tag:   $SOURCE_TAG"
 echo "  Init mode:    $INIT"
 echo "  Variants/leader: $M_VARIANTS"
+echo "  Init variants/leader: $INIT_M_VARIANTS"
+echo "  Candidate budget: $CANDIDATE_BUDGET"
 echo "  Model:        $MODEL"
 echo "  Parallel:     $PARALLEL"
 echo "  Quick eval:   $QUICK_EVAL"
@@ -283,9 +360,12 @@ if [ "$CLUSTER" = "nersc" ]; then
     echo "  Proof constr: $PROOF_VERIFY_CONSTRAINT"
 fi
 echo "  Poll interval: ${POLL_INTERVAL}s"
+echo "  Resume eval:  ${RESUME_EVAL}"
 if [ "$INIT" = true ]; then
-    echo "  N_LEADERS:    ${N_LEADERS:-5}"
-    echo "  Designer prompt: ${DESIGNER_PROMPT:-data/prompts/leader_prompt_testing.txt}"
+    echo "  N_LEADERS:    $N_LEADERS_VALUE"
+    echo "  Designer prompt: $DESIGNER_PROMPT_VALUE"
+    echo "  Variant prompt:  $VARIANT_PROMPT_VALUE"
+    echo "  Coder prompt:    $CODER_PROMPT_VALUE"
 fi
 echo "============================================"
 
@@ -296,17 +376,36 @@ if [ "$INIT" = true ]; then
     echo "=== Init: Generating initial population under $INIT_TAG ==="
     echo ""
 
-    if [ "$PARALLEL" = "1" ]; then
+    INIT_EVAL_RESUME=false
+    if [ "$RESUME_EVAL" = "1" ] || {
+        [ "$RESUME_EVAL" = "auto" ] &&
+        [ -f "outputs/${INIT_TAG}/evaluation_submission_state.json" ]
+    }; then
+        INIT_EVAL_RESUME=true
+    fi
+
+    if [ "$INIT_EVAL_RESUME" = true ]; then
+        echo "[Init Step 1] Evaluation checkpoint found; skipping data generation"
+        if evaluation_checkpoint_complete "$INIT_TAG"; then
+            echo "[Init Step 2] Evaluation checkpoint is complete; skipping evaluation"
+        else
+            echo "[Init Step 2] Resuming evaluation with existing solver binaries..."
+            python "$EVAL_SCRIPT" \
+                --run_all --generation_tag "$INIT_TAG" \
+                $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval " )--batch-mode \
+                --skip-build
+        fi
+    elif [ "$PARALLEL" = "1" ]; then
         # Streaming init: leaders + variants + code + build + submit all in one
         echo "[Init Step 1] Generating leaders + members + code + build + submit (parallel streaming)..."
         run_datagen_with_retry \
             python "$DATAGEN_SCRIPT" \
                 --generation_tag "$INIT_TAG" \
-                --designer_prompt_path "${DESIGNER_PROMPT:-data/prompts/leader_prompt_testing.txt}" \
-                --variant_prompt_path data/prompts/variant_prompt.txt \
-                --code_prompt_path data/prompts/coder_prompt_testing.txt \
-                --n_leaders "${N_LEADERS:-5}" \
-                --m_variants "$M_VARIANTS" \
+                --designer_prompt_path "$DESIGNER_PROMPT_VALUE" \
+                --variant_prompt_path "$VARIANT_PROMPT_VALUE" \
+                --code_prompt_path "$CODER_PROMPT_VALUE" \
+                --n_leaders "$N_LEADERS_VALUE" \
+                --m_variants "$INIT_M_VARIANTS" \
                 --model "$MODEL" \
                 --parallel \
                 $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" || printf '%s' "--no-quick-eval" ) \
@@ -318,11 +417,11 @@ if [ "$INIT" = true ]; then
         run_datagen_with_retry \
             python "$DATAGEN_SCRIPT" \
                 --generation_tag "$INIT_TAG" \
-                --designer_prompt_path "${DESIGNER_PROMPT:-data/prompts/leader_prompt_testing.txt}" \
-                --variant_prompt_path data/prompts/variant_prompt.txt \
-                --code_prompt_path data/prompts/coder_prompt_testing.txt \
-                --n_leaders "${N_LEADERS:-5}" \
-                --m_variants "$M_VARIANTS" \
+                --designer_prompt_path "$DESIGNER_PROMPT_VALUE" \
+                --variant_prompt_path "$VARIANT_PROMPT_VALUE" \
+                --code_prompt_path "$CODER_PROMPT_VALUE" \
+                --n_leaders "$N_LEADERS_VALUE" \
+                --m_variants "$INIT_M_VARIANTS" \
                 --model "$MODEL" \
                 --sync \
                 ${NERSC_FLAG}
@@ -442,13 +541,45 @@ if os.path.exists(p):
     echo "=== Init complete. Leaders ready in $INIT_TAG ==="
 fi
 
+CANDIDATES_GENERATED=0
+if [ "$CANDIDATE_BUDGET" -gt 0 ]; then
+    CANDIDATES_GENERATED=$((N_LEADERS_VALUE * (INIT_M_VARIANTS + 1)))
+    echo "Budget progress after init: ${CANDIDATES_GENERATED}/${CANDIDATE_BUDGET} candidates"
+fi
+
 for i in $(seq 1 "$N_ITERATIONS"); do
+    ITER_M_VARIANTS="$M_VARIANTS"
+    if [ "$CANDIDATE_BUDGET" -gt 0 ]; then
+        REMAINING_GROUPS=$(((CANDIDATE_BUDGET - CANDIDATES_GENERATED) / N_LEADERS_VALUE))
+        if [ "$REMAINING_GROUPS" -lt "$ITER_M_VARIANTS" ]; then
+            ITER_M_VARIANTS="$REMAINING_GROUPS"
+        fi
+    fi
     ITER_TAG="${BASE_TAG}_iter${i}"
     echo ""
     echo "=== Iteration $i/$N_ITERATIONS: $SOURCE_TAG -> $ITER_TAG ==="
     echo ""
 
-    if [ "$PARALLEL" = "1" ]; then
+    ITER_EVAL_RESUME=false
+    if [ "$RESUME_EVAL" = "1" ] || {
+        [ "$RESUME_EVAL" = "auto" ] &&
+        [ -f "outputs/${ITER_TAG}/evaluation_submission_state.json" ]
+    }; then
+        ITER_EVAL_RESUME=true
+    fi
+
+    if [ "$ITER_EVAL_RESUME" = true ]; then
+        echo "[Step 1] Evaluation checkpoint found; skipping mutant generation"
+        if evaluation_checkpoint_complete "$ITER_TAG"; then
+            echo "[Step 2] Evaluation checkpoint is complete; skipping evaluation"
+        else
+            echo "[Step 2] Resuming evaluation with existing solver binaries..."
+            python "$EVAL_SCRIPT" \
+                --run_all --generation_tag "$ITER_TAG" \
+                $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval " )--batch-mode --skip-evaluated \
+                --skip-build
+        fi
+    elif [ "$PARALLEL" = "1" ]; then
         # Streaming mode: generate + build + submit in one step
         echo "[Step 1] Generating mutants + building + submitting (parallel streaming)..."
         run_datagen_with_retry \
@@ -456,9 +587,9 @@ for i in $(seq 1 "$N_ITERATIONS"); do
                 --mutants-only \
                 --source_tag "$SOURCE_TAG" \
                 --output_tag "$ITER_TAG" \
-                --variant_prompt_path data/prompts/variant_prompt.txt \
-                --code_prompt_path data/prompts/coder_prompt_testing.txt \
-                --m_variants "$M_VARIANTS" \
+                --variant_prompt_path "$VARIANT_PROMPT_VALUE" \
+                --code_prompt_path "$CODER_PROMPT_VALUE" \
+                --m_variants "$ITER_M_VARIANTS" \
                 --model "$MODEL" \
                 --parallel \
                 $( [ "$QUICK_EVAL" = "1" ] && printf '%s' "--quick-eval" || printf '%s' "--no-quick-eval" ) \
@@ -472,9 +603,9 @@ for i in $(seq 1 "$N_ITERATIONS"); do
                 --mutants-only \
                 --source_tag "$SOURCE_TAG" \
                 --output_tag "$ITER_TAG" \
-                --variant_prompt_path data/prompts/variant_prompt.txt \
-                --code_prompt_path data/prompts/coder_prompt_testing.txt \
-                --m_variants "$M_VARIANTS" \
+                --variant_prompt_path "$VARIANT_PROMPT_VALUE" \
+                --code_prompt_path "$CODER_PROMPT_VALUE" \
+                --m_variants "$ITER_M_VARIANTS" \
                 --model "$MODEL" \
                 --sync \
                 ${NERSC_FLAG}
@@ -594,8 +725,17 @@ if os.path.exists(p):
 
     # Next iteration reads from this iteration's promoted leaders
     SOURCE_TAG="$ITER_TAG"
+    if [ "$CANDIDATE_BUDGET" -gt 0 ]; then
+        CANDIDATES_GENERATED=$((CANDIDATES_GENERATED + N_LEADERS_VALUE * ITER_M_VARIANTS))
+        echo "Budget progress: ${CANDIDATES_GENERATED}/${CANDIDATE_BUDGET} candidates"
+    fi
     echo "=== Iteration $i complete ==="
 done
+
+if [ "$CANDIDATE_BUDGET" -gt 0 ] && [ "$CANDIDATES_GENERATED" -ne "$CANDIDATE_BUDGET" ]; then
+    echo "ERROR: generated $CANDIDATES_GENERATED candidates, expected $CANDIDATE_BUDGET" >&2
+    exit 2
+fi
 
 echo ""
 echo "============================================"

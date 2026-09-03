@@ -5,8 +5,11 @@ import shutil
 import json
 import subprocess
 import re
+import hashlib
+import time
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 import argparse
 
@@ -48,26 +51,39 @@ logger = get_logger(__name__)
 DEFAULT_REGISTRY_PATH = "solvers/base/function_registry.yaml"
 
 # SLURM Configuration for Compute Canada
-SLURM_ACCOUNT = "def-vganesh"
-SLURM_TIMEOUT_SECONDS = 5000           # 83 min 20 sec per CNF
-SLURM_WALL_TIME = "01:30:00"           # 90 min (timeout + buffer)
-SLURM_MEMORY = "8G"
-SLURM_MAX_CONCURRENT = 1000 
+SLURM_ACCOUNT = os.environ.get("LLMSAT_SLURM_ACCOUNT", "def-vganesh")
+SLURM_TIMEOUT_SECONDS = int(os.environ.get("LLMSAT_TIMEOUT", "1200"))
+SLURM_WALL_TIME = os.environ.get("LLMSAT_WALL_TIME", "10:00:00")
+SLURM_MEMORY = os.environ.get("LLMSAT_SLURM_MEMORY", "32G")
+SLURM_CPUS_PER_CANDIDATE = int(os.environ.get("LLMSAT_SLURM_CPUS", "8"))
+SLURM_CONSTRAINT = os.environ.get("LLMSAT_SLURM_CONSTRAINT", "").strip()
+SLURM_MAX_CONCURRENT = int(os.environ.get("LLMSAT_MAX_CANDIDATE_JOBS", "4"))
 SLURM_MAX_ARRAY_SIZE = 1000
-PAR2_PENALTY = 10000                   # 2× timeout for unsolved
+SLURM_SUBMIT_LIMIT = int(os.environ.get("LLMSAT_SLURM_SUBMIT_LIMIT", "1000"))
+SLURM_SUBMIT_POLL_INTERVAL = int(os.environ.get("LLMSAT_SLURM_SUBMIT_POLL_INTERVAL", "30"))
+SLURM_JOB_POLL_INTERVAL = int(os.environ.get("LLMSAT_SLURM_JOB_POLL_INTERVAL", "30"))
+PAR2_PENALTY = float(
+    os.environ.get("LLMSAT_PAR2_PENALTY", str(2 * SLURM_TIMEOUT_SECONDS))
+)
+KEEP_PROOFS = os.environ.get("LLMSAT_KEEP_PROOFS", "0").lower() in {
+    "1", "true", "yes"
+}
 
 # Quick-eval mode: 100 representative CNFs, reduced timeout
 QUICK_EVAL_TIMEOUT_SECONDS = 600 
 QUICK_EVAL_WALL_TIME = "00:12:00"       
 QUICK_EVAL_PAR2_PENALTY = 1200 # 2× quick timeout
-QUICK_EVAL_BENCHMARK_LIST = "data/benchmarks/satcomp2025_quick50.txt"
+QUICK_EVAL_BENCHMARK_LIST = "data/benchmarks/pigeonhole_quick50.txt"
 EVALUATION_SOLVER_FLAGS = "-s --check=1"
 
 INSTANCE_CATEGORIES_PATH = "data/benchmarks/instance_categories.json"
 # Baseline time threshold (seconds) for easy/hard split. Adjust as needed.
 DIFFICULTY_CUTOFF = 100
 # Reject PAR2 scores below this threshold (solver likely giving wrong answers)
-MIN_PAR2_THRESHOLD = 400
+# Optional sanity gate.  A fixed threshold is not portable across benchmark
+# families (26-instance Ascon legitimately scores below 400), so it is disabled
+# unless explicitly requested by the caller.
+MIN_PAR2_THRESHOLD = float(os.environ.get("LLMSAT_MIN_PAR2_THRESHOLD", "0"))
 
 
 def _compute_average(values: List[float]) -> Optional[float]:
@@ -141,6 +157,201 @@ class EvaluationPipeline:
             logger.warning(f"Instance categories not found at {INSTANCE_CATEGORIES_PATH}; PAR2 breakdown disabled")
             self.instance_categories = {}
         logger.info(f"Initialized FunctionRegistry with {len(self.registry)} functions: {self.registry.list_functions()}")
+
+    def _current_slurm_task_count(self) -> Optional[int]:
+        """Return the number of submitted jobs, expanding array elements."""
+        user = os.environ.get("USER")
+        if not user:
+            logger.warning("USER is not set; cannot query SLURM submission capacity")
+            return None
+
+        proc = subprocess.run(
+            ["squeue", "-r", "-u", user, "-h", "-o", "%i"],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            logger.warning(f"Failed to query squeue for {user}: {proc.stderr.strip()}")
+            return None
+        return len([line for line in proc.stdout.splitlines() if line.strip()])
+
+    def _wait_for_submit_capacity(self, needed_slots: int) -> None:
+        """Block until submitting ``needed_slots`` cannot exceed MaxSubmitJobs."""
+        if needed_slots < 1:
+            return
+        if needed_slots > SLURM_SUBMIT_LIMIT:
+            raise ValueError(
+                f"A batch needs {needed_slots} submission slots, exceeding "
+                f"LLMSAT_SLURM_SUBMIT_LIMIT={SLURM_SUBMIT_LIMIT}"
+            )
+
+        while True:
+            current = self._current_slurm_task_count()
+            if current is not None and current + needed_slots <= SLURM_SUBMIT_LIMIT:
+                logger.info(
+                    f"SLURM capacity available: current={current}, needed={needed_slots}, "
+                    f"limit={SLURM_SUBMIT_LIMIT}"
+                )
+                return
+            logger.info(
+                f"Waiting for SLURM capacity: current={current}, needed={needed_slots}, "
+                f"limit={SLURM_SUBMIT_LIMIT}; retrying in {SLURM_SUBMIT_POLL_INTERVAL}s"
+            )
+            time.sleep(SLURM_SUBMIT_POLL_INTERVAL)
+
+    @staticmethod
+    def _is_submit_capacity_error(message: str) -> bool:
+        message = message.lower()
+        return any(
+            marker in message
+            for marker in (
+                "maximum number of jobs",
+                "maxsubmitjob",
+                "qosmaxsubmitjob",
+                "job submit limit",
+                "job violates accounting/qos policy",
+            )
+        )
+
+    def _submit_with_capacity(self, slurm_cmd: str, needed_slots: int) -> int:
+        """Submit an sbatch command, retrying capacity races without losing work."""
+        while True:
+            self._wait_for_submit_capacity(needed_slots)
+            proc = subprocess.run(
+                slurm_cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+            )
+            output = proc.stdout.strip()
+            error = proc.stderr.strip()
+            combined = "\n".join(part for part in (output, error) if part)
+            if proc.returncode == 0:
+                try:
+                    return int(output.split()[-1])
+                except (ValueError, IndexError) as exc:
+                    raise RuntimeError(f"Could not parse sbatch output: {combined}") from exc
+
+            if self._is_submit_capacity_error(combined):
+                logger.info(
+                    f"SLURM capacity changed during submission; retrying in "
+                    f"{SLURM_SUBMIT_POLL_INTERVAL}s: {combined}"
+                )
+                time.sleep(SLURM_SUBMIT_POLL_INTERVAL)
+                continue
+            raise RuntimeError(f"sbatch failed ({proc.returncode}): {combined}")
+
+    @staticmethod
+    def _job_is_active(job_id: int) -> Optional[bool]:
+        proc = subprocess.run(
+            ["squeue", "-j", str(job_id), "-h", "-o", "%i"],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            if "invalid job id" in proc.stderr.lower():
+                return False
+            logger.warning(f"Failed to query job {job_id}: {proc.stderr.strip()}")
+            return None
+        return bool(proc.stdout.strip())
+
+    def _wait_for_job_completion(self, job_id: int) -> None:
+        while True:
+            active = self._job_is_active(job_id)
+            if active is False:
+                logger.info(f"SLURM job array {job_id} left the queue")
+                return
+            logger.info(
+                f"Waiting for SLURM job array {job_id}; retrying in "
+                f"{SLURM_JOB_POLL_INTERVAL}s"
+            )
+            time.sleep(SLURM_JOB_POLL_INTERVAL)
+
+    def _submission_state_path(self) -> str:
+        return os.path.join(
+            get_generation_output_dir(self.generation_tag),
+            "evaluation_submission_state.json",
+        )
+
+    @staticmethod
+    def _save_json(path: str, payload: dict) -> None:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(payload, f, indent=2)
+
+    def _save_submission_state(self, state: dict) -> None:
+        state["updated_at"] = datetime.now().isoformat()
+        self._save_json(self._submission_state_path(), state)
+
+    def _submission_is_complete(self) -> bool:
+        path = self._submission_state_path()
+        try:
+            with open(path) as f:
+                state = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return False
+        batches = state.get("batches", [])
+        return bool(batches) and all(batch.get("status") == "completed" for batch in batches)
+
+    def _save_submitted_job_ids(
+        self,
+        job_ids: List[int],
+        evaluation_complete: bool = False,
+    ) -> None:
+        path = os.path.join(
+            get_generation_output_dir(self.generation_tag),
+            "submitted_job_ids.json",
+        )
+        unique_ids = list(dict.fromkeys(job_ids))
+        payload = {
+            "job_ids": [] if evaluation_complete else unique_ids,
+            "timestamp": datetime.now().isoformat(),
+        }
+        if evaluation_complete:
+            payload["completed_job_ids"] = unique_ids
+            payload["evaluation_complete"] = True
+        self._save_json(
+            path,
+            payload,
+        )
+
+    @staticmethod
+    def _pending_batch_tasks(task_list_path: str) -> List[str]:
+        """Return candidate-job lines with at least one unfinished CNF."""
+        pending = []
+        with open(task_list_path) as f:
+            for raw_line in f:
+                line = raw_line.rstrip("\n")
+                if not line:
+                    continue
+                fields = line.split("\t")
+                if len(fields) != 3:
+                    raise RuntimeError(f"Malformed task line in {task_list_path}: {line}")
+                _, result_dir, cnf_list_path = fields
+                with open(cnf_list_path) as cnf_list:
+                    cnf_files = [name.strip() for name in cnf_list if name.strip()]
+                complete = True
+                for cnf_file in cnf_files:
+                    log_path = os.path.join(result_dir, f"{cnf_file}.solving.log")
+                    if not os.path.exists(log_path):
+                        complete = False
+                        break
+                    try:
+                        text = Path(log_path).read_text(errors="replace")
+                    except OSError:
+                        complete = False
+                        break
+                    if not re.search(
+                        r"^(?:s (?:SATISFIABLE|UNSATISFIABLE)|"
+                        r"TIMEOUT after|ERROR:)",
+                        text,
+                        re.MULTILINE,
+                    ):
+                        complete = False
+                        break
+                if not complete:
+                    pending.append(line)
+        return pending
 
     def parse_solving_time(self, file_path: str) -> Optional[float]:
         """Parse solving time from a log file. Returns self.par2_penalty on timeout/error."""
@@ -260,7 +471,14 @@ class EvaluationPipeline:
         else:
             logger.warning(f"Solver directory missing: {solver_dir}")
 
-        expected_benchmark_count = len(self.cnf_files) if self.cnf_files else 400
+        expected_benchmark_count = (
+            len(self.cnf_files)
+            if self.cnf_files
+            else len([
+                name for name in os.listdir(SAT2025_BENCHMARK_PATH)
+                if name.endswith(".cnf")
+            ])
+        )
         if len(solving_times) < expected_benchmark_count:
             missing_count = expected_benchmark_count - len(solving_times)
             logger.warning(f"Missing results for {missing_count} instances out of {expected_benchmark_count}")
@@ -282,7 +500,11 @@ class EvaluationPipeline:
         par2 = _compute_average(list(solving_times.values()))
         logger.info(f"Computed PAR2 for algorithm {algorithm_id}, code {code_id}: {par2}")
 
-        if par2 is not None and par2 < MIN_PAR2_THRESHOLD:
+        if (
+            MIN_PAR2_THRESHOLD > 0
+            and par2 is not None
+            and par2 < MIN_PAR2_THRESHOLD
+        ):
             logger.warning(
                 f"PAR2 {par2:.2f} below threshold {MIN_PAR2_THRESHOLD} for "
                 f"algorithm {algorithm_id}, code {code_id} — replacing with penalty {self.par2_penalty}"
@@ -396,16 +618,8 @@ class EvaluationPipeline:
             time="00:05:00",
         )
 
-        try:
-            slurm_output = os.popen(slurm_cmd).read().strip()
-            if not slurm_output or "error" in slurm_output.lower():
-                logger.error(f"Failed to submit collect result job for {code_id[:16]}...: {slurm_output}")
-                return
-            slurm_id = int(slurm_output.split()[-1])
-            logger.info(f"Submitted collect result job {slurm_id}")
-        except (ValueError, IndexError) as e:
-            logger.error(f"Failed to parse collect result job ID for {code_id[:16]}...: {e}")
-            return
+        slurm_id = self._submit_with_capacity(slurm_cmd, 1)
+        logger.info(f"Submitted collect result job {slurm_id}")
 
     def _debug_count_log_path(self) -> Optional[str]:
         """Path to the JSONL file recording debugging-call counts for the iteration."""
@@ -882,6 +1096,7 @@ exit $EXIT_CODE
             time=wall_time,
             job_name=f"solve_array",
             output_file=f"{result_dir}/slurm_array_%a.log",
+            constraint=SLURM_CONSTRAINT or None,
             max_concurrent=SLURM_MAX_CONCURRENT,
         )
         logger.info(f"SLURM command: {slurm_cmd}")
@@ -891,100 +1106,29 @@ exit $EXIT_CODE
             print(f"[DRY-RUN] SLURM command:\n{slurm_cmd}")
             return []
 
-        try:
-            slurm_output = os.popen(slurm_cmd).read().strip()
-            if not slurm_output or "error" in slurm_output.lower():
-                logger.error(f"Failed to submit job array: {slurm_output}")
-                return []
-            slurm_id = int(slurm_output.split()[-1])
-            logger.info(f"Submitted job array {slurm_id} with {len(cnf_files)} tasks ({jobs_skipped} skipped)")
-            return [slurm_id]
-        except (ValueError, IndexError) as e:
-            logger.error(f"Failed to parse SLURM job ID: {e}")
-            return []
+        slurm_id = self._submit_with_capacity(slurm_cmd, len(cnf_files))
+        logger.info(f"Submitted job array {slurm_id} with {len(cnf_files)} tasks ({jobs_skipped} skipped)")
+        return [slurm_id]
 
-    def slurm_run_evaluate_batch(
-        self,
-        solver_tasks: List[Tuple[str, str, str]],  # (solver_path, result_dir, code_id)
+    @staticmethod
+    def _write_batch_array_script(
+        script_path: str,
+        task_list_path: str,
         benchmark_path: str,
-        cnf_files: List[str],
-        dry_run: bool = False,
-        timeout: int = None,
-        wall_time: str = None,
-    ) -> List[int]:
-        """
-        Submit ALL (solver × CNF) pairs as unified job arrays.
-        More efficient than one array per solver.
-
-        Args:
-            solver_tasks: List of (solver_path, result_dir, code_id) tuples
-            benchmark_path: Path to the benchmark CNF files
-            cnf_files: List of CNF file names to evaluate
-            dry_run: If True, print SLURM commands without submitting
-            timeout: Timeout per CNF in seconds (default: self.timeout)
-            wall_time: SLURM wall time (default: self.wall_time)
-
-        Returns:
-            List of SLURM job array IDs
-        """
-        if timeout is None:
-            timeout = self.timeout
-        if wall_time is None:
-            wall_time = self.wall_time
-        if not solver_tasks or not cnf_files:
-            logger.warning("No solver tasks or CNF files to evaluate")
-            return []
-
-        # Build flat list of (solver_path, result_dir, code_id, cnf_file) tasks
-        all_tasks = []
-        for solver_path, result_dir, code_id in solver_tasks:
-            os.makedirs(result_dir, exist_ok=True)
-            for cnf_file in cnf_files:
-                # Skip already completed ones
-                if os.path.exists(f"{result_dir}/{cnf_file}.solving.log"):
-                    continue
-                all_tasks.append((solver_path, result_dir, code_id, cnf_file))
-
-        if not all_tasks:
-            logger.info("All tasks already completed")
-            return []
-
-        logger.info(f"Total tasks to submit: {len(all_tasks)} (from {len(solver_tasks)} solvers × {len(cnf_files)} CNFs)")
-
-        # Split into chunks of SLURM_MAX_ARRAY_SIZE
-        job_ids = []
-        for chunk_start in range(0, len(all_tasks), SLURM_MAX_ARRAY_SIZE):
-            chunk_end = min(chunk_start + SLURM_MAX_ARRAY_SIZE, len(all_tasks))
-            chunk_tasks = all_tasks[chunk_start:chunk_end]
-            chunk_num = chunk_start // SLURM_MAX_ARRAY_SIZE
-
-            # Create a directory for this batch on shared filesystem
-            # /tmp is node-local and not visible to compute nodes
-            batch_dir = f"solvers/{self.generation_tag}/slurm_batches/batch_{chunk_num}"
-            os.makedirs(batch_dir, exist_ok=True)
-
-            # Write task list file
-            task_list_path = f"{batch_dir}/task_list.txt"
-            with open(task_list_path, "w") as f:
-                for solver_path, result_dir, code_id, cnf_file in chunk_tasks:
-                    f.write(f"{solver_path}\t{result_dir}\t{cnf_file}\n")
-
-            # Create wrapper script
-            script_path = f"{batch_dir}/run_batch_array.sh"
-            script_content = f"""#!/bin/bash
+        timeout: int,
+    ) -> None:
+        script_content = f"""#!/bin/bash
 TASK_LIST="{task_list_path}"
 BENCHMARK_PATH="{benchmark_path}"
 TIMEOUT={timeout}
 SOLVER_FLAGS="{EVALUATION_SOLVER_FLAGS}"
 
-# Locate GNU time (path varies across systems; e.g. CVMFS on Compute Canada)
 GNU_TIME=$(which time 2>/dev/null)
 if [ -z "$GNU_TIME" ]; then
     echo "ERROR: GNU time not found in PATH" >&2
     exit 1
 fi
 
-# Read task info for this array index
 TASK_LINE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$TASK_LIST")
 SOLVER_PATH=$(echo "$TASK_LINE" | cut -f1)
 RESULT_DIR=$(echo "$TASK_LINE" | cut -f2)
@@ -1000,17 +1144,14 @@ if [ -z "$CNF_FILE" ]; then
     exit 1
 fi
 
-# Skip if already done
 if [ -f "$OUTPUT_FILE" ]; then
     echo "Already completed: $CNF_FILE"
     exit 0
 fi
 
 mkdir -p "$PROOF_DIR"
-
 echo "Running solver on $CNF_FILE (array task $SLURM_ARRAY_TASK_ID)"
 
-# Run solver with timeout, measuring CPU time (user + system) via GNU time
 "$GNU_TIME" -f "%U %S" -o "${{OUTPUT_FILE}}.time" \
     timeout ${{TIMEOUT}}s "$SOLVER" $SOLVER_FLAGS "$BENCHMARK_PATH/$CNF_FILE" "$PROOF_FILE" > "$OUTPUT_FILE" 2>&1
 EXIT_CODE=$?
@@ -1030,7 +1171,6 @@ elif [ -z "$CPU_TIME" ]; then
     rm -f "$PROOF_FILE"
 elif [ $EXIT_CODE -eq 10 ] || [ $EXIT_CODE -eq 20 ]; then
     echo "c process-time: $CPU_TIME seconds" >> "$OUTPUT_FILE"
-    # Keep proof only for UNSAT (kissat exit code 20).
     if [ $EXIT_CODE -ne 20 ]; then
         rm -f "$PROOF_FILE"
     fi
@@ -1042,41 +1182,339 @@ fi
 echo "Solver finished with exit code $EXIT_CODE"
 exit $EXIT_CODE
 """
-            with open(script_path, "w") as f:
-                f.write(script_content)
-            os.chmod(script_path, 0o755)
+        with open(script_path, "w") as f:
+            f.write(script_content)
+        os.chmod(script_path, 0o755)
 
-            # Submit job array
-            array_range = f"0-{len(chunk_tasks) - 1}"
-            slurm_cmd = wrap_command_to_slurm_array(
-                script_path=script_path,
-                array_range=array_range,
-                account=SLURM_ACCOUNT,
-                mem=SLURM_MEMORY,
-                time=wall_time,
-                job_name=f"batch_{chunk_num}",
-                output_file=f"{batch_dir}/slurm_array_%a.log",
-                max_concurrent=SLURM_MAX_CONCURRENT,
+    @staticmethod
+    def _write_candidate_array_script(
+        script_path: str,
+        task_list_path: str,
+        benchmark_path: str,
+        timeout: int,
+    ) -> None:
+        """Write an array script whose elements are eight-core candidates."""
+        script_content = f"""#!/bin/bash
+TASK_LIST="{task_list_path}"
+BENCHMARK_PATH="{benchmark_path}"
+TIMEOUT={timeout}
+EVAL_CORES={SLURM_CPUS_PER_CANDIDATE}
+KEEP_PROOFS={1 if KEEP_PROOFS else 0}
+SOLVER_FLAGS="{EVALUATION_SOLVER_FLAGS}"
+
+GNU_TIME=$(which time 2>/dev/null)
+if [ -z "$GNU_TIME" ]; then
+    echo "ERROR: GNU time not found in PATH" >&2
+    exit 1
+fi
+
+TASK_LINE=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$TASK_LIST")
+SOLVER_PATH=$(echo "$TASK_LINE" | cut -f1)
+RESULT_DIR=$(echo "$TASK_LINE" | cut -f2)
+CNF_LIST=$(echo "$TASK_LINE" | cut -f3)
+SOLVER="${{SOLVER_PATH}}/kissat"
+
+if [ -z "$CNF_LIST" ] || [ ! -f "$CNF_LIST" ]; then
+    echo "ERROR: malformed candidate task for array element $SLURM_ARRAY_TASK_ID" >&2
+    exit 1
+fi
+
+run_one() {{
+    local CNF_FILE="$1"
+    local OUTPUT_FILE="${{RESULT_DIR}}/${{CNF_FILE}}.solving.log"
+    local PROOF_DIR="${{RESULT_DIR}}/proofs"
+    local PROOF_FILE="${{PROOF_DIR}}/${{CNF_FILE}}.proof"
+    local EXIT_CODE CPU_TIME
+
+    if [ -f "$OUTPUT_FILE" ] && \
+       grep -Eq '^(s SATISFIABLE|s UNSATISFIABLE|TIMEOUT after|ERROR:)' "$OUTPUT_FILE"; then
+        return 0
+    fi
+
+    mkdir -p "$PROOF_DIR"
+    "$GNU_TIME" -f "%U %S" -o "${{OUTPUT_FILE}}.time" \
+        timeout "${{TIMEOUT}}s" "$SOLVER" $SOLVER_FLAGS \
+        "$BENCHMARK_PATH/$CNF_FILE" "$PROOF_FILE" > "$OUTPUT_FILE" 2>&1
+    EXIT_CODE=$?
+
+    if [ -f "${{OUTPUT_FILE}}.time" ]; then
+        CPU_TIME=$(tail -n 1 "${{OUTPUT_FILE}}.time" | \
+            awk '{{printf "%.6f", $1 + $2}}')
+        rm -f "${{OUTPUT_FILE}}.time"
+    else
+        CPU_TIME=""
+    fi
+
+    if [ "$EXIT_CODE" -eq 124 ]; then
+        echo "TIMEOUT after ${{TIMEOUT}}s" >> "$OUTPUT_FILE"
+        rm -f "$PROOF_FILE"
+    elif [ -z "$CPU_TIME" ]; then
+        echo "ERROR: process killed (OOM or Slurm limit)" >> "$OUTPUT_FILE"
+        rm -f "$PROOF_FILE"
+    elif [ "$EXIT_CODE" -eq 10 ] || [ "$EXIT_CODE" -eq 20 ]; then
+        echo "c process-time: $CPU_TIME seconds" >> "$OUTPUT_FILE"
+        if [ "$KEEP_PROOFS" -ne 1 ] || [ "$EXIT_CODE" -ne 20 ]; then
+            rm -f "$PROOF_FILE"
+        fi
+    else
+        echo "ERROR: solver crashed (exit code $EXIT_CODE)" >> "$OUTPUT_FILE"
+        rm -f "$PROOF_FILE"
+    fi
+    return 0
+}}
+
+# At most EVAL_CORES independent, single-threaded Kissat processes are live.
+RUNNING=0
+while IFS= read -r CNF_FILE; do
+    [ -n "$CNF_FILE" ] || continue
+    run_one "$CNF_FILE" &
+    RUNNING=$((RUNNING + 1))
+    if [ "$RUNNING" -ge "$EVAL_CORES" ]; then
+        wait -n
+        RUNNING=$((RUNNING - 1))
+    fi
+done < "$CNF_LIST"
+wait
+"""
+        with open(script_path, "w") as f:
+            f.write(script_content)
+        os.chmod(script_path, 0o755)
+
+    def slurm_run_evaluate_batch(
+        self,
+        solver_tasks: List[Tuple[str, str, str]],
+        benchmark_path: str,
+        cnf_files: List[str],
+        dry_run: bool = False,
+        timeout: int = None,
+        wall_time: str = None,
+    ) -> List[int]:
+        """Submit, wait for, and durably resume unified evaluation arrays."""
+        if timeout is None:
+            timeout = self.timeout
+        if wall_time is None:
+            wall_time = self.wall_time
+        if not self.generation_tag:
+            raise ValueError("generation_tag is required for resumable batch evaluation")
+        if not solver_tasks or not cnf_files:
+            logger.warning("No solver tasks or CNF files to evaluate")
+            return []
+
+        # One array element is one candidate.  Every element receives the same
+        # immutable CNF manifest and runs it with an eight-worker local pool.
+        manifest_dir = os.path.abspath(
+            f"solvers/{self.generation_tag}/slurm_batches"
+        )
+        os.makedirs(manifest_dir, exist_ok=True)
+        cnf_list_path = os.path.join(manifest_dir, "cnf_files.txt")
+        with open(cnf_list_path, "w") as f:
+            f.write("\n".join(cnf_files) + "\n")
+
+        task_lines = []
+        for solver_path, result_dir, code_id in solver_tasks:
+            os.makedirs(result_dir, exist_ok=True)
+            task_lines.append(
+                f"{os.path.abspath(solver_path)}\t"
+                f"{os.path.abspath(result_dir)}\t{cnf_list_path}"
             )
-            logger.info(f"SLURM command for chunk {chunk_num}: {slurm_cmd}")
+        fingerprint_payload = "\n".join(
+            [os.path.abspath(benchmark_path), *cnf_files, *task_lines]
+        )
+        fingerprint_settings = {
+            "cpus_per_candidate": SLURM_CPUS_PER_CANDIDATE,
+            "memory": SLURM_MEMORY,
+            "slurm_constraint": SLURM_CONSTRAINT,
+            "timeout": timeout,
+            "wall_time": wall_time,
+        }
+        fingerprint_payload += "\n" + json.dumps(fingerprint_settings, sort_keys=True)
+        fingerprint = hashlib.sha256(fingerprint_payload.encode()).hexdigest()
+        chunk_size = min(SLURM_MAX_ARRAY_SIZE, SLURM_SUBMIT_LIMIT)
+        state_path = self._submission_state_path()
 
-            if dry_run:
-                logger.info(f"[DRY-RUN] Would submit batch {chunk_num} with {len(chunk_tasks)} tasks")
-                print(f"[DRY-RUN] SLURM command:\n{slurm_cmd}")
+        state = None
+        if os.path.exists(state_path):
+            try:
+                with open(state_path) as f:
+                    state = json.load(f)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise RuntimeError(f"Could not load submission state {state_path}: {exc}") from exc
+            if state.get("task_fingerprint") != fingerprint:
+                raise RuntimeError(
+                    f"Evaluation task set changed since {state_path} was created. "
+                    "Refusing to overwrite resumable state."
+                )
+
+        if state is None:
+            batches = []
+            for chunk_start in range(0, len(task_lines), chunk_size):
+                chunk_num = chunk_start // chunk_size
+                batch_dir = f"solvers/{self.generation_tag}/slurm_batches/batch_{chunk_num}"
+                os.makedirs(batch_dir, exist_ok=True)
+                task_list_path = os.path.join(batch_dir, "task_list.txt")
+                chunk_lines = task_lines[chunk_start:chunk_start + chunk_size]
+                with open(task_list_path, "w") as f:
+                    f.write("\n".join(chunk_lines) + "\n")
+                batches.append(
+                    {
+                        "batch_num": chunk_num,
+                        "task_count": len(chunk_lines),
+                        "task_list_path": task_list_path,
+                        "status": "pending",
+                        "attempts": [],
+                    }
+                )
+
+            # Migrate the old job-id-only checkpoint. IDs were appended in batch order.
+            legacy_ids = []
+            legacy_path = os.path.join(
+                get_generation_output_dir(self.generation_tag),
+                "submitted_job_ids.json",
+            )
+            if os.path.exists(legacy_path):
+                try:
+                    with open(legacy_path) as f:
+                        legacy_ids = [int(job_id) for job_id in json.load(f).get("job_ids", [])]
+                except (OSError, ValueError, json.JSONDecodeError):
+                    legacy_ids = []
+            for batch, job_id in zip(batches, legacy_ids):
+                batch["status"] = "submitted"
+                batch["attempts"].append(
+                    {"job_id": job_id, "submitted_at": None, "legacy": True}
+                )
+
+            state = {
+                "version": 2,
+                "generation_tag": self.generation_tag,
+                "benchmark_path": benchmark_path,
+                "task_fingerprint": fingerprint,
+                "total_tasks": len(task_lines),
+                "instances_per_candidate": len(cnf_files),
+                "cpus_per_candidate": SLURM_CPUS_PER_CANDIDATE,
+                "memory": SLURM_MEMORY,
+                "slurm_constraint": SLURM_CONSTRAINT,
+                "timeout": timeout,
+                "wall_time": wall_time,
+                "keep_proofs": KEEP_PROOFS,
+                "chunk_size": chunk_size,
+                "batches": batches,
+            }
+            self._save_submission_state(state)
+
+        job_ids = [
+            int(attempt["job_id"])
+            for batch in state["batches"]
+            for attempt in batch.get("attempts", [])
+            if attempt.get("job_id") is not None
+        ]
+        logger.info(
+            f"Resumable evaluation has {state['total_tasks']} tasks in "
+            f"{len(state['batches'])} batches; checkpoint={state_path}"
+        )
+
+        for batch in state["batches"]:
+            batch_num = int(batch["batch_num"])
+            task_list_path = batch["task_list_path"]
+            pending = self._pending_batch_tasks(task_list_path)
+            if not pending:
+                batch["status"] = "completed"
+                self._save_submission_state(state)
+                logger.info(f"Batch {batch_num} already complete; skipping")
                 continue
 
-            try:
-                slurm_output = os.popen(slurm_cmd).read().strip()
-                if not slurm_output or "error" in slurm_output.lower():
-                    logger.error(f"Failed to submit batch {chunk_num}: {slurm_output}")
-                    continue
-                slurm_id = int(slurm_output.split()[-1])
-                logger.info(f"Submitted batch {chunk_num} job array {slurm_id} with {len(chunk_tasks)} tasks")
-                job_ids.append(slurm_id)
-            except (ValueError, IndexError) as e:
-                logger.error(f"Failed to parse SLURM job ID for batch {chunk_num}: {e}")
+            attempts = batch.setdefault("attempts", [])
+            last_job_id = int(attempts[-1]["job_id"]) if attempts else None
+            if last_job_id is not None:
+                active = self._job_is_active(last_job_id)
+                while active is None:
+                    time.sleep(SLURM_JOB_POLL_INTERVAL)
+                    active = self._job_is_active(last_job_id)
+                if active:
+                    logger.info(
+                        f"Resuming batch {batch_num}: job array {last_job_id} is still active"
+                    )
+                    self._wait_for_job_completion(last_job_id)
+                    pending = self._pending_batch_tasks(task_list_path)
 
-        return job_ids
+            while pending:
+                attempt_num = len(attempts) + 1
+                batch_dir = os.path.dirname(task_list_path)
+                attempt_task_list = os.path.join(
+                    batch_dir, f"task_list_attempt_{attempt_num}.txt"
+                )
+                with open(attempt_task_list, "w") as f:
+                    f.write("\n".join(pending) + "\n")
+                script_path = os.path.join(
+                    batch_dir, f"run_batch_array_attempt_{attempt_num}.sh"
+                )
+                self._write_candidate_array_script(
+                    script_path,
+                    attempt_task_list,
+                    benchmark_path,
+                    timeout,
+                )
+                safe_tag = re.sub(r"[^A-Za-z0-9_-]", "_", self.generation_tag)[:30]
+                slurm_cmd = wrap_command_to_slurm_array(
+                    script_path=script_path,
+                    array_range=f"0-{len(pending) - 1}",
+                    account=SLURM_ACCOUNT,
+                    mem=SLURM_MEMORY,
+                    time=wall_time,
+                    cpus_per_task=SLURM_CPUS_PER_CANDIDATE,
+                    job_name=f"llmsat_{safe_tag}_b{batch_num}",
+                    output_file=os.path.join(
+                        batch_dir, f"slurm_attempt_{attempt_num}_%A_%a.log"
+                    ),
+                    constraint=SLURM_CONSTRAINT or None,
+                    max_concurrent=min(SLURM_MAX_CONCURRENT, len(pending)),
+                )
+                logger.info(
+                    f"SLURM command for batch {batch_num}, attempt {attempt_num}: {slurm_cmd}"
+                )
+                if dry_run:
+                    logger.info(
+                        f"[DRY-RUN] Would submit batch {batch_num} with {len(pending)} tasks"
+                    )
+                    print(f"[DRY-RUN] SLURM command:\n{slurm_cmd}")
+                    break
+
+                # Each pending line expands to exactly one candidate array job.
+                slurm_id = self._submit_with_capacity(slurm_cmd, len(pending))
+                attempts.append(
+                    {
+                        "job_id": slurm_id,
+                        "task_count": len(pending),
+                        "submitted_at": datetime.now().isoformat(),
+                    }
+                )
+                batch["status"] = "submitted"
+                job_ids.append(slurm_id)
+                job_ids = list(dict.fromkeys(job_ids))
+                self._save_submission_state(state)
+                self._save_submitted_job_ids(job_ids)
+                logger.info(
+                    f"Submitted batch {batch_num} job array {slurm_id} "
+                    f"with {len(pending)} tasks; checkpoint saved"
+                )
+
+                self._wait_for_job_completion(slurm_id)
+                pending = self._pending_batch_tasks(task_list_path)
+                if pending:
+                    logger.warning(
+                        f"Batch {batch_num} left {len(pending)} tasks without logs; "
+                        "resubmitting only those tasks"
+                    )
+
+            if not dry_run:
+                batch["status"] = "completed"
+                batch["completed_at"] = datetime.now().isoformat()
+                self._save_submission_state(state)
+
+        if not dry_run:
+            # The caller's legacy poller only needs active IDs. Historical IDs stay
+            # in the durable state file, while an empty list makes polling finish.
+            self._save_submitted_job_ids(job_ids, evaluation_complete=True)
+        return list(dict.fromkeys(job_ids))
 
     def run_single_solver(self, code_id: str, build_only: bool = False, dry_run: bool = False, skip_build: bool = False,
                           sample_size: Optional[int] = None, sample_seed: int = 42) -> Optional[Tuple[str, str, str]]:
@@ -1284,7 +1722,8 @@ exit $EXIT_CODE
         job_ids = self.slurm_run_evaluate_batch(solver_tasks, SAT2025_BENCHMARK_PATH, cnf_files, dry_run=dry_run,
                                                 timeout=self.timeout, wall_time=self.wall_time)
 
-        if not dry_run and job_ids:
+        submission_complete = not dry_run and self._submission_is_complete()
+        if not dry_run and (job_ids or submission_complete):
             # Update status for all code results
             for solver_path, result_dir, code_id in solver_tasks:
                 code_result = get_code_result(code_id)
@@ -1297,22 +1736,17 @@ exit $EXIT_CODE
                 algorithm.status = AlgorithmStatus.Evaluating
                 update_algorithm_result(algorithm)
 
-            # Submit collect result jobs (one per code_id, dependent on all evaluation jobs)
-            for solver_path, result_dir, code_id in solver_tasks:
-                self.slurm_collect_result(job_ids, code_id)
+            # Batch submission now waits until every formula has a result. The
+            # run-loop performs one explicit collect-all pass after this returns.
+            logger.info("All evaluation batches completed; results are ready for collect-all")
         elif not dry_run:
             logger.error("All SLURM batch submissions failed, statuses not updated")
 
-        # Persist job IDs for SLURM polling scripts
-        if job_ids and not dry_run:
-            job_ids_path = os.path.join(
-                get_generation_output_dir(self.generation_tag),
-                "submitted_job_ids.json"
-            )
-            os.makedirs(os.path.dirname(job_ids_path), exist_ok=True)
-            with open(job_ids_path, "w") as f:
-                json.dump({"job_ids": job_ids, "timestamp": datetime.now().isoformat()}, f)
-            logger.info(f"Saved job IDs to {job_ids_path}")
+        # Persist completion for legacy polling scripts. Historical IDs are also
+        # retained, but job_ids is empty because no evaluation arrays remain active.
+        if not dry_run and submission_complete:
+            self._save_submitted_job_ids(job_ids, evaluation_complete=True)
+            logger.info("Saved completed evaluation job IDs; no active jobs remain")
 
         logger.info(f"Batch submission complete. Job IDs: {job_ids}")
 
@@ -1687,8 +2121,8 @@ def main():
     parser.add_argument("--build-only", action="store_true", help="Build solvers but skip SLURM evaluation")
     parser.add_argument("--dry-run", "-n", action="store_true",
                         help="Print SLURM commands without submitting")
-    parser.add_argument("--timeout", type=int, default=5000,
-                        help="Timeout per CNF in seconds (default: 5000)")
+    parser.add_argument("--timeout", type=int, default=1200,
+                        help="Timeout per CNF in seconds (default: 1200)")
     parser.add_argument("--batch-mode", action="store_true",
                         help="Use batch submission mode (all solvers × CNFs in unified arrays)")
     parser.add_argument("--skip-build", action="store_true",

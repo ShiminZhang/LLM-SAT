@@ -1,0 +1,41 @@
+You are implementing one proposed heuristic in Kissat. Output a complete C
+function with this exact signature:
+
+bool kissat_restarting (kissat *solver)
+
+Only the function body is injected into src/restart.c. Do not add includes,
+file-scope declarations, helper functions, struct fields, or unavailable APIs.
+Preserve all safety preconditions: return false if restarting is disabled, at
+decision level zero, or before solver->limits.restart.conflicts. Stable mode
+may use kissat_reluctant_triggered(&solver->reluctant). Focused mode may use
+AVERAGE(fast_glue), AVERAGE(slow_glue), GET_OPTION(restartmargin), CONFLICTS,
+existing statistics/options, solver->ticks, solver->vars, and solver->random.
+Avoid division by zero, invalid shifts, undefined overflow, non-finite math,
+and any true result at level zero.
+
+### Algorithm to Implement
+ALGORITHM_PLACEHOLDER
+
+### Output Format
+Return only the complete FUNCTION_NAME_PLACEHOLDER function wrapped in code tags:
+
+<code>
+bool kissat_restarting (kissat *solver) {
+  /* implementation */
+}
+</code>
+
+### Baseline Reference
+
+bool kissat_restarting (kissat *solver) {
+  assert (solver->unassigned);
+  if (!GET_OPTION (restart)) return false;
+  if (!solver->level) return false;
+  if (CONFLICTS < solver->limits.restart.conflicts) return false;
+  if (solver->stable)
+    return kissat_reluctant_triggered (&solver->reluctant);
+  const double fast = AVERAGE (fast_glue);
+  const double slow = AVERAGE (slow_glue);
+  const double margin = (100.0 + GET_OPTION (restartmargin)) / 100.0;
+  return margin * slow <= fast;
+}

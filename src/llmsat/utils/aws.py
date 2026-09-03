@@ -1,9 +1,21 @@
-import psycopg2
-import psycopg2.extras
-import psycopg2.pool
 import argparse
+import fcntl
 import os
 import json
+import shutil
+import tempfile
+import threading
+from contextlib import contextmanager
+from dataclasses import asdict
+from pathlib import Path
+from urllib.parse import quote
+
+try:
+    import psycopg2
+    import psycopg2.extras
+    import psycopg2.pool
+except ImportError:  # Local-cache mode does not require psycopg2.
+    psycopg2 = None
 from dotenv import load_dotenv
 
 # Load .env file from project root
@@ -13,6 +25,109 @@ from llmsat.llmsat import CodeResult, CodeStatus, AlgorithmResult, AlgorithmStat
 from datetime import datetime
 from llmsat.llmsat import get_logger, setup_logging
 logger = get_logger(__name__)
+
+# Storage backend switch. Local cache is the default; set
+# LLMSAT_USE_LOCAL_CACHE=0 only when intentionally using the legacy RDS backend.
+USE_LOCAL_CACHE = os.environ.get("LLMSAT_USE_LOCAL_CACHE", "1").lower() not in {
+    "0", "false", "no",
+}
+LOCAL_CACHE_ROOT = Path(
+    os.environ.get("LLMSAT_LOCAL_CACHE_ROOT", "data/cache/local_results")
+)
+_LOCAL_THREAD_LOCKS: Dict[str, threading.RLock] = {}
+_LOCAL_THREAD_LOCKS_GUARD = threading.Lock()
+
+
+def _local_dir(name: str) -> Path:
+    path = LOCAL_CACHE_ROOT / name
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _local_record_path(kind: str, record_id: str) -> Path:
+    return _local_dir(kind) / f"{quote(str(record_id), safe='')}.json"
+
+
+def _thread_lock(path: Path) -> threading.RLock:
+    key = str(path.resolve())
+    with _LOCAL_THREAD_LOCKS_GUARD:
+        return _LOCAL_THREAD_LOCKS.setdefault(key, threading.RLock())
+
+
+@contextmanager
+def _locked_local_path(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f".{path.name}.lock")
+    with _thread_lock(path), lock_path.open("a+", encoding="utf-8") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
+def _write_json_unlocked(path: Path, value: Any) -> None:
+    temporary_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_name = handle.name
+            json.dump(value, handle, indent=2, ensure_ascii=False, default=str)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, path)
+        temporary_name = None
+    finally:
+        if temporary_name is not None:
+            Path(temporary_name).unlink(missing_ok=True)
+
+
+def _write_json(path: Path, value: Any) -> None:
+    with _locked_local_path(path):
+        _write_json_unlocked(path, value)
+
+
+def _read_json(path: Path, default: Any = None) -> Any:
+    if not path.exists():
+        return default
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _algorithm_to_dict(result: AlgorithmResult) -> Dict[str, Any]:
+    data = asdict(result)
+    data["role"] = result.role.value if isinstance(result.role, Role) else result.role
+    return data
+
+
+def _algorithm_from_dict(data: Mapping[str, Any]) -> AlgorithmResult:
+    values = dict(data)
+    role = values.get("role", Role.LEADER.value)
+    values["role"] = role if isinstance(role, Role) else Role(role)
+    return AlgorithmResult(**values)
+
+
+def _code_to_dict(result: CodeResult) -> Dict[str, Any]:
+    return asdict(result)
+
+
+def _code_from_dict(data: Mapping[str, Any]) -> CodeResult:
+    return CodeResult(**dict(data))
+
+
+def _iter_local_records(kind: str):
+    for path in sorted(_local_dir(kind).glob("*.json")):
+        yield _read_json(path)
+
+
+def _router_path(name: str) -> Path:
+    return _local_dir("router_tables") / f"{quote(str(name), safe='')}.json"
 
 # DB column layout for algorithm_results (after migration):
 #   id, algorithm (now stores description), code_id_list, status, last_updated,
@@ -25,6 +140,10 @@ _pool = None
 
 def _get_pool():
     global _pool
+    if USE_LOCAL_CACHE:
+        raise RuntimeError("Raw database connections are unavailable in local-cache mode")
+    if psycopg2 is None:
+        raise RuntimeError("psycopg2 is required when LLMSAT_USE_LOCAL_CACHE=0")
     if _pool is None:
         _pool = psycopg2.pool.ThreadedConnectionPool(
             minconn=2,
@@ -39,9 +158,13 @@ def _get_pool():
     return _pool
 
 def connect_to_db():
+    if USE_LOCAL_CACHE:
+        raise RuntimeError("Raw database connections are unavailable in local-cache mode")
     return _get_pool().getconn()
 
 def release_conn(conn):
+    if USE_LOCAL_CACHE:
+        return
     try:
         _get_pool().putconn(conn)
     except Exception:
@@ -50,6 +173,12 @@ def release_conn(conn):
 
 def get_code_result_of_status(status: CodeStatus) -> List[CodeResult]:
     logger.info(f"Getting code results of status {status}")
+    if USE_LOCAL_CACHE:
+        return [
+            _code_from_dict(row)
+            for row in _iter_local_records("code_results")
+            if row.get("status") == status
+        ]
     conn = connect_to_db()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -76,6 +205,12 @@ def get_code_result_of_status(status: CodeStatus) -> List[CodeResult]:
         release_conn(conn)
 
 def get_algorithm_result_of_status(status: AlgorithmStatus) -> List[AlgorithmResult]:
+    if USE_LOCAL_CACHE:
+        return [
+            _algorithm_from_dict(row)
+            for row in _iter_local_records("algorithm_results")
+            if row.get("status") == status
+        ]
     conn = connect_to_db()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -86,6 +221,8 @@ def get_algorithm_result_of_status(status: AlgorithmStatus) -> List[AlgorithmRes
         release_conn(conn)
 
 def get_all_tasks():
+    if USE_LOCAL_CACHE:
+        return _read_json(LOCAL_CACHE_ROOT / "tasks.json", [])
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -95,6 +232,9 @@ def get_all_tasks():
         release_conn(conn)
 
 def remove_code_result(code_result_id: str):
+    if USE_LOCAL_CACHE:
+        _local_record_path("code_results", code_result_id).unlink(missing_ok=True)
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -104,6 +244,9 @@ def remove_code_result(code_result_id: str):
         release_conn(conn)
 
 def remove_algorithm_result(algorithm_result_id: str):
+    if USE_LOCAL_CACHE:
+        _local_record_path("algorithm_results", algorithm_result_id).unlink(missing_ok=True)
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -113,6 +256,9 @@ def remove_algorithm_result(algorithm_result_id: str):
         release_conn(conn)
 
 def get_code_result(code_result_id: str) -> Optional[CodeResult]:
+    if USE_LOCAL_CACHE:
+        row = _read_json(_local_record_path("code_results", code_result_id))
+        return _code_from_dict(row) if row is not None else None
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -127,6 +273,12 @@ def get_code_result(code_result_id: str) -> Optional[CodeResult]:
         release_conn(conn)
 
 def get_algorithms_by_prompt(prompt: str) -> List[AlgorithmResult]:
+    if USE_LOCAL_CACHE:
+        return [
+            _algorithm_from_dict(row)
+            for row in _iter_local_records("algorithm_results")
+            if row.get("prompt") == prompt
+        ]
     conn = connect_to_db()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -137,6 +289,9 @@ def get_algorithms_by_prompt(prompt: str) -> List[AlgorithmResult]:
         release_conn(conn)
 
 def get_algorithm_result(algorithm_result_id: str) -> Optional[AlgorithmResult]:
+    if USE_LOCAL_CACHE:
+        row = _read_json(_local_record_path("algorithm_results", algorithm_result_id))
+        return _algorithm_from_dict(row) if row is not None else None
     conn = connect_to_db()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -151,6 +306,14 @@ def get_algorithm_result(algorithm_result_id: str) -> Optional[AlgorithmResult]:
         release_conn(conn)
 
 def update_code_result(code_result: CodeResult):
+    if USE_LOCAL_CACHE:
+        code_result.last_updated = datetime.now().isoformat()
+        _write_json(
+            _local_record_path("code_results", code_result.id),
+            _code_to_dict(code_result),
+        )
+        logger.info(f"Updated code result {code_result.id}")
+        return
     existing_code_result = get_code_result(code_result.id)
     conn = connect_to_db()
     try:
@@ -174,6 +337,14 @@ def update_code_result(code_result: CodeResult):
         release_conn(conn)
 
 def update_algorithm_result(algorithm_result: AlgorithmResult):
+    if USE_LOCAL_CACHE:
+        algorithm_result.last_updated = datetime.now().isoformat()
+        _write_json(
+            _local_record_path("algorithm_results", algorithm_result.id),
+            _algorithm_to_dict(algorithm_result),
+        )
+        logger.info(f"Updated algorithm result {algorithm_result.id}")
+        return
     existing_algorithm_result = get_algorithm_result(algorithm_result.id)
     conn = connect_to_db()
     try:
@@ -253,7 +424,20 @@ def update_algorithm_result(algorithm_result: AlgorithmResult):
         release_conn(conn)
 
 def append_code_id(algorithm_id: str, code_id: str):
-    """Atomically append a code_id to an algorithm's code_id_list using row-level locking."""
+    """Append a code ID, avoiding duplicates in the stored list."""
+    if USE_LOCAL_CACHE:
+        path = _local_record_path("algorithm_results", algorithm_id)
+        with _locked_local_path(path):
+            row = _read_json(path)
+            if row is None:
+                logger.warning(f"append_code_id: algorithm {algorithm_id} not found")
+                return
+            code_ids = row.setdefault("code_id_list", [])
+            if code_id not in code_ids:
+                code_ids.append(code_id)
+                row["last_updated"] = datetime.now().isoformat()
+                _write_json_unlocked(path, row)
+        return
     conn = connect_to_db()
     try:
         with conn:
@@ -277,6 +461,11 @@ def append_code_id(algorithm_id: str, code_id: str):
         release_conn(conn)
 
 def init_tables():
+    if USE_LOCAL_CACHE:
+        _local_dir("algorithm_results")
+        _local_dir("code_results")
+        _local_dir("router_tables")
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -303,6 +492,11 @@ def init_tables():
         release_conn(conn)
 
 def clear_tables():
+    if USE_LOCAL_CACHE:
+        for kind in ("algorithm_results", "code_results"):
+            for path in _local_dir(kind).glob("*.json"):
+                path.unlink()
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -342,6 +536,11 @@ def ToCodeResult(result: tuple) -> CodeResult:
             build_success=_to_bool(result[6]))
 
 def get_all_algorithm_results() -> List[AlgorithmResult]:
+    if USE_LOCAL_CACHE:
+        return [
+            _algorithm_from_dict(row)
+            for row in _iter_local_records("algorithm_results")
+        ]
     conn = connect_to_db()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -361,6 +560,10 @@ def get_all_algorithm_ids():
     return list(set([result.id for result in results]))
 
 def delete_tables():
+    if USE_LOCAL_CACHE:
+        for kind in ("algorithm_results", "code_results"):
+            shutil.rmtree(LOCAL_CACHE_ROOT / kind, ignore_errors=True)
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -588,6 +791,11 @@ def _row_to_algorithm_result(row: Mapping[str, Any]) -> AlgorithmResult:
 
 def add_router_table(name: str):
     # router tables has: id, type
+    if USE_LOCAL_CACHE:
+        path = _router_path(name)
+        if not path.exists():
+            _write_json(path, {})
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -597,6 +805,13 @@ def add_router_table(name: str):
         release_conn(conn)
 
 def update_router_table(name: str, id: str, type: str):
+    if USE_LOCAL_CACHE:
+        path = _router_path(name)
+        with _locked_local_path(path):
+            rows = _read_json(path, {})
+            rows[id] = type
+            _write_json_unlocked(path, rows)
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -611,6 +826,11 @@ def update_router_table(name: str, id: str, type: str):
         release_conn(conn)
 
 def get_ids_from_router_table(name: str, type: str) -> List[str]:
+    if USE_LOCAL_CACHE:
+        rows = _read_json(_router_path(name), {})
+        if type is None:
+            return list(rows)
+        return [record_id for record_id, record_type in rows.items() if record_type == type]
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -624,6 +844,9 @@ def get_ids_from_router_table(name: str, type: str) -> List[str]:
         release_conn(conn)
 
 def clear_router_table(name: str):
+    if USE_LOCAL_CACHE:
+        _write_json(_router_path(name), {})
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -633,6 +856,8 @@ def clear_router_table(name: str):
         release_conn(conn)
 
 def add_par2_to_code_results_table():
+    if USE_LOCAL_CACHE:
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -642,6 +867,11 @@ def add_par2_to_code_results_table():
         release_conn(conn)
 
 def backup_db():
+    if USE_LOCAL_CACHE:
+        backup_root = LOCAL_CACHE_ROOT.parent / f"{LOCAL_CACHE_ROOT.name}_backup"
+        shutil.copytree(LOCAL_CACHE_ROOT, backup_root, dirs_exist_ok=True)
+        logger.info(f"Backed up local cache to {backup_root}")
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()
@@ -658,6 +888,9 @@ def migrate_algorithm_table():
 
     Safe to run multiple times — uses IF NOT EXISTS / idempotent updates.
     """
+    if USE_LOCAL_CACHE:
+        logger.info("Local cache already uses the current AlgorithmResult schema")
+        return
     conn = connect_to_db()
     try:
         cur = conn.cursor()

@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Optional
 from llmsat.llmsat import setup_logging, get_logger
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
 setup_logging(level=logging.INFO)
 logger = get_logger(__name__)
 
@@ -17,11 +20,12 @@ def get_llm_response(
     Unified LLM call that dispatches to Gemini or OpenAI based on the model name.
 
     Model routing:
-      - Model names starting with "gemini" → Gemini API (requires GOOGLE_API_KEY)
+      - Model names starting with "gemini" → Gemini Vertex AI
+        (requires GOOGLE_PROJECT_ID and Application Default Credentials)
       - All other model names            → OpenAI API  (requires OPENAI_API_KEY)
 
     Falls back to the GEMINI_MODEL / OPENAI_MODEL environment variable when
-    model is None, then to "gemini-2.5-pro-preview-05-06" / "gpt-4.1" respectively.
+    model is None, then to "gemini-2.5-pro-preview-05-06" / "gpt-5.6-luna" respectively.
     """
     resolved_model = model or ""
     if resolved_model.lower().startswith("gemini") or (
@@ -37,7 +41,7 @@ def get_llm_response(
             temperature=temperature,
         )
     else:
-        effective_model = resolved_model or os.environ.get("OPENAI_MODEL", "gpt-4.1")
+        effective_model = resolved_model or os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
         logger.info(f"Routing LLM call to OpenAI (model={effective_model})")
         return get_response_from_chatgpt(
             prompt=prompt,
@@ -69,17 +73,24 @@ def get_response_from_chatgpt(prompt: str, system_message: Optional[str] = None,
     """
     # logger.info(f"Getting response from ChatGPT for prompt: {prompt}")
     client = _get_openai_client()
-    chosen_model = model or os.environ.get("OPENAI_MODEL", "gpt-4.1")
+    chosen_model = model or os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
     messages = []
     if system_message:
         messages.append({"role": "system", "content": system_message})
     messages.append({"role": "user", "content": prompt})
     # Use Responses API (preferred for new SDK)
-    resp = client.responses.create(
-        model=chosen_model,
-        input=messages,
-        temperature=temperature,
-    )
+    request = {
+        "model": chosen_model,
+        "input": messages,
+    }
+    # GPT-5.6 reasoning models reject the legacy temperature parameter.
+    # Keep it for older models that support sampling controls.
+    if temperature is not None and not chosen_model.lower().startswith("gpt-5.6"):
+        request["temperature"] = temperature
+    reasoning_effort = os.environ.get("OPENAI_REASONING_EFFORT")
+    if reasoning_effort and chosen_model.lower().startswith("gpt-5.6"):
+        request["reasoning"] = {"effort": reasoning_effort}
+    resp = client.responses.create(**request)
     # logger.info(f"Response from ChatGPT: {resp}")
     # Try multiple extraction strategies for robustness across SDK versions
     text = getattr(resp, "output_text", None)

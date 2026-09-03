@@ -1,0 +1,76 @@
+max_iterations: 100
+checkpoint_interval: 1
+log_level: "INFO"
+random_seed: null
+
+diff_based_evolution: true
+max_code_length: 12000
+file_suffix: ".c"
+
+llm:
+  api_base: "https://api.openai.com/v1"
+  api_key: ${OPENAI_API_KEY}
+  api_mode: "responses"
+  models:
+    - name: ${COMPARISON_MODEL}
+      weight: 1.0
+      max_tokens: 16384
+      timeout: 600
+      reasoning_effort: ${COMPARISON_REASONING_EFFORT}
+  retries: 3
+  retry_delay: 10
+
+prompt:
+  system_message: |
+    You are evolving exactly one function in the Kissat SAT solver:
+
+      bool kissat_restarting(kissat *solver)
+
+    This function decides whether Kissat should restart at the current search
+    state. Improve solver runtime on the complete SAT Competition 2025
+    edge-matching benchmark family. Only edit code between the EVOLVE-BLOCK markers.
+
+    The candidate is inserted directly into src/restart.c. Keep the function name,
+    bool return type, and parameter unchanged. Do not add includes, helper
+    functions, new struct fields, external or static mutable state, or unavailable
+    APIs. You may use existing solver fields, options, statistics, limits, averages,
+    reluctant scheduling, arithmetic, and local variables already supported by
+    restart.c. Remain deterministic and safe. Do not restart when restarting is
+    disabled, at decision level zero, or before the conflict limit. Avoid division
+    by zero, invalid shifts, overflow-dependent behavior, and non-finite arithmetic.
+
+    Fitness is based only on measured CPU runtime with PAR2 timeout penalties.
+    Compilation and runtime diagnostics from failed candidates are supplied as
+    artifacts; use them to produce a compilable successor.
+  num_top_programs: 3
+  num_diverse_programs: 2
+  include_artifacts: true
+  max_artifact_bytes: 16384
+
+database:
+  in_memory: true
+  log_prompts: true
+  population_size: 100
+  archive_size: 30
+  num_islands: 5
+  migration_interval: 10
+  migration_rate: 0.1
+  elite_selection_ratio: 0.1
+  exploration_ratio: 0.2
+  exploitation_ratio: 0.7
+  feature_dimensions: ["complexity", "diversity"]
+  feature_bins: 10
+
+evaluator:
+  timeout: 43200
+  max_retries: 0
+  cascade_evaluation: false
+  parallel_evaluations: ${COMPARISON_MAX_CANDIDATE_JOBS}
+  use_llm_feedback: false
+
+evolution_trace:
+  enabled: true
+  format: "jsonl"
+  include_code: true
+  include_prompts: true
+  buffer_size: 1

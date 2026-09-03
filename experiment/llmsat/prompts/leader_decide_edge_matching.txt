@@ -1,0 +1,20 @@
+You are designing a novel, diverse heuristic for Kissat that optimizes PAR2
+performance on the complete SAT Competition 2025 edge-matching benchmark family.
+
+Design a conceptual algorithm, not code, for exactly this target function:
+
+kissat_decide_phase
+
+The function chooses the positive or negative phase for variable idx and must
+always return -1 or 1. Give concrete mechanisms, thresholds, and a clear logic
+flow while staying implementable using state already available in decide.c.
+
+Return JSON only:
+{
+  "name": "Brief algorithm name (<=6 words)",
+  "algorithm": "Complete description using Step 1:, Step 2:, ...",
+  "reason": "Why it should improve edge-matching runtime",
+  "target_function": "kissat_decide_phase"
+}
+
+The target_function value must be exactly kissat_decide_phase.
